@@ -14,56 +14,127 @@
 
 採用コンポーネントは商用利用可能であることを必須条件とし、コード・重み・バイナリ・依存関係ごとにライセンスを確認する。
 
-## アプリ構成
+## 正式採用する技術スタック
 
-初期候補:
+### Rust Core
 
-- GUI: React
-- Desktop shell: Tauri
-- Native / realtime core: Rust
-- AI analysis process: Python
+Rustをアプリケーションのコア実装言語とする。
 
-GUIフレームワーク自体は、ユーザー側に追加環境構築を要求しないことを最優先とする。
+主な責務:
 
-## Rust と Python の責務
-
-### Rust / App Core
-
-- GUIとの連携
-- 曲ライブラリ管理
-- 音声再生
+- Audio Engine
+- CPALによるAudio I/O
+- WASAPI対応
+- 再生クロック
 - マイク入力
 - Mixer
 - Echo / Reverb
-- 低遅延処理
-- 採点用リアルタイム処理
-- AI解析プロセスの起動・監視
-- APIクライアント
+- リアルタイムDSP
+- リアルタイムPitch Detection
+- Scoring
+- Song Data管理
 - キャッシュ管理
+- Device Management
+- Job Management
+- Python Analysis Serviceの起動・監視
+- GUI向けAPI
 
-### Python / Analysis Service
+リアルタイム音声処理・採点・デバイス制御等の製品中核をRust側へ集約する。
+
+### C# / Avalonia GUI
+
+GUIはC# + Avaloniaを第一採用とする。
+
+GUIは表示と操作に責務を限定し、Audio I/O、AI推論、曲データの正本管理を直接行わない。
+
+主な責務:
+
+- 曲一覧 / 検索
+- カラオケ再生画面
+- 歌詞表示
+- 音程バー
+- 採点結果
+- 設定
+- マイク / オーディオデバイス設定
+- モデル管理
+- 解析進捗
+- 将来の譜面・歌詞編集UI
+
+GUIはRust CoreのAPIのみを利用する。
+
+GUIはコアから分離し、必要に応じて将来別GUIへ差し替え可能な構造を維持する。
+
+### Python Analysis Service
+
+AI・オフライン解析はPythonを利用する。
+
+主な責務:
 
 - Stem Separation
 - Whisper ASR
 - Forced Alignment
-- Pitch / F0 analysis
-- Note transcription
-- Song structure analysis
+- F0 / Pitch Analysis
+- Note Transcription
+- Vocal Event / Boundary Detection
+- Song Structure Analysis
+- 高精度Score Generation
 - 将来のOrchestrator
-- 将来のTransformer validator
-- 将来の内製モデル
+- 将来のTransformer Validator
+- 将来の内製歌唱モデル
+
+Pythonはリアルタイム再生経路には置かず、曲生成・再解析等のオフライン処理を担当する。
+
+## 全体構成
+
+```text
++---------------------------+
+| C# / Avalonia GUI         |
+| Presentation / Operation  |
++-------------+-------------+
+              |
+              | Local API
+              v
++---------------------------+
+| Rust Core                 |
+|                           |
+| Audio / CPAL / WASAPI     |
+| Mixer / DSP               |
+| Realtime Scoring          |
+| Song Library              |
+| Device Management         |
+| Job Management            |
++-------------+-------------+
+              |
+              | REST API
+              v
++---------------------------+
+| Python Analysis Service   |
+|                           |
+| Whisper                   |
+| Stem Separation           |
+| Alignment                 |
+| F0 Ensemble               |
+| Boundary Fusion           |
+| Score Generation          |
++---------------------------+
+```
 
 ## 通信方式
 
-アプリ本体とAI解析プロセスの通信には通常のローカルREST APIを使用する。
+コンポーネント間通信は通常のローカルAPIを基本とする。
 
-解析はJobとして扱い、テスト・自動化からGUIを介さず実行できるようにする。
+Rust Core と Python Analysis Service は localhost REST API で通信する。
+
+GUI と Rust Core も安定したAPI境界を持ち、GUIからコア内部実装へ直接依存しない。
+
+解析はJobとして扱い、テスト・Evaluator・CIからGUIを介さず実行できるようにする。
 
 例:
 
 ```text
 GET    /health
 GET    /models
+GET    /devices
 
 POST   /jobs
 GET    /jobs/{job_id}
@@ -87,9 +158,7 @@ Job状態の最低限:
 
 Jobには進捗、処理段階、開始/終了時刻、エラー、生成物参照を持たせる。
 
-`POST /analysis/song` は、初期実装では原曲から必要な解析を一括実行する上位APIとする。
-
-進捗通知にはSSEを第一候補とし、双方向制御が必要になった場合のみWebSocketを検討する。
+進捗通知や再生中の状態通知にはSSEを第一候補とする。双方向性が必要な用途のみWebSocketを検討する。
 
 ## オーディオ内部仕様
 
@@ -100,7 +169,7 @@ Jobには進捗、処理段階、開始/終了時刻、エラー、生成物参�
 - Sample rate: 48,000 Hz
 - 内部タイムライン: 整数
 - 基準時刻: sample index
-- DSP向けPCM: float32を基本候補とする
+- DSP向けPCM: float32を基本とする
 
 時刻は浮動小数秒を正本にせず、sample indexを正本とする。
 
@@ -122,6 +191,8 @@ Accompaniment ----------------------^
 
 採点用には原則としてエフェクト前の生マイク信号を使う。
 
+標準経路はWASAPIを優先する。ASIOは商用配布条件と必要性を確認したうえで追加候補とする。
+
 ## モデル拡張性
 
 初期実装は以下の系統でE2Eを通す。
@@ -132,9 +203,9 @@ Accompaniment ----------------------^
 - Pitch: 複数のF0 detectorを切替・併用可能にする
 - Note transcription: Basic Pitchを候補生成器として含む専用統合パイプライン
 
-譜面生成はコア機能のため、単一モデルの出力をそのまま正式譜面にせず、F0、onset、音節境界、曲キー、note transcription、時間方向最適化を統合して最初から精度重視で設計する。
+モデルはコードへ固定埋め込みせず、役割単位で差し替え可能にする。
 
-### F0 / Pitch Detection 方針
+## F0 / Pitch Detection 方針
 
 F0検出器は1種類に固定しない。
 
@@ -149,11 +220,27 @@ F0検出器は1種類に固定しない。
 
 候補としてCREPE系、pYIN、YIN系などを比較する。
 
-初期設定では複数detectorのensembleを利用しつつ、デバッグ・性能比較・低スペック環境向けに単一detectorへ切り替えられるようにする。
-
 統合器は単純平均に固定せず、confidence、voiced probability、近傍時間との連続性、octave consistency等を用いて最終F0候補を決定できる構造にする。
 
-モデルはコードへ固定埋め込みせず、役割単位で差し替え可能にする。
+## 譜面生成方針
+
+譜面生成は製品のコア機能として最初から精度重視で設計する。
+
+単一モデルの出力を正式譜面とせず、以下を統合する。
+
+- F0 Ensemble
+- Vocal Event / Boundary Detection
+- onset
+- voiced / unvoiced
+- spectral / energy features
+- phoneme / syllable evidence
+- Whisper / forced alignment
+- Basic Pitch等のnote transcription
+- key / scale estimation
+- repeated-section consistency
+- whole-song temporal optimization
+
+実歌唱のビブラート、しゃくり、こぶし、ポルタメント等をそのまま別音符へ変換せず、採点用の理想ノート列へ正規化する。
 
 ## 初期実装の最優先事項
 
