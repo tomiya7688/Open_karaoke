@@ -9,4 +9,6 @@
 - [曲データ形式](docs/song_format.md)
 - [モデル拡張設計](docs/model_plugins.md)
 - [解析パイプライン](docs/analysis_pipeline.md)
+- [採点設計](docs/scoring.md)
+- [品質評価・CI](docs/testing.md)
 - [既存手法・参考プロジェクト](docs/research.md)
