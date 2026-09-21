@@ -129,10 +129,29 @@ Accompaniment ----------------------^
 - Stem Separation: 商用利用条件を確認した高精度モデル
 - ASR: Whisper large-v3系
 - Alignment: WhisperX系
-- Pitch: CREPE / pYIN / YIN系をベンチマークして採用
+- Pitch: 複数のF0 detectorを切替・併用可能にする
 - Note transcription: Basic Pitchを候補生成器として含む専用統合パイプライン
 
 譜面生成はコア機能のため、単一モデルの出力をそのまま正式譜面にせず、F0、onset、音節境界、曲キー、note transcription、時間方向最適化を統合して最初から精度重視で設計する。
+
+### F0 / Pitch Detection 方針
+
+F0検出器は1種類に固定しない。
+
+最低でも以下を満たす。
+
+- detector単位で切替可能
+- 複数detectorの同時実行が可能
+- 各detectorのconfidenceを保持
+- 同一時刻のpitch候補を統合可能
+- detectorごとの失敗・octave errorを他detectorで補完可能
+- Evaluatorでモデル単体とensemble双方を比較可能
+
+候補としてCREPE系、pYIN、YIN系などを比較する。
+
+初期設定では複数detectorのensembleを利用しつつ、デバッグ・性能比較・低スペック環境向けに単一detectorへ切り替えられるようにする。
+
+統合器は単純平均に固定せず、confidence、voiced probability、近傍時間との連続性、octave consistency等を用いて最終F0候補を決定できる構造にする。
 
 モデルはコードへ固定埋め込みせず、役割単位で差し替え可能にする。
 
