@@ -46,7 +46,7 @@ Original Song
      +-- Forced Alignment
      +-- Pitch / F0
      +-- Note Transcription
-     +-- Onset / Silence
+     +-- Vocal Event / Boundary Detection
      +-- Song Structure Analysis
      |
 Optional Reference Data
@@ -214,15 +214,71 @@ Chorus 3: confidence 0.63
 
 複数回のpitch contourを重ねることで、しゃくり、裏返り、分離ノイズなどの一時的な歌唱差から、採点に使う理想音程を推定する。
 
+## Vocal Event / Boundary Detection
+
+音符境界・音節境界・発声境界の検出は、単一のonset detectorへ依存しない。
+
+人声・合成歌唱・強いエフェクト・低音質・レガート等で、一部の境界特徴が弱くなることを前提とする。
+
+共有特徴量として複数の観測を生成する。
+
+- F0 transition
+- voiced / unvoiced transition
+- spectral flux
+- energy envelope
+- acoustic onset
+- phoneme / syllable boundary
+- Whisper / forced alignment timestamp
+- note transcription onset
+- silence / breath candidate
+- repeated-section consistency
+
+各時刻について少なくとも以下を別々に推定できる構造にする。
+
+- note_boundary_probability
+- lyric_boundary_probability
+- voicing_onset_probability
+- voicing_offset_probability
+
+譜面生成と歌詞alignmentは同じVocal Event Timelineを共有する。
+
+```text
+Vocals
+  +-- F0 Ensemble
+  +-- Spectral / Energy Features
+  +-- Onset Detectors
+  +-- Voicing Detector
+  +-- Phoneme / Syllable Evidence
+  +-- Forced Alignment
+  +-- Note Transcription
+             |
+             v
+      Vocal Event Fusion
+             |
+       +-----+------+
+       |            |
+ Note Boundary   Lyric Boundary
+       |            |
+ Score Gen      Lyrics Alignment
+```
+
+境界統合は単純多数決に固定しない。
+
+detectorごとのconfidence、時間近傍の整合性、F0連続性、歌詞候補、反復区間等を利用して融合する。
+
+各検出器単体とensembleの両方をEvaluatorで比較し、曲種・音質によって有効な特徴が変わる場合も評価可能にする。
+
 ## 譜面生成
 
 候補:
 
-- CREPE 系 F0推定
-- pYIN / YIN
+- 複数F0 detectorのensemble
 - Basic Pitch 等のNote transcription
-- onset detector
+- Vocal Event / Boundary Detection
 - imported MIDI
+- key / scale estimation
+- lyric / syllable alignment
+- whole-song temporal optimization
 
 実歌唱のF0をそのまま採点譜面にはしない。
 
