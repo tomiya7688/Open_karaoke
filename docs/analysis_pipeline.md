@@ -8,6 +8,30 @@ Whisper を含む複数の認識器、音響解析、既存歌詞、譜面、曲
 
 この中核を Song Global Optimizer / Orchestrator として独立させる。
 
+## 初期実装方針
+
+まずは高度な合議・全曲最適化より先に、Whisper を中心とした最小構成で End-to-End を通す。
+
+初期段階では以下を優先する。
+
+1. 原曲読み込み
+2. Stem Separation による vocals / accompaniment 分離
+3. Whisper による歌詞生成
+4. 歌詞タイミング生成
+5. F0 / 音符解析
+6. 伴奏再生
+7. マイク入力
+8. 正解音程バーと歌唱音程表示
+9. 基本採点
+
+この段階では Whisper 単独でも動作する構成を完成させることを優先する。
+
+複数ASR、内製歌唱モデル、Transformerによる破綻検出、Song Global Optimizer、whole-song optimization、曲単位のLoRA / Adapter 等は、初期E2Eが成立した後の精度改善フェーズで追加する。
+
+ただし後から差し替え・追加できるよう、ASR・Aligner・Pitch Detector・Optimizer 等は疎結合なインターフェースとして設計する。
+
+内製モデルについては、日本語歌唱などWhisperと異なる誤り傾向を持つ合議メンバーとして将来的に追加する案を保持する。巨大な汎用ASRを一から置き換えることを初期目標にはしない。
+
 ## 全体構成
 
 ```text
