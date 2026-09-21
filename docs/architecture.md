@@ -12,6 +12,8 @@
 
 アプリ本体、必要なランタイム、補助ツール、既定モデル実行環境は可能な限りアプリ側で同梱または自動管理する。
 
+採用コンポーネントは商用利用可能であることを必須条件とし、コード・重み・バイナリ・依存関係ごとにライセンスを確認する。
+
 ## アプリ構成
 
 初期候補:
@@ -55,23 +57,39 @@ GUIフレームワーク自体は、ユーザー側に追加環境構築を要�
 
 アプリ本体とAI解析プロセスの通信には通常のローカルREST APIを使用する。
 
+解析はJobとして扱い、テスト・自動化からGUIを介さず実行できるようにする。
+
 例:
 
 ```text
-GET  /health
-GET  /models
+GET    /health
+GET    /models
 
-POST /analysis/stems
-POST /analysis/lyrics
-POST /analysis/alignment
-POST /analysis/pitch
-POST /analysis/notes
-POST /analysis/song
+POST   /jobs
+GET    /jobs/{job_id}
+POST   /jobs/{job_id}/cancel
+
+POST   /analysis/stems
+POST   /analysis/lyrics
+POST   /analysis/alignment
+POST   /analysis/pitch
+POST   /analysis/notes
+POST   /analysis/song
 ```
+
+Job状態の最低限:
+
+- queued
+- running
+- completed
+- failed
+- cancelled
+
+Jobには進捗、処理段階、開始/終了時刻、エラー、生成物参照を持たせる。
 
 `POST /analysis/song` は、初期実装では原曲から必要な解析を一括実行する上位APIとする。
 
-将来的な進捗通知、長時間解析、キャンセル制御のために、必要であればSSEまたはWebSocketを補助的に追加できる。
+進捗通知にはSSEを第一候補とし、双方向制御が必要になった場合のみWebSocketを検討する。
 
 ## オーディオ内部仕様
 
@@ -86,22 +104,11 @@ POST /analysis/song
 
 時刻は浮動小数秒を正本にせず、sample indexを正本とする。
 
-例:
-
-```text
-start_sample = 590400
-sample_rate  = 48000
-
-time = 12.3 sec
-```
-
 UIやログ表示時のみ秒へ変換する。
 
 ## マイク処理
 
 一般的なカラオケと同様、ユーザーのマイク音声を低遅延でモニタリングしつつ、採点処理にも利用する。
-
-重要な分岐:
 
 ```text
 Microphone
@@ -115,67 +122,23 @@ Accompaniment ----------------------^
 
 採点用には原則としてエフェクト前の生マイク信号を使う。
 
-エコーやリバーブをかけた信号をPitch Detectionへ戻さない。
-
 ## モデル拡張性
 
-初期実装は以下の組み合わせでE2Eを通す。
+初期実装は以下の系統でE2Eを通す。
 
-- Stem Separation: Demucs系
+- Stem Separation: 商用利用条件を確認した高精度モデル
 - ASR: Whisper large-v3系
 - Alignment: WhisperX系
-- Pitch: CREPE / pYIN / YINのうち初期採用品
-- Note transcription: Basic Pitchまたは自前変換
+- Pitch: CREPE / pYIN / YIN系をベンチマークして採用
+- Note transcription: Basic Pitchを候補生成器として含む専用統合パイプライン
 
-ただしモデルはコードへ固定埋め込みせず、役割単位で差し替え可能にする。
+譜面生成はコア機能のため、単一モデルの出力をそのまま正式譜面にせず、F0、onset、音節境界、曲キー、note transcription、時間方向最適化を統合して最初から精度重視で設計する。
 
-想定ロール:
-
-- ASR
-- StemSeparator
-- Aligner
-- PitchDetector
-- NoteTranscriber
-- Validator
-- Optimizer
-
-将来的には開発者でなくてもモデルパッケージを追加できる形を目標とする。
-
-## モデルパッケージ
-
-例:
-
-```text
-models/
-  whisper-large-v3/
-    manifest.json
-    ...
-  htdemucs/
-    manifest.json
-    ...
-  custom-singing-asr/
-    manifest.json
-    ...
-```
-
-`manifest.json` には最低限以下を持たせる。
-
-```json
-{
-  "id": "whisper-large-v3",
-  "name": "Whisper Large V3",
-  "type": "asr",
-  "backend": "whisper",
-  "version": "1",
-  "languages": ["ja", "en", "multi"]
-}
-```
-
-将来はモデル追加UI、互換性チェック、ダウンロード、更新も検討する。
+モデルはコードへ固定埋め込みせず、役割単位で差し替え可能にする。
 
 ## 初期実装の最優先事項
 
-まずは高度な合議ではなく、以下のE2Eを完成させる。
+まずは以下のE2Eを完成させる。
 
 ```text
 Original Song
@@ -183,12 +146,12 @@ Original Song
   -> stem separation
   -> Whisper lyrics
   -> lyric timing
-  -> pitch / notes
+  -> high-accuracy score generation
   -> save song data
   -> accompaniment playback
   -> microphone input
   -> pitch bar
-  -> basic scoring
+  -> scoring
 ```
 
 複数ASR、内製モデル、Transformer破綻検出、Song Global Optimizer、whole-song optimization、曲単位LoRA / Adapterは、E2E完成後の精度改善フェーズで追加する。
