@@ -1,12 +1,12 @@
-name: Prepare Issue 5 sources
+name: Repair Issue 5 diagnostics
 on:
   push:
     branches: [issue-5-analysis-service]
 permissions:
   contents: write
 jobs:
-  prepare:
-    if: contains(github.event.head_commit.message, 'materialize issue 5')
+  repair:
+    if: contains(github.event.head_commit.message, 'repair issue 5 diagnostics')
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -19,83 +19,69 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
-      - name: Materialize verified source files
+      - name: Apply reviewed diagnostics
         shell: python
         run: |
-          import base64, hashlib, json, lzma
           from pathlib import Path
-          packed = base64.b64decode(''.join(Path(f'.ci-issue5/part{i}.b64').read_text().strip() for i in range(5)), validate=True)
-          assert hashlib.sha256(packed).hexdigest() == '54f377c6607e2d1261eb0928aaa90c8ce48fc8f5e38920d3f44fb21bf4e16614'
-          sources = json.loads(lzma.decompress(packed))
-          allowed = {'core/Cargo.toml', 'core/src/analysis_service.rs', 'core/src/lib.rs', 'core/src/main.rs', 'core/tests/job_api.rs', 'docs/analysis_service.md', 'python/pyproject.toml', 'python/src/open_karaoke_analysis/__init__.py', 'python/src/open_karaoke_analysis/__main__.py', 'python/src/open_karaoke_analysis/adapters.py', 'python/src/open_karaoke_analysis/contracts.py', 'python/src/open_karaoke_analysis/service.py', 'python/tests/test_process.py', 'python/tests/test_service.py', 'scripts/check.ps1'}
-          assert set(sources) == allowed
-          for name, content in sources.items():
-              path = Path(name)
-              path.parent.mkdir(parents=True, exist_ok=True)
-              path.write_text(content, encoding='utf-8', newline='\n')
-          path = Path('core/src/song_data.rs')
-          text = path.read_text()
-          assert "bytes.push(b'\n');" in text
-          path.write_text(text.replace("bytes.push(b'\n');", "bytes.push(b'\\n');"))
-          docs = {
-            'core/src/song_data.rs': {
-              '    pub fn validate(': 'Validate the bundle.\n\n# Errors\nReturns collected schema, timeline, path and reference violations.',
-              '    pub fn save(': 'Persist a validated bundle.\n\n# Errors\nReturns validation, serialization or filesystem errors.',
-              '    pub fn load(': 'Load and validate all song documents.\n\n# Errors\nReturns filesystem, JSON, migration or validation errors.',
-              'pub fn migrate_document(': 'Migrate legacy document fields.\n\n# Errors\nReturns an error for non-object legacy documents or unsupported versions.'
-            },
-            'core/src/audio_import.rs': {
-              'pub fn normalize_audio(': 'Normalize supported input to the internal WAV format.\n\n# Errors\nReturns input, distribution-policy, process, probe or filesystem errors.',
-              'pub fn verify_ffmpeg_distribution(': 'Inspect the configured FFmpeg executable.\n\n# Errors\nReturns process failures or violations of the selected distribution policy.',
-              'pub fn validate_ffmpeg_build_configuration(': 'Validate the selected FFmpeg build policy.\n\n# Errors\nRejects GPL-enabled and nonfree-enabled configurations under this policy.',
-              'pub fn probe_audio(': 'Probe audio stream metadata.\n\n# Errors\nReturns process failures or invalid probe output.',
-              'pub fn parse_probe_json(': 'Decode required integer stream metadata.\n\n# Errors\nRejects malformed JSON, missing fields and out-of-range integer values.'
-            }
+          replacements = {
+            'python/src/open_karaoke_analysis/contracts.py': [
+              ('from enum import Enum', 'from enum import StrEnum'),
+              ('class Role(str, Enum):', 'class Role(StrEnum):')
+            ],
+            'python/src/open_karaoke_analysis/service.py': [
+              ('from datetime import datetime, timezone', 'from datetime import UTC, datetime'),
+              ('datetime.now(timezone.utc)', 'datetime.now(UTC)'),
+              ('.encode("utf-8")', '.encode()')
+            ],
+            'core/src/audio_import.rs': [
+              ('/// Inspect the configured FFmpeg executable.', '/// Inspect the configured `FFmpeg` executable.'),
+              ('/// Validate the selected FFmpeg build policy.', '/// Validate the selected `FFmpeg` build policy.'),
+              ('artifacts: Default::default(),', 'artifacts: std::collections::BTreeMap::new(),')
+            ],
+            'core/src/song_data.rs': [
+              ('Value::Object(Default::default())', 'Value::Object(serde_json::Map::new())')
+            ],
+            'core/src/lib.rs': [
+              ('#[must_use]\npub fn app(', 'pub fn app('),
+              ('job.stage = "running".to_owned();', '"running".clone_into(&mut job.stage);'),
+              ('job.stage = match status {\n                JobStatus::Completed => "completed",\n                JobStatus::Cancelled => "cancelled",\n                _ => "failed",\n            }\n            .to_owned();', 'match status {\n                JobStatus::Completed => "completed",\n                JobStatus::Cancelled => "cancelled",\n                _ => "failed",\n            }.clone_into(&mut job.stage);')
+            ],
+            'core/tests/job_api.rs': [
+              ('if let Ok(next) = client.health().await {\n            if next["instance_id"] != health["instance_id"] {\n                break;\n            }\n        }', 'if let Ok(next) = client.health().await\n            && next["instance_id"] != health["instance_id"]\n        {\n            break;\n        }')
+            ]
           }
-          for name, functions in docs.items():
+          for name, changes in replacements.items():
               path = Path(name)
               text = path.read_text()
-              for signature, comment in functions.items():
-                  assert signature in text
-                  indent = signature[:len(signature)-len(signature.lstrip())]
-                  prefix = ''.join(indent + '/// ' + line + '\n' for line in comment.split('\n'))
-                  text = text.replace(signature, prefix + signature, 1)
-              path.write_text(text)
-          for name in ['scripts/build.ps1', 'scripts/dependency-inventory.ps1']:
-              path = Path(name)
-              text = path.read_text().replace('$ErrorActionPreference = "Stop"', '$ErrorActionPreference = "Stop"\n$PSNativeCommandUseErrorActionPreference = $true')
-              path.write_text('#requires -Version 7.4\n' + text)
-          path = Path('.gitignore')
-          path.write_text(path.read_text() + '\n.pytest_cache/\n.ruff_cache/\n*.egg-info/\n')
-          path = Path('README.md')
-          path.write_text(path.read_text() + '\n- [Python Analysis Service](docs/analysis_service.md)\n')
-      - name: Install Python development dependencies
+              for old, new in changes:
+                  assert old in text, (name, old)
+                  text = text.replace(old, new)
+              path.write_text(text, encoding='utf-8', newline='\n')
+      - name: Install Python tools
         run: python -m pip install -e './python[dev]'
-      - name: Format source
+      - name: Format
         run: |
           python -m ruff check --select I --fix python
           python -m ruff format python
           cargo fmt --all
-          cargo generate-lockfile
-      - name: Commit materialized and formatted source
+      - name: Commit source corrections
         run: |
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add core python scripts docs README.md .gitignore Cargo.lock
-          git commit -m 'feat: implement supervised Python Analysis Service and contract tests'
+          git add core python
+          git commit -m 'fix: resolve Python and Rust static analysis diagnostics'
           git push origin HEAD:refs/heads/issue-5-analysis-service
-      - name: Python lint
-        if: success()
-        run: python -m ruff check python
-      - name: Python tests
+      - name: Python lint and tests
         if: '!cancelled()'
-        run: python -m pytest python/tests -q
-      - name: Rust static analysis
+        run: |
+          python -m ruff check python
+          python -m ruff format --check python
+          python -m pytest python/tests -q
+      - name: Rust lint
         if: '!cancelled()'
-        run: cargo clippy --workspace --all-targets -- -D warnings
-      - name: Rust tests
+        run: cargo clippy --locked --workspace --all-targets -- -D warnings
+      - name: Rust tests and Python process integration
         if: '!cancelled()'
-        run: cargo test --workspace --all-targets
-      - name: Core to Python lifecycle and crash recovery
-        if: '!cancelled()'
-        run: cargo test --test job_api -- --ignored --nocapture
+        run: |
+          cargo test --locked --workspace --all-targets
+          cargo test --locked --test job_api -- --ignored --nocapture
