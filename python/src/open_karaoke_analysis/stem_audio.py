@@ -100,7 +100,7 @@ def separate_audio(source: Path, directory: Path, backend, context, options: dic
                             "invalid_model_output", "Overlap/add left uncovered samples", 500
                         )
                     vocal = np.asarray(accum[start:end]) / scale[:, None]
-                    # Preserve the original mixture, including frequencies above the model bandwidth.
+                    # Preserve the mixture, including energy above the model bandwidth.
                     backing = mix - vocal
                     if not np.isfinite(vocal).all() or not np.isfinite(backing).all():
                         raise ServiceError(

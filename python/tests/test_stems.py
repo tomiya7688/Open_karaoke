@@ -225,7 +225,8 @@ def test_startup_does_not_import_ml_or_download():
     code = (
         "import sys; before=set(sys.modules); "
         "from open_karaoke_analysis.stems import StemsAdapter; "
-        "StemsAdapter(); assert not {'torch','torchaudio','openunmix','numpy'} & (sys.modules.keys() - before)"
+        "StemsAdapter(); assert not "
+        "{'torch','torchaudio','openunmix','numpy'} & (sys.modules.keys() - before)"
     )
     subprocess.run([sys.executable, "-c", code], check=True, timeout=10)
 
