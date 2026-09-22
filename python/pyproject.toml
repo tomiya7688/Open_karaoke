@@ -11,10 +11,18 @@ license = "MIT"
 dependencies = ["fastapi>=0.115,<1", "pydantic>=2.9,<3", "uvicorn>=0.30,<1"]
 
 [project.optional-dependencies]
-dev = ["ruff>=0.12,<1", "pytest>=8,<10", "httpx>=0.27,<1"]
+dev = [
+    "ruff>=0.12,<1", "pytest>=8,<10", "httpx>=0.27,<1",
+    "numpy>=1.26,<3", "scipy>=1.11,<2", "soundfile>=0.13,<1",
+]
+stems = [
+    "openunmix==1.3.0", "torch>=2.6,<3", "torchaudio>=2.6,<3",
+    "numpy>=1.26,<3", "scipy>=1.11,<2", "soundfile>=0.13,<1",
+]
 
 [project.scripts]
 open-karaoke-analysis = "open_karaoke_analysis.__main__:main"
+open-karaoke-stem-evaluator = "open_karaoke_analysis.stem_evaluator:main"
 
 [tool.setuptools]
 package-dir = {"" = "src"}

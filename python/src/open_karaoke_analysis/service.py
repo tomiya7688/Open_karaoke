@@ -26,6 +26,7 @@ from .adapters import (
     resolve_artifact,
 )
 from .contracts import PROTOCOL_VERSION, AnalysisRequest, ErrorDetail, Job, Role, ServiceError
+from .stems import StemsAdapter
 
 LOG = logging.getLogger(__name__)
 TERMINAL = {"completed", "failed", "cancelled"}
@@ -170,7 +171,7 @@ def create_app(
 ) -> FastAPI:
     if len(token) < 32 or capacity < 1:
         raise ValueError("A 32-character session token and positive capacity are required")
-    registry = AdapterRegistry([MockAdapter()] if adapters is None else adapters)
+    registry = AdapterRegistry([MockAdapter(), StemsAdapter()] if adapters is None else adapters)
     instance_id = uuid4()
 
     @asynccontextmanager
