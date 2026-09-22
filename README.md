@@ -2,6 +2,15 @@
 
 ローカルの原曲から、カラオケ用伴奏・歌詞・譜面を生成し、マイク入力、音程表示、採点まで行うことを目標とするオープンソースカラオケソフトです。
 
+## Repository layout
+
+- `core/` — Rust Core
+- `python/` — Python Analysis Service
+- `gui/` — C# / Avalonia GUI
+- `scripts/` — build, check, dependency inventory
+
+Windowsでの開発手順は [Development](docs/development.md) を参照してください。
+
 ## Documents
 
 - [要件](docs/requirements.md)
