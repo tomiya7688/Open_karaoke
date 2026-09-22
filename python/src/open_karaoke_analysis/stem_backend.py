@@ -20,6 +20,20 @@ WEIGHT_URL = f"https://zenodo.org/api/records/3370489/files/{WEIGHT_FILE}/conten
 MODEL_RATE = 44_100
 
 
+def spectral_state_dict(state: dict) -> dict:
+    """Migrate the pinned v1 checkpoint's transform buffers, not learned parameters.
+
+    The publisher checkpoint bundled waveform transforms into OpenUnmix. Version 1.3
+    moves these to Separator. Only these three known keys may be removed, and only as
+    a complete set. The caller verifies the full checkpoint digest first and strictly
+    loads every remaining parameter; unknown keys are never silently discarded.
+    """
+    legacy = {"sample_rate", "stft.window", "transform.0.window"}
+    if legacy.intersection(state) and not legacy.issubset(state):
+        raise ServiceError("model_incompatible", "Incomplete legacy transform buffer set", 503)
+    return {key: value for key, value in state.items() if key not in legacy}
+
+
 def file_sha256(path: Path, context: AnalysisContext) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as stream:
@@ -124,7 +138,7 @@ class UmxHqBackend:
         # No unsafe pickle fallback, no arbitrary classes, no downloaded Python source.
         state = torch.load(path, map_location="cpu", weights_only=True)
         targets = umxhq_spec(targets=["vocals"], pretrained=False, device="cpu")
-        targets["vocals"].load_state_dict(state, strict=True)
+        targets["vocals"].load_state_dict(spectral_state_dict(state), strict=True)
         self.model = Separator(
             targets,
             residual=True,
