@@ -1,8 +1,6 @@
 use std::{
     collections::BTreeMap,
-    fmt,
-    fs,
-    io,
+    fmt, fs, io,
     path::{Path, PathBuf},
 };
 
@@ -57,9 +55,7 @@ impl Default for SongFiles {
     }
 }
 
-#[derive(
-    Clone, Copy, Debug, Deserialize, Ord, PartialOrd, Eq, PartialEq, Serialize,
-)]
+#[derive(Clone, Copy, Debug, Deserialize, Ord, PartialOrd, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ArtifactKind {
     Original,
@@ -151,9 +147,14 @@ impl fmt::Display for SongDataError {
         match self {
             Self::Io(error) => write!(formatter, "I/O error: {error}"),
             Self::Json(error) => write!(formatter, "JSON error: {error}"),
-            Self::Validation(errors) => write!(formatter, "validation failed: {}", errors.join("; ")),
+            Self::Validation(errors) => {
+                write!(formatter, "validation failed: {}", errors.join("; "))
+            }
             Self::UnsupportedVersion { document, version } => {
-                write!(formatter, "unsupported {document:?} format version {version}")
+                write!(
+                    formatter,
+                    "unsupported {document:?} format version {version}"
+                )
             }
         }
     }
@@ -174,6 +175,10 @@ impl From<serde_json::Error> for SongDataError {
 }
 
 impl SongBundle {
+    /// Validate the bundle.
+    ///
+    /// # Errors
+    /// Returns collected schema, timeline, path and reference violations.
     pub fn validate(&self) -> Result<(), SongDataError> {
         let mut errors = Vec::new();
 
@@ -206,7 +211,12 @@ impl SongBundle {
                 self.song.duration_samples,
                 &mut errors,
             );
-            validate_confidence(segment.text_confidence, "text_confidence", &segment.id, &mut errors);
+            validate_confidence(
+                segment.text_confidence,
+                "text_confidence",
+                &segment.id,
+                &mut errors,
+            );
             validate_confidence(
                 segment.timing_confidence,
                 "timing_confidence",
@@ -225,12 +235,24 @@ impl SongBundle {
                 &mut errors,
             );
             if note.midi_note > 127 {
-                errors.push(format!("note {} has invalid MIDI note {}", note.id, note.midi_note));
+                errors.push(format!(
+                    "note {} has invalid MIDI note {}",
+                    note.id, note.midi_note
+                ));
             }
-            validate_confidence(note.pitch_confidence, "pitch_confidence", &note.id, &mut errors);
+            validate_confidence(
+                note.pitch_confidence,
+                "pitch_confidence",
+                &note.id,
+                &mut errors,
+            );
 
             if let Some(segment_id) = &note.lyric_segment_id
-                && !self.lyrics.segments.iter().any(|segment| &segment.id == segment_id)
+                && !self
+                    .lyrics
+                    .segments
+                    .iter()
+                    .any(|segment| &segment.id == segment_id)
             {
                 errors.push(format!(
                     "note {} references missing lyric segment {segment_id}",
@@ -291,6 +313,10 @@ impl SongBundle {
 pub struct SongStore;
 
 impl SongStore {
+    /// Persist a validated bundle.
+    ///
+    /// # Errors
+    /// Returns validation, serialization or filesystem errors.
     pub fn save(root: impl AsRef<Path>, bundle: &SongBundle) -> Result<(), SongDataError> {
         bundle.validate()?;
         let root = root.as_ref();
@@ -304,12 +330,17 @@ impl SongStore {
         Ok(())
     }
 
+    /// Load and validate all song documents.
+    ///
+    /// # Errors
+    /// Returns filesystem, JSON, migration or validation errors.
     pub fn load(root: impl AsRef<Path>) -> Result<SongBundle, SongDataError> {
         let root = root.as_ref();
         let song: SongManifest = read_migrated(root.join("song.json"), DocumentKind::Song)?;
         let lyrics: LyricsDocument =
             read_migrated(root.join(&song.files.lyrics), DocumentKind::Lyrics)?;
-        let notes: NotesDocument = read_migrated(root.join(&song.files.notes), DocumentKind::Notes)?;
+        let notes: NotesDocument =
+            read_migrated(root.join(&song.files.notes), DocumentKind::Notes)?;
         let evidence: EvidenceDocument =
             read_migrated(root.join(&song.files.evidence), DocumentKind::Evidence)?;
 
@@ -334,6 +365,10 @@ where
     Ok(serde_json::from_value(migrated)?)
 }
 
+/// Migrate legacy document fields.
+///
+/// # Errors
+/// Returns an error for non-object legacy documents or unsupported versions.
 pub fn migrate_document(kind: DocumentKind, mut value: Value) -> Result<Value, SongDataError> {
     let version = value
         .get("format_version")
@@ -390,8 +425,7 @@ fn write_json(path: PathBuf, value: &impl Serialize) -> Result<(), SongDataError
         fs::create_dir_all(parent)?;
     }
     let mut bytes = serde_json::to_vec_pretty(value)?;
-    bytes.push(b'
-');
+    bytes.push(b'\n');
     let temporary = path.with_extension("tmp");
     fs::write(&temporary, bytes)?;
     if path.exists() {
@@ -446,8 +480,14 @@ fn validate_paths(files: &SongFiles, errors: &mut Vec<String>) {
         ("evidence", &files.evidence),
     ] {
         let path = Path::new(path);
-        if path.is_absolute() || path.components().any(|component| matches!(component, std::path::Component::ParentDir)) {
-            errors.push(format!("files.{name} must be a relative path without parent traversal"));
+        if path.is_absolute()
+            || path
+                .components()
+                .any(|component| matches!(component, std::path::Component::ParentDir))
+        {
+            errors.push(format!(
+                "files.{name} must be a relative path without parent traversal"
+            ));
         }
     }
 }

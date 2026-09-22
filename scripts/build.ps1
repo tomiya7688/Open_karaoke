@@ -1,4 +1,6 @@
+#requires -Version 7.4
 $ErrorActionPreference = "Stop"
+$PSNativeCommandUseErrorActionPreference = $true
 $repo = Split-Path -Parent $PSScriptRoot
 
 Push-Location $repo

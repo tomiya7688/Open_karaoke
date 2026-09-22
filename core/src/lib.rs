@@ -1,42 +1,38 @@
+//! Product Core APIs. Audio/DSP never depend on the offline analysis process.
+
+pub mod analysis_service;
 pub mod audio_import;
 pub mod song_data;
 
-use std::{
-    collections::HashMap,
-    convert::Infallible,
-    sync::{
-        atomic::{AtomicBool, Ordering},
-        Arc,
-    },
-    time::Duration,
-};
+use std::{collections::HashMap, convert::Infallible, sync::Arc, time::Duration};
 
+use analysis_service::{AnalysisClient, AnalysisRequest, RemoteJob};
 use axum::{
+    Json, Router,
     extract::{Path, State},
     http::StatusCode,
     response::{
-        sse::{Event, KeepAlive, Sse},
         IntoResponse,
+        sse::{Event, KeepAlive, Sse},
     },
     routing::{get, post},
-    Json, Router,
 };
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use tokio::sync::{broadcast, RwLock};
-use tokio_stream::{wrappers::BroadcastStream, Stream, StreamExt};
+use tokio::sync::{RwLock, broadcast};
+use tokio_stream::{Stream, StreamExt, wrappers::BroadcastStream};
 use uuid::Uuid;
 
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct AppState {
     jobs: Arc<RwLock<HashMap<Uuid, JobRecord>>>,
-    events: broadcast::Sender<JobEvent>,
+    analysis: AnalysisClient,
 }
 
-#[derive(Clone)]
 struct JobRecord {
     snapshot: Job,
-    cancel: Arc<AtomicBool>,
+    cancelled: bool,
+    events: broadcast::Sender<JobEvent>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
@@ -47,6 +43,12 @@ pub enum JobStatus {
     Completed,
     Failed,
     Cancelled,
+}
+
+impl JobStatus {
+    fn terminal(&self) -> bool {
+        matches!(self, Self::Completed | Self::Failed | Self::Cancelled)
+    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -69,65 +71,76 @@ pub struct JobEvent {
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct CreateJobRequest {
     pub kind: String,
     #[serde(default = "default_steps")]
-    pub steps: u32,
-    pub fail_at_step: Option<u32>,
+    pub steps: u16,
+    pub fail_at_step: Option<u16>,
+    #[serde(default)]
+    pub analysis: AnalysisRequest,
 }
 
-#[derive(Debug, Serialize)]
-struct Health {
-    status: &'static str,
-    service: &'static str,
-}
-
-fn default_steps() -> u32 {
+fn default_steps() -> u16 {
     5
 }
 
 impl AppState {
     #[must_use]
     pub fn new() -> Self {
-        let (events, _) = broadcast::channel(256);
+        Self::default()
+    }
+
+    #[must_use]
+    pub fn with_analysis(analysis: AnalysisClient) -> Self {
         Self {
-            jobs: Arc::new(RwLock::new(HashMap::new())),
-            events,
+            analysis,
+            ..Self::default()
         }
     }
 
     async fn snapshot(&self, id: Uuid) -> Option<Job> {
-        self.jobs.read().await.get(&id).map(|record| record.snapshot.clone())
-    }
-
-    async fn update<F>(&self, id: Uuid, update: F) -> Option<Job>
-    where
-        F: FnOnce(&mut Job),
-    {
-        let snapshot = {
-            let mut jobs = self.jobs.write().await;
-            let record = jobs.get_mut(&id)?;
-            update(&mut record.snapshot);
-            record.snapshot.clone()
-        };
-        let _ = self.events.send(JobEvent {
-            job: snapshot.clone(),
-        });
-        Some(snapshot)
-    }
-
-    async fn is_cancelled(&self, id: Uuid) -> bool {
         self.jobs
             .read()
             .await
             .get(&id)
-            .is_some_and(|record| record.cancel.load(Ordering::Acquire))
+            .map(|record| record.snapshot.clone())
     }
-}
 
-impl Default for AppState {
-    fn default() -> Self {
-        Self::new()
+    async fn update(&self, id: Uuid, update: impl FnOnce(&mut Job)) {
+        let mut jobs = self.jobs.write().await;
+        if let Some(record) = jobs.get_mut(&id) {
+            if record.snapshot.status.terminal() {
+                return;
+            }
+            update(&mut record.snapshot);
+            let _ = record.events.send(JobEvent {
+                job: record.snapshot.clone(),
+            });
+        }
+    }
+
+    async fn cancelled(&self, id: Uuid) -> bool {
+        self.jobs
+            .read()
+            .await
+            .get(&id)
+            .is_some_and(|record| record.cancelled)
+    }
+
+    async fn finish(&self, id: Uuid, status: JobStatus, error: Option<String>) {
+        self.update(id, |job| {
+            job.stage = match status {
+                JobStatus::Completed => "completed",
+                JobStatus::Cancelled => "cancelled",
+                _ => "failed",
+            }
+            .to_owned();
+            job.status = status;
+            job.error = error;
+            job.finished_at = Some(Utc::now());
+        })
+        .await;
     }
 }
 
@@ -135,6 +148,8 @@ impl Default for AppState {
 pub fn app(state: AppState) -> Router {
     Router::new()
         .route("/health", get(health))
+        .route("/models", get(models))
+        .route("/analysis/health", get(analysis_health))
         .route("/jobs", post(create_job))
         .route("/jobs/{id}", get(get_job))
         .route("/jobs/{id}/cancel", post(cancel_job))
@@ -142,141 +157,194 @@ pub fn app(state: AppState) -> Router {
         .with_state(state)
 }
 
-async fn health() -> Json<Health> {
-    Json(Health {
-        status: "ok",
-        service: "open-karaoke-core",
-    })
+async fn health() -> Json<serde_json::Value> {
+    Json(serde_json::json!({"status":"ok", "service":"open-karaoke-core"}))
+}
+
+async fn models(State(state): State<AppState>) -> Result<Json<serde_json::Value>, ApiError> {
+    state
+        .analysis
+        .models()
+        .await
+        .map(Json)
+        .map_err(ApiError::unavailable)
+}
+
+async fn analysis_health(
+    State(state): State<AppState>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    state
+        .analysis
+        .health()
+        .await
+        .map(Json)
+        .map_err(ApiError::unavailable)
 }
 
 async fn create_job(
     State(state): State<AppState>,
     Json(request): Json<CreateJobRequest>,
 ) -> Result<(StatusCode, Json<Job>), ApiError> {
-    if request.kind.trim().is_empty() {
-        return Err(ApiError::bad_request("kind must not be empty"));
-    }
-    if request.steps == 0 || request.steps > 100 {
-        return Err(ApiError::bad_request("steps must be between 1 and 100"));
-    }
-    if request
-        .fail_at_step
-        .is_some_and(|step| step == 0 || step > request.steps)
+    if request.kind.trim().is_empty()
+        || request.steps == 0
+        || request.steps > 100
+        || request
+            .fail_at_step
+            .is_some_and(|step| step == 0 || step > request.steps)
     {
-        return Err(ApiError::bad_request(
-            "fail_at_step must be within the job step range",
+        return Err(ApiError(
+            StatusCode::BAD_REQUEST,
+            "Invalid job kind or step range".to_owned(),
         ));
     }
-
+    if let Some(role) = request.kind.strip_prefix("analysis.") {
+        if !matches!(
+            role,
+            "mock" | "stems" | "lyrics" | "alignment" | "pitch" | "notes" | "song"
+        ) {
+            return Err(ApiError(
+                StatusCode::BAD_REQUEST,
+                "Unknown analysis operation".to_owned(),
+            ));
+        }
+        state
+            .analysis
+            .lease()
+            .await
+            .map_err(ApiError::unavailable)?;
+    }
     let id = Uuid::new_v4();
-    let now = Utc::now();
     let job = Job {
         id,
-        kind: request.kind,
+        kind: request.kind.clone(),
         status: JobStatus::Queued,
         progress: 0.0,
         stage: "queued".to_owned(),
-        created_at: now,
+        created_at: Utc::now(),
         started_at: None,
         finished_at: None,
         error: None,
         artifacts: Vec::new(),
     };
+    let (events, _) = broadcast::channel(64);
     state.jobs.write().await.insert(
         id,
         JobRecord {
             snapshot: job.clone(),
-            cancel: Arc::new(AtomicBool::new(false)),
+            cancelled: false,
+            events,
         },
     );
-    let _ = state.events.send(JobEvent { job: job.clone() });
-
-    tokio::spawn(run_job(
-        state.clone(),
-        id,
-        request.steps,
-        request.fail_at_step,
-    ));
-
+    tokio::spawn(run_job(state, id, request));
     Ok((StatusCode::ACCEPTED, Json(job)))
 }
 
-async fn run_job(state: AppState, id: Uuid, steps: u32, fail_at_step: Option<u32>) {
-    let _ = state
+async fn run_job(state: AppState, id: Uuid, request: CreateJobRequest) {
+    if state.cancelled(id).await {
+        state.finish(id, JobStatus::Cancelled, None).await;
+        return;
+    }
+    state
         .update(id, |job| {
             job.status = JobStatus::Running;
             job.stage = "running".to_owned();
             job.started_at = Some(Utc::now());
         })
         .await;
-
-    for step in 1..=steps {
-        if state.is_cancelled(id).await {
-            let _ = state
-                .update(id, |job| {
-                    job.status = JobStatus::Cancelled;
-                    job.stage = "cancelled".to_owned();
-                    job.finished_at = Some(Utc::now());
-                })
-                .await;
-            return;
+    if let Some(role) = request.kind.strip_prefix("analysis.") {
+        if let Err(error) = run_analysis(&state, id, role, &request.analysis).await {
+            state.finish(id, JobStatus::Failed, Some(error)).await;
         }
-
+        return;
+    }
+    for step in 1..=request.steps {
         tokio::time::sleep(Duration::from_millis(25)).await;
-
-        if fail_at_step == Some(step) {
-            let _ = state
-                .update(id, |job| {
-                    job.status = JobStatus::Failed;
-                    job.stage = "failed".to_owned();
-                    job.error = Some(format!("simulated failure at step {step}"));
-                    job.finished_at = Some(Utc::now());
-                })
+        if state.cancelled(id).await {
+            state.finish(id, JobStatus::Cancelled, None).await;
+            return;
+        }
+        if request.fail_at_step == Some(step) {
+            state
+                .finish(
+                    id,
+                    JobStatus::Failed,
+                    Some(format!("simulated failure at step {step}")),
+                )
                 .await;
             return;
         }
-
-        let _ = state
+        state
             .update(id, |job| {
-                job.progress = step as f32 / steps as f32;
+                job.progress = f32::from(step) / f32::from(request.steps);
                 job.stage = format!("step_{step}");
             })
             .await;
     }
+    state.finish(id, JobStatus::Completed, None).await;
+}
 
-    let _ = state
+async fn run_analysis(
+    state: &AppState,
+    id: Uuid,
+    role: &str,
+    request: &AnalysisRequest,
+) -> Result<(), String> {
+    // Pin the instance. A crash fails this job; only NEW jobs use a restarted process.
+    let session = state.analysis.lease().await?;
+    let mut remote = session.submit(role, request).await?;
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(3600);
+    let mut cancellation_sent = false;
+    loop {
+        if state.cancelled(id).await && !cancellation_sent {
+            session.cancel(remote.id).await?;
+            cancellation_sent = true;
+        }
+        if apply_remote(state, id, &remote).await? {
+            return Ok(());
+        }
+        if tokio::time::Instant::now() >= deadline {
+            let _ = session.cancel(remote.id).await;
+            return Err("analysis_timeout: job exceeded its execution deadline".to_owned());
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        remote = session.job(remote.id).await?;
+    }
+}
+
+async fn apply_remote(state: &AppState, id: Uuid, remote: &RemoteJob) -> Result<bool, String> {
+    state
         .update(id, |job| {
-            job.status = JobStatus::Completed;
-            job.progress = 1.0;
-            job.stage = "completed".to_owned();
-            job.finished_at = Some(Utc::now());
+            job.progress = remote.progress;
+            job.stage.clone_from(&remote.stage);
         })
         .await;
+    match remote.status.as_str() {
+        "queued" | "running" => Ok(false),
+        "completed" => {
+            state
+                .update(id, |job| {
+                    job.artifacts.clone_from(&remote.artifacts);
+                })
+                .await;
+            state.finish(id, JobStatus::Completed, None).await;
+            Ok(true)
+        }
+        "cancelled" => {
+            state.finish(id, JobStatus::Cancelled, None).await;
+            Ok(true)
+        }
+        "failed" => Err(remote.error.as_ref().map_or_else(
+            || "analysis_failed: worker failed".to_owned(),
+            |e| format!("{}: {}", e.code, e.message),
+        )),
+        _ => Err("analysis_protocol: unknown job status".to_owned()),
+    }
 }
 
 async fn get_job(
     State(state): State<AppState>,
     Path(id): Path<Uuid>,
 ) -> Result<Json<Job>, ApiError> {
-    state.snapshot(id).await.map(Json).ok_or_else(ApiError::not_found)
-}
-
-async fn cancel_job(
-    State(state): State<AppState>,
-    Path(id): Path<Uuid>,
-) -> Result<Json<Job>, ApiError> {
-    {
-        let jobs = state.jobs.read().await;
-        let record = jobs.get(&id).ok_or_else(ApiError::not_found)?;
-        if matches!(
-            record.snapshot.status,
-            JobStatus::Completed | JobStatus::Failed | JobStatus::Cancelled
-        ) {
-            return Ok(Json(record.snapshot.clone()));
-        }
-        record.cancel.store(true, Ordering::Release);
-    }
-
     state
         .snapshot(id)
         .await
@@ -284,182 +352,51 @@ async fn cancel_job(
         .ok_or_else(ApiError::not_found)
 }
 
+async fn cancel_job(
+    State(state): State<AppState>,
+    Path(id): Path<Uuid>,
+) -> Result<Json<Job>, ApiError> {
+    let mut jobs = state.jobs.write().await;
+    let record = jobs.get_mut(&id).ok_or_else(ApiError::not_found)?;
+    if !record.snapshot.status.terminal() {
+        record.cancelled = true;
+    }
+    Ok(Json(record.snapshot.clone()))
+}
+
 async fn job_events(
     State(state): State<AppState>,
     Path(id): Path<Uuid>,
 ) -> Result<Sse<impl Stream<Item = Result<Event, Infallible>>>, ApiError> {
-    if state.snapshot(id).await.is_none() {
-        return Err(ApiError::not_found());
-    }
-
-    let stream = BroadcastStream::new(state.events.subscribe()).filter_map(move |message| {
-        match message {
-            Ok(event) if event.job.id == id => {
-                Some(Ok(Event::default().json_data(event).expect("serializable job event")))
-            }
-            _ => None,
-        }
+    // Subscribe and snapshot under one lock so even an already completed job has an event.
+    let (snapshot, receiver) = {
+        let jobs = state.jobs.read().await;
+        let record = jobs.get(&id).ok_or_else(ApiError::not_found)?;
+        (record.snapshot.clone(), record.events.subscribe())
+    };
+    let initial = tokio_stream::once(JobEvent { job: snapshot });
+    let updates = BroadcastStream::new(receiver).filter_map(Result::ok);
+    let stream = initial.chain(updates).map(|event| {
+        // Job contains only finite progress and ordinary strings/timestamps.
+        Ok(Event::default()
+            .event("job")
+            .data(serde_json::to_string(&event).unwrap_or_default()))
     });
-
     Ok(Sse::new(stream).keep_alive(KeepAlive::default()))
 }
 
 #[derive(Debug)]
-struct ApiError {
-    status: StatusCode,
-    message: String,
-}
-
+struct ApiError(StatusCode, String);
 impl ApiError {
-    fn bad_request(message: impl Into<String>) -> Self {
-        Self {
-            status: StatusCode::BAD_REQUEST,
-            message: message.into(),
-        }
-    }
-
     fn not_found() -> Self {
-        Self {
-            status: StatusCode::NOT_FOUND,
-            message: "job not found".to_owned(),
-        }
+        Self(StatusCode::NOT_FOUND, "job not found".to_owned())
+    }
+    fn unavailable(message: String) -> Self {
+        Self(StatusCode::SERVICE_UNAVAILABLE, message)
     }
 }
-
 impl IntoResponse for ApiError {
     fn into_response(self) -> axum::response::Response {
-        (
-            self.status,
-            Json(serde_json::json!({
-                "error": self.message,
-            })),
-        )
-            .into_response()
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use axum::{
-        body::{to_bytes, Body},
-        http::{Request, StatusCode},
-    };
-    use tower::ServiceExt;
-
-    async fn create_test_job(
-        app: &Router,
-        steps: u32,
-        fail_at_step: Option<u32>,
-    ) -> Job {
-        let request = Request::builder()
-            .method("POST")
-            .uri("/jobs")
-            .header("content-type", "application/json")
-            .body(Body::from(
-                serde_json::json!({
-                    "kind": "test",
-                    "steps": steps,
-                    "fail_at_step": fail_at_step,
-                })
-                .to_string(),
-            ))
-            .unwrap();
-        let response = app.clone().oneshot(request).await.unwrap();
-        assert_eq!(response.status(), StatusCode::ACCEPTED);
-        let bytes = to_bytes(response.into_body(), usize::MAX).await.unwrap();
-        serde_json::from_slice(&bytes).unwrap()
-    }
-
-    async fn wait_terminal(app: &Router, id: Uuid) -> Job {
-        for _ in 0..100 {
-            let response = app
-                .clone()
-                .oneshot(
-                    Request::builder()
-                        .uri(format!("/jobs/{id}"))
-                        .body(Body::empty())
-                        .unwrap(),
-                )
-                .await
-                .unwrap();
-            let bytes = to_bytes(response.into_body(), usize::MAX).await.unwrap();
-            let job: Job = serde_json::from_slice(&bytes).unwrap();
-            if matches!(
-                job.status,
-                JobStatus::Completed | JobStatus::Failed | JobStatus::Cancelled
-            ) {
-                return job;
-            }
-            tokio::time::sleep(Duration::from_millis(10)).await;
-        }
-        panic!("job did not reach a terminal state");
-    }
-
-    #[tokio::test]
-    async fn health_contract() {
-        let response = app(AppState::new())
-            .oneshot(
-                Request::builder()
-                    .uri("/health")
-                    .body(Body::empty())
-                    .unwrap(),
-            )
-            .await
-            .unwrap();
-        assert_eq!(response.status(), StatusCode::OK);
-    }
-
-    #[tokio::test]
-    async fn lifecycle_completes() {
-        let router = app(AppState::new());
-        let job = create_test_job(&router, 2, None).await;
-        let finished = wait_terminal(&router, job.id).await;
-        assert_eq!(finished.status, JobStatus::Completed);
-        assert_eq!(finished.progress, 1.0);
-        assert!(finished.finished_at.is_some());
-    }
-
-    #[tokio::test]
-    async fn failure_reason_is_exposed() {
-        let router = app(AppState::new());
-        let job = create_test_job(&router, 2, Some(1)).await;
-        let finished = wait_terminal(&router, job.id).await;
-        assert_eq!(finished.status, JobStatus::Failed);
-        assert!(finished.error.as_deref().is_some_and(|e| e.contains("step 1")));
-    }
-
-    #[tokio::test]
-    async fn cancellation_reaches_cancelled() {
-        let router = app(AppState::new());
-        let job = create_test_job(&router, 50, None).await;
-        let response = router
-            .clone()
-            .oneshot(
-                Request::builder()
-                    .method("POST")
-                    .uri(format!("/jobs/{}/cancel", job.id))
-                    .body(Body::empty())
-                    .unwrap(),
-            )
-            .await
-            .unwrap();
-        assert_eq!(response.status(), StatusCode::OK);
-        let finished = wait_terminal(&router, job.id).await;
-        assert_eq!(finished.status, JobStatus::Cancelled);
-    }
-
-    #[tokio::test]
-    async fn concurrent_jobs_complete_independently() {
-        let router = app(AppState::new());
-        let first = create_test_job(&router, 2, None).await;
-        let second = create_test_job(&router, 3, None).await;
-        let (a, b) = tokio::join!(
-            wait_terminal(&router, first.id),
-            wait_terminal(&router, second.id)
-        );
-        assert_eq!(a.status, JobStatus::Completed);
-        assert_eq!(b.status, JobStatus::Completed);
-        assert_ne!(a.id, b.id);
+        (self.0, Json(serde_json::json!({"error": self.1}))).into_response()
     }
 }

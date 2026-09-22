@@ -23,3 +23,5 @@ Windowsでの開発手順は [Development](docs/development.md) を参照して�
 - [採点設計](docs/scoring.md)
 - [品質評価・CI](docs/testing.md)
 - [既存手法・参考プロジェクト](docs/research.md)
+
+- [Python Analysis Service](docs/analysis_service.md)

@@ -1,15 +1,13 @@
 use std::{
     ffi::OsStr,
-    fmt,
-    fs,
-    io,
+    fmt, fs, io,
     path::{Path, PathBuf},
     process::{Command, Output},
 };
 
 use serde_json::Value;
 
-use crate::song_data::{SongManifest, INTERNAL_SAMPLE_RATE};
+use crate::song_data::{INTERNAL_SAMPLE_RATE, SongManifest};
 
 pub const INTERNAL_CHANNELS: u32 = 2;
 
@@ -24,10 +22,7 @@ pub struct NormalizedAudioMetadata {
 pub enum AudioImportError {
     Io(io::Error),
     UnsupportedInput(String),
-    ToolFailure {
-        tool: String,
-        stderr: String,
-    },
+    ToolFailure { tool: String, stderr: String },
     LicensePolicy(String),
     InvalidProbe(String),
 }
@@ -56,6 +51,10 @@ impl From<io::Error> for AudioImportError {
     }
 }
 
+/// Normalize supported input to the internal WAV format.
+///
+/// # Errors
+/// Returns input, distribution-policy, process, probe or filesystem errors.
 pub fn normalize_audio(
     ffmpeg: impl AsRef<OsStr>,
     ffprobe: impl AsRef<OsStr>,
@@ -109,6 +108,10 @@ pub fn apply_metadata(
     manifest.files.original = relative_output_path.into();
 }
 
+/// Inspect the configured FFmpeg executable.
+///
+/// # Errors
+/// Returns process failures or violations of the selected distribution policy.
 pub fn verify_ffmpeg_distribution(ffmpeg: &OsStr) -> Result<(), AudioImportError> {
     let result = Command::new(ffmpeg).arg("-buildconf").output()?;
     ensure_success("ffmpeg -buildconf", &result)?;
@@ -120,6 +123,10 @@ pub fn verify_ffmpeg_distribution(ffmpeg: &OsStr) -> Result<(), AudioImportError
     validate_ffmpeg_build_configuration(&text)
 }
 
+/// Validate the selected FFmpeg build policy.
+///
+/// # Errors
+/// Rejects GPL-enabled and nonfree-enabled configurations under this policy.
 pub fn validate_ffmpeg_build_configuration(configuration: &str) -> Result<(), AudioImportError> {
     let lowered = configuration.to_ascii_lowercase();
 
@@ -166,6 +173,10 @@ pub fn ffmpeg_arguments(input: &Path, output: &Path) -> Vec<String> {
     ]
 }
 
+/// Probe audio stream metadata.
+///
+/// # Errors
+/// Returns process failures or invalid probe output.
 pub fn probe_audio(
     ffprobe: &OsStr,
     input: &Path,
@@ -188,6 +199,10 @@ pub fn probe_audio(
     parse_probe_json(&result.stdout)
 }
 
+/// Decode required integer stream metadata.
+///
+/// # Errors
+/// Rejects malformed JSON, missing fields and out-of-range integer values.
 pub fn parse_probe_json(bytes: &[u8]) -> Result<NormalizedAudioMetadata, AudioImportError> {
     let value: Value = serde_json::from_slice(bytes)
         .map_err(|error| AudioImportError::InvalidProbe(error.to_string()))?;
@@ -269,7 +284,7 @@ fn temporary_wav_path(output: &Path) -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::song_data::{SongFiles, CURRENT_FORMAT_VERSION};
+    use crate::song_data::{CURRENT_FORMAT_VERSION, SongFiles};
 
     #[test]
     fn command_normalizes_to_internal_pcm_format() {
@@ -321,13 +336,11 @@ mod tests {
     #[test]
     fn gpl_and_nonfree_builds_are_rejected() {
         assert!(validate_ffmpeg_build_configuration("configuration: --enable-gpl").is_err());
+        assert!(validate_ffmpeg_build_configuration("configuration: --enable-nonfree").is_err());
         assert!(
-            validate_ffmpeg_build_configuration("configuration: --enable-nonfree").is_err()
+            validate_ffmpeg_build_configuration("configuration: --disable-gpl --disable-nonfree")
+                .is_ok()
         );
-        assert!(validate_ffmpeg_build_configuration(
-            "configuration: --disable-gpl --disable-nonfree"
-        )
-        .is_ok());
     }
 
     #[test]

@@ -1,6 +1,8 @@
+#requires -Version 7.4
 param([string]$OutputDirectory = "artifacts/dependencies")
 
 $ErrorActionPreference = "Stop"
+$PSNativeCommandUseErrorActionPreference = $true
 $repo = Split-Path -Parent $PSScriptRoot
 $out = Join-Path $repo $OutputDirectory
 New-Item -ItemType Directory -Force -Path $out | Out-Null
