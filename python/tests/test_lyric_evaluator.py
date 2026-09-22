@@ -66,7 +66,9 @@ def test_work_budget_and_invalid_threshold():
 def test_cli_quality_failure_exit_code(tmp_path):
     source = tmp_path / "pairs.json"
     output = tmp_path / "metrics.json"
-    source.write_text(json.dumps([{"reference": "青い空", "hypothesis": "青い海"}]), encoding="utf-8")
+    source.write_text(
+        json.dumps([{"reference": "青い空", "hypothesis": "青い海"}]), encoding="utf-8"
+    )
     result = subprocess.run(
         [
             sys.executable,
