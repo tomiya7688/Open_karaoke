@@ -1,4 +1,4 @@
-name: Prepare Issue 6 implementation
+name: Finalize Issue 6 source checks
 on:
   push:
     branches: [issue-6-stem-separation]
@@ -6,7 +6,7 @@ on:
 permissions:
   contents: write
 jobs:
-  prepare:
+  finalize:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -16,47 +16,31 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - name: Verify and materialize source files
+      - name: Resolve two line-length findings
         shell: python
         run: |
-          import base64, hashlib, json, lzma
           from pathlib import Path
-          data = base64.b64decode(''.join(Path(f'.ci-issue6/part{i}.b64').read_text() for i in range(4)), validate=True)
-          assert hashlib.sha256(data).hexdigest() == '34008acc278798a14359fe084fc4117676f6e51a2a23ab650e8de23bcc2e6b1d'
-          sources = json.loads(lzma.decompress(data))
-          allowed = {'docs/licenses/open-unmix-MIT.txt', 'docs/licenses/umxhq-provenance.json', 'docs/stem_separation.md', 'python/pyproject.toml', 'python/src/open_karaoke_analysis/stem_audio.py', 'python/src/open_karaoke_analysis/stem_backend.py', 'python/src/open_karaoke_analysis/stem_evaluator.py', 'python/src/open_karaoke_analysis/stems.py', 'python/tests/stem_fixtures.py', 'python/tests/test_stem_api.py', 'python/tests/test_stem_evaluator.py', 'python/tests/test_stem_real_model.py', 'python/tests/test_stems.py'}
-          assert set(sources) == allowed
-          for name, content in sources.items():
-              path = Path(name)
-              path.parent.mkdir(parents=True, exist_ok=True)
-              path.write_text(content, encoding='utf-8', newline='\n')
-          def replace(name, old, new):
-              path = Path(name)
-              text = path.read_text(encoding='utf-8')
-              assert text.count(old) == 1, (name, old)
-              path.write_text(text.replace(old, new), encoding='utf-8', newline='\n')
-          replace('python/src/open_karaoke_analysis/service.py', 'LOG = logging.getLogger(__name__)', 'from .stems import StemsAdapter\n\nLOG = logging.getLogger(__name__)')
-          replace('python/src/open_karaoke_analysis/service.py', 'AdapterRegistry([MockAdapter()] if adapters is None else adapters)', 'AdapterRegistry([MockAdapter(), StemsAdapter()] if adapters is None else adapters)')
-          replace('python/tests/test_service.py', '["stems", "lyrics", "alignment", "pitch", "notes", "song"]', '["lyrics", "alignment", "pitch", "notes", "song"]')
-          replace('core/tests/job_api.rs', '"analysis.stems"', '"analysis.lyrics"')
-          replace('docs/analysis_service.md', 'The only included adapter is `mock-v1` (role `mock`). Stem separation, ASR, alignment, pitch,\nnotes and song generation are reserved endpoints, **not implemented inference**. Until a real\nadapter is registered they return HTTP 501 / `not_implemented`, not fabricated outputs.', 'Included adapters are `mock-v1` (role `mock`) and `umxhq-vocals` (role `stems`).\nSee [Stem separation](stem_separation.md) for runtime installation, pinned weights and evaluation.\nASR, alignment, pitch, notes and song generation still return HTTP 501 / `not_implemented`.')
-          path = Path('README.md')
-          path.write_text(path.read_text(encoding='utf-8') + '\n- [Stem separation](docs/stem_separation.md)\n', encoding='utf-8', newline='\n')
-      - name: Install development dependencies
-        run: python -m pip install -e './python[dev]'
-      - name: Format implementation
+          path = Path('python/src/open_karaoke_analysis/stem_audio.py')
+          text = path.read_text()
+          old = '# Preserve the original mixture, including frequencies above the model bandwidth.'
+          assert text.count(old) == 1
+          path.write_text(text.replace(old, '# Preserve the mixture, including energy above the model bandwidth.'))
+          path = Path('python/tests/test_stems.py')
+          text = path.read_text()
+          old = '"StemsAdapter(); assert not '
+          assert text.count(old) == 1
+          path.write_text(text.replace(old, '"StemsAdapter(); assert not "\n        "'))
+      - name: Install tools and format
         run: |
-          python -m ruff check --select I --fix python
+          python -m pip install -e './python[dev]'
           python -m ruff format python
-      - name: Commit implementation to its feature branch
+          python -m ruff check python
+      - name: Run service and numerical tests
+        run: python -m pytest python/tests -q
+      - name: Commit checked corrections
         run: |
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add python docs core/tests/job_api.rs README.md
-          git commit -m 'feat: add pinned UMX-HQ stem separation, cache and evaluator'
+          git add python
+          git commit -m 'style: resolve stem pipeline lint diagnostics'
           git push origin HEAD:refs/heads/issue-6-stem-separation
-      - name: Static analysis
-        run: python -m ruff check python
-      - name: Run numerical, API and existing service tests
-        if: always()
-        run: python -m pytest python/tests -q
