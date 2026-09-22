@@ -185,12 +185,14 @@ def test_queue_is_bounded(tmp_path):
 
 
 def test_shutdown_cancels_worker_and_stops_admission(tmp_path):
+    started = threading.Event()
     stopped = threading.Event()
 
     class Cancellable(MockAdapter):
         def analyze(self, context, options):
             try:
-                context.cancelled.wait(3)
+                started.set()
+                assert context.cancelled.wait(10), "Shutdown did not signal cancellation"
                 context.checkpoint()
             finally:
                 stopped.set()
@@ -199,7 +201,8 @@ def test_shutdown_cancels_worker_and_stops_admission(tmp_path):
     app = create_app(tmp_path, TOKEN, [Cancellable()])
     with TestClient(app, headers=HEADERS) as session:
         job_id = submit(session)
-        time.sleep(0.03)
+        # Observe worker admission instead of assuming a fixed runner scheduling delay.
+        assert started.wait(5), "Worker did not start"
         assert session.post("/shutdown").status_code == 200
         assert session.post("/analysis/mock", json={}).status_code == 503
     assert stopped.is_set()
