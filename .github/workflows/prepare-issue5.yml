@@ -6,7 +6,7 @@ permissions:
   contents: write
 jobs:
   prepare:
-    if: github.event.head_commit.message == 'build: materialize issue 5 source bundle'
+    if: contains(github.event.head_commit.message, 'materialize issue 5')
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -33,12 +33,10 @@ jobs:
               path = Path(name)
               path.parent.mkdir(parents=True, exist_ok=True)
               path.write_text(content, encoding='utf-8', newline='\n')
-          # Repair a literal LF accidentally embedded in a Rust byte literal by the earlier PR.
           path = Path('core/src/song_data.rs')
           text = path.read_text()
           assert "bytes.push(b'\n');" in text
           path.write_text(text.replace("bytes.push(b'\n');", "bytes.push(b'\\n');"))
-          # Document existing public fallible APIs rather than weakening the lint gate.
           docs = {
             'core/src/song_data.rs': {
               '    pub fn validate(': 'Validate the bundle.\n\n# Errors\nReturns collected schema, timeline, path and reference violations.',
@@ -78,7 +76,8 @@ jobs:
           python -m ruff check --select I --fix python
           python -m ruff format python
           cargo fmt --all
-      - name: Commit materialized and formatted source to implementation branch
+          cargo generate-lockfile
+      - name: Commit materialized and formatted source
         run: |
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
