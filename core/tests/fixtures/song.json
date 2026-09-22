@@ -1,0 +1,35 @@
+{
+  "format_version": 1,
+  "song_id": "fixture-song",
+  "title": "Fixture Song",
+  "artist": "Fixture Artist",
+  "sample_rate": 48000,
+  "duration_samples": 192000,
+  "analysis_version": 3,
+  "files": {
+    "original": "audio/original_48k.wav",
+    "vocals": "audio/vocals.wav",
+    "accompaniment": "audio/accompaniment.wav",
+    "lyrics": "analysis/lyrics.json",
+    "notes": "analysis/notes.json",
+    "evidence": "analysis/evidence.json"
+  },
+  "artifacts": {
+    "lyrics": {
+      "generation": 1,
+      "valid": true,
+      "depends_on": [
+        "vocals"
+      ],
+      "analysis_version": 3
+    },
+    "notes": {
+      "generation": 1,
+      "valid": true,
+      "depends_on": [
+        "lyrics"
+      ],
+      "analysis_version": 3
+    }
+  }
+}
