@@ -1,0 +1,14 @@
+{
+  "format_version": 1,
+  "analysis_version": 1,
+  "items": [
+    {
+      "target_id": "line-1",
+      "evidence": {
+        "timing_kind": "ctc_forced",
+        "confidence_calibrated": false,
+        "original_source": "asr-fixture"
+      }
+    }
+  ]
+}

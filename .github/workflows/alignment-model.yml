@@ -1,0 +1,66 @@
+name: Lyric alignment
+on:
+  pull_request:
+    paths:
+      - 'python/**'
+      - 'core/tests/**'
+      - '.github/workflows/alignment-model.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  alignment-contracts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install test dependencies
+        run: python -m pip install --quiet -e './python[dev]'
+      - name: Static diagnostics
+        run: |
+          mkdir -p artifacts/alignment
+          python -m ruff check python --output-format concise > artifacts/alignment/lint.txt
+      - name: Formatting diagnostics
+        if: always()
+        run: python -m ruff format --check --diff python > artifacts/alignment/format.patch
+      - name: Alignment contracts and regressions
+        if: always()
+        run: python -m pytest python/tests -q -k alignment --junitxml=artifacts/alignment/tests.xml
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: alignment-contracts
+          path: artifacts/alignment
+          if-no-files-found: error
+  real-japanese-ctc:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install pinned CPU acoustic runtime
+        run: |
+          python -m pip install --quiet torch==2.10.0 --index-url https://download.pytorch.org/whl/cpu
+          python -m pip install --quiet -e './python[dev,alignment]'
+      - name: Real Japanese checkpoint and alignment smoke
+        env:
+          OPEN_KARAOKE_REAL_ALIGNMENT: '1'
+          OPEN_KARAOKE_METRICS_DIR: artifacts/alignment-model
+          OMP_NUM_THREADS: '2'
+          MKL_NUM_THREADS: '2'
+        run: python -m pytest python/tests/test_alignment_real_model.py -v --tb=short
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: real-japanese-alignment-smoke
+          path: artifacts/alignment-model
+          if-no-files-found: warn

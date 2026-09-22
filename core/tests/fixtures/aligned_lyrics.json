@@ -1,0 +1,15 @@
+{
+  "format_version": 1,
+  "analysis_version": 1,
+  "segments": [
+    {
+      "id": "line-1",
+      "text": "あい",
+      "start_sample": 6857,
+      "end_sample": 41143,
+      "text_confidence": null,
+      "timing_confidence": null,
+      "source": "wav2vec2-ja-alignment"
+    }
+  ]
+}

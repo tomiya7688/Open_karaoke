@@ -1,0 +1,13 @@
+{
+  "model_id": "jonatasgrosman/wav2vec2-large-xlsr-53-japanese",
+  "revision": "cf031e020336460d15a417eba710bbc5bb43be9a",
+  "weights_file": "pytorch_model.bin",
+  "weights_sha256": "4f6821dcd79770fcd4c11487c4ee5c040b3a7e1863425224014ba5ea8fbc1b67",
+  "declared_weights_license": "Apache-2.0",
+  "license_source": "https://huggingface.co/jonatasgrosman/wav2vec2-large-xlsr-53-japanese",
+  "digest_source": "https://huggingface.co/jonatasgrosman/wav2vec2-large-xlsr-53-japanese/blob/main/pytorch_model.bin",
+  "runtime": "transformers==4.57.1",
+  "code_license_source": "https://github.com/huggingface/transformers/blob/v4.57.1/LICENSE",
+  "review_date": "2026-09-23",
+  "scope": "Publisher declarations; runtime/model distribution and music rights require separate review."
+}
