@@ -392,7 +392,7 @@ pub fn migrate_document(kind: DocumentKind, mut value: Value) -> Result<Value, S
                     .or_insert(Value::from(1));
                 object
                     .entry("artifacts".to_owned())
-                    .or_insert_with(|| Value::Object(Default::default()));
+                    .or_insert_with(|| Value::Object(serde_json::Map::new()));
 
                 if let Some(files) = object.get_mut("files").and_then(Value::as_object_mut) {
                     files

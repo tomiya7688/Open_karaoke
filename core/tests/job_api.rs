@@ -217,10 +217,10 @@ async fn python_startup_mock_cancel_crash_recovery_shutdown() {
     assert_eq!(terminal(&router, crashed).await.status, JobStatus::Failed);
     let deadline = Instant::now() + Duration::from_secs(40);
     loop {
-        if let Ok(next) = client.health().await {
-            if next["instance_id"] != health["instance_id"] {
-                break;
-            }
+        if let Ok(next) = client.health().await
+            && next["instance_id"] != health["instance_id"]
+        {
+            break;
         }
         assert!(Instant::now() < deadline, "Service did not recover");
         sleep(Duration::from_millis(50)).await;

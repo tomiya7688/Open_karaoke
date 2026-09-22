@@ -1,7 +1,7 @@
 """Versioned wire contracts; no model framework imports at service startup."""
 
 from datetime import datetime
-from enum import Enum
+from enum import StrEnum
 from typing import Any
 from uuid import UUID
 
@@ -10,7 +10,7 @@ from pydantic import BaseModel, ConfigDict, Field
 PROTOCOL_VERSION = 1
 
 
-class Role(str, Enum):
+class Role(StrEnum):
     MOCK = "mock"
     STEMS = "stems"
     LYRICS = "lyrics"

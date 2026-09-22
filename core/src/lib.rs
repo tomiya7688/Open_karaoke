@@ -130,12 +130,12 @@ impl AppState {
 
     async fn finish(&self, id: Uuid, status: JobStatus, error: Option<String>) {
         self.update(id, |job| {
-            job.stage = match status {
+            match status {
                 JobStatus::Completed => "completed",
                 JobStatus::Cancelled => "cancelled",
                 _ => "failed",
             }
-            .to_owned();
+            .clone_into(&mut job.stage);
             job.status = status;
             job.error = error;
             job.finished_at = Some(Utc::now());
@@ -144,7 +144,6 @@ impl AppState {
     }
 }
 
-#[must_use]
 pub fn app(state: AppState) -> Router {
     Router::new()
         .route("/health", get(health))
@@ -247,7 +246,7 @@ async fn run_job(state: AppState, id: Uuid, request: CreateJobRequest) {
     state
         .update(id, |job| {
             job.status = JobStatus::Running;
-            job.stage = "running".to_owned();
+            "running".clone_into(&mut job.stage);
             job.started_at = Some(Utc::now());
         })
         .await;

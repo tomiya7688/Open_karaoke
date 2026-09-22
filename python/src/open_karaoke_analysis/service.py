@@ -7,7 +7,7 @@ import secrets
 import shutil
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from threading import Event
 from uuid import UUID, uuid4
@@ -32,7 +32,7 @@ TERMINAL = {"completed", "failed", "cancelled"}
 
 
 def now() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 @dataclass
@@ -201,8 +201,8 @@ def create_app(
             return error_response(
                 ServiceError("forbidden_origin", "Browser requests are not accepted", 403)
             )
-        supplied = request.headers.get("authorization", "").encode("utf-8")
-        if not secrets.compare_digest(supplied, f"Bearer {token}".encode("utf-8")):
+        supplied = request.headers.get("authorization", "").encode()
+        if not secrets.compare_digest(supplied, f"Bearer {token}".encode()):
             return error_response(
                 ServiceError("unauthorized", "A valid session token is required", 401)
             )

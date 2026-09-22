@@ -108,7 +108,7 @@ pub fn apply_metadata(
     manifest.files.original = relative_output_path.into();
 }
 
-/// Inspect the configured FFmpeg executable.
+/// Inspect the configured `FFmpeg` executable.
 ///
 /// # Errors
 /// Returns process failures or violations of the selected distribution policy.
@@ -123,7 +123,7 @@ pub fn verify_ffmpeg_distribution(ffmpeg: &OsStr) -> Result<(), AudioImportError
     validate_ffmpeg_build_configuration(&text)
 }
 
-/// Validate the selected FFmpeg build policy.
+/// Validate the selected `FFmpeg` build policy.
 ///
 /// # Errors
 /// Rejects GPL-enabled and nonfree-enabled configurations under this policy.
@@ -354,7 +354,7 @@ mod tests {
             duration_samples: 0,
             analysis_version: 1,
             files: SongFiles::default(),
-            artifacts: Default::default(),
+            artifacts: std::collections::BTreeMap::new(),
         };
         let metadata = NormalizedAudioMetadata {
             sample_rate: 48_000,
