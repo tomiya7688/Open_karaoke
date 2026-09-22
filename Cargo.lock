@@ -1,0 +1,2 @@
+# This bootstrap lockfile is resolved by Cargo during the first build.
+version = 4
