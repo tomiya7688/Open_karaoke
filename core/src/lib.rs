@@ -1,3 +1,5 @@
+pub mod song_data;
+
 use std::{
     collections::HashMap,
     convert::Infallible,
@@ -290,13 +292,12 @@ async fn job_events(
     }
 
     let stream = BroadcastStream::new(state.events.subscribe()).filter_map(move |message| {
-        let event = match message {
+        match message {
             Ok(event) if event.job.id == id => {
                 Some(Ok(Event::default().json_data(event).expect("serializable job event")))
             }
             _ => None,
-        };
-        event
+        }
     });
 
     Ok(Sse::new(stream).keep_alive(KeepAlive::default()))
