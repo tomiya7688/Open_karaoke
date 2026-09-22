@@ -201,9 +201,15 @@ def test_shutdown_cancels_worker_and_stops_admission(tmp_path):
     app = create_app(tmp_path, TOKEN, [Cancellable()])
     with TestClient(app, headers=HEADERS) as session:
         job_id = submit(session)
-        # Observe worker admission instead of assuming a fixed runner scheduling delay.
-        assert started.wait(5), "Worker did not start"
+        deadline = time.monotonic() + 10
+        while not started.is_set():
+            response = session.get(f"/jobs/{job_id}")
+            assert response.status_code == 200, response.text
+            snapshot = response.json()
+            assert snapshot["status"] in {"queued", "running"}, snapshot
+            assert time.monotonic() < deadline, f"Worker did not start: {snapshot}"
+            time.sleep(0.01)
         assert session.post("/shutdown").status_code == 200
         assert session.post("/analysis/mock", json={}).status_code == 503
-    assert stopped.is_set()
+    assert started.is_set() and stopped.is_set()
     assert app.state.jobs.get(UUID(job_id)).job.status == "cancelled"
