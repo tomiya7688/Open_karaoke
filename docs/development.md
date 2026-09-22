@@ -2,47 +2,54 @@
 
 ## Prerequisites
 
-The repository is a monorepo with three components:
-
-- Rust stable toolchain with rustfmt and clippy
+- Rust stable with rustfmt and Clippy
 - Python 3.11 or newer
 - .NET 8 SDK
+- PowerShell 7.4 or newer (`pwsh`, not Windows PowerShell 5.1)
 
-The production distribution must bundle or manage required runtimes and tools so end users are not asked to install this development stack.
+These are developer prerequisites. The production distribution must bundle or manage the
+runtime and tools; this repository layout does not require end users to install them manually.
+Runtime/model packaging and the final dependency/license audit are still release work.
 
 ## Layout
 
-- `core/`: Rust product core
-- `python/`: offline analysis service
-- `gui/`: C# / Avalonia desktop GUI
-- `scripts/`: developer and CI entry points
+- `core/`: Rust core, Job API, Song Data, import primitives and Python process supervision
+- `python/`: offline analysis service with a replaceable model adapter interface
+- `gui/`: C# / Avalonia desktop shell
+- `scripts/`: Windows developer and CI entry points
 
-## Build
+## Build and checks
+
+From the repository root in PowerShell 7.4+:
 
 ```powershell
 ./scripts/build.ps1
-```
-
-## Static checks and tests
-
-```powershell
 ./scripts/check.ps1
-```
-
-## Dependency inventory
-
-```powershell
 ./scripts/dependency-inventory.ps1
 ```
 
-CI uploads the generated `artifacts/dependencies/` directory so dependency and license review has a reproducible input.
+`check.ps1` propagates every native command failure. It runs Rust formatting, Clippy and tests,
+Python lint/format/pytest, a real Rust-to-Python lifecycle/crash-recovery test, the Avalonia
+build and .NET formatter verification. The cross-process test is explicitly invoked with
+`cargo test --test job_api -- --ignored`; it is not silently skipped in CI.
 
-## Running bootstrap components
+CI runs the Rust/Python contracts on Linux and the complete check script on Windows. Its
+repository permissions are read-only. Dependency inventory is uploaded from Windows, and
+Python test results are uploaded from Linux. The inventory is an input to license review,
+not a completed license audit.
+
+## Run Core and GUI
 
 ```powershell
+python -m pip install -e './python[dev]'
+$env:OPEN_KARAOKE_PYTHON = (Get-Command python).Source
 cargo run -p open-karaoke-core
-python -m open_karaoke_analysis
+# In another terminal:
 dotnet run --project gui/OpenKaraoke.Gui/OpenKaraoke.Gui.csproj
 ```
 
-These are bootstrap executables only. Product APIs and audio/analysis features are implemented by later issues.
+Core starts and supervises its private Python worker automatically. See
+[Analysis Service](analysis_service.md) for configuration and sample Job requests.
+The GUI is still a bootstrap shell; its Core API client is Issue #15.
+Only the mock analysis adapter ships at this stage. Actual stem separation and other AI
+inference are implemented by subsequent issues; reserved endpoints return a clear error.
