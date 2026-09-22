@@ -103,7 +103,7 @@ def test_failure_and_unknown_id(client):
         assert response.json()["error"]["code"] == "job_not_found"
 
 
-@pytest.mark.parametrize("role", ["lyrics", "alignment", "pitch", "notes", "song"])
+@pytest.mark.parametrize("role", ["alignment", "pitch", "notes", "song"])
 def test_unimplemented_roles_never_fake_success(client, role):
     response = client.post(f"/analysis/{role}", json={})
     assert response.status_code == 501
@@ -167,8 +167,8 @@ def test_swappable_adapter_and_failure_cleanup(tmp_path):
 
     with TestClient(create_app(tmp_path, TOKEN, [Replacement()]), headers=HEADERS) as session:
         assert session.get("/models").json()["models"][0]["id"] == "replacement"
-        result = terminal(session, submit(session))
-        assert result["error"]["code"] == "adapter_failure"
+        result = terminal(session, submit(session))["error"]
+        assert result["code"] == "adapter_failure"
         assert "private-details" not in json.dumps(result)
         assert not list(tmp_path.rglob("partial.json"))
     with pytest.raises(ValueError):

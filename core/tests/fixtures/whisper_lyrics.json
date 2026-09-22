@@ -1,0 +1,15 @@
+{
+  "analysis_version": 1,
+  "format_version": 1,
+  "segments": [
+    {
+      "end_sample": 38400,
+      "id": "lyric-000001",
+      "source": "fixture-asr:1",
+      "start_sample": 4800,
+      "text": "青い空",
+      "text_confidence": null,
+      "timing_confidence": null
+    }
+  ]
+}

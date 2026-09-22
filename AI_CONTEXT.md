@@ -19,6 +19,7 @@ Rust Core / Python Analysis Service / C#・Avalonia GUI のモノレポ。
 - 実際の挙動・互換性: 作業対象SHAのsource、matching tests、API・保存形式の定義。
 - 検証手順: [development](docs/development.md)、`scripts/check.ps1`、`.github/workflows/`。
 - 現状メモ: [Snapshot](docs/ai_workflow.md#snapshot)。更新日時とSHAを必ず確認する。
+- 歌詞抽出 #7: [Lyric transcription](docs/lyric_transcription.md)、`python/src/open_karaoke_analysis/lyrics.py`、`whisper_backend.py`、`lyric_evaluator.py`、`python/tests/test_lyric*.py`。実録歌唱の評価は別途確認する。
 
 仕様・コード・Issueの不一致は明示する。要約で原典を上書きしない。
 
