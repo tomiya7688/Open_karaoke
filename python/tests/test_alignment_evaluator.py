@@ -8,11 +8,21 @@ from open_karaoke_analysis.alignment_evaluator import evaluate
 
 
 def dataset():
-    return {"dataset_version": "scripted-boundaries-v1", "items": [
-        {"id": "a", "reference": {"start_sample": 0, "end_sample": 4800},
-         "hypothesis": {"start_sample": 480, "end_sample": 5760}},
-        {"id": "b", "reference": {"start_sample": 9600, "end_sample": 14400},
-         "hypothesis": None}]}
+    return {
+        "dataset_version": "scripted-boundaries-v1",
+        "items": [
+            {
+                "id": "a",
+                "reference": {"start_sample": 0, "end_sample": 4800},
+                "hypothesis": {"start_sample": 480, "end_sample": 5760},
+            },
+            {
+                "id": "b",
+                "reference": {"start_sample": 9600, "end_sample": 14400},
+                "hypothesis": None,
+            },
+        ],
+    }
 
 
 def test_errors_and_coverage():
@@ -34,8 +44,15 @@ def test_missing_never_improves_error():
     assert report["passed"] is False
 
 
-@pytest.mark.parametrize("options", [{"max_mean_ms": float("nan")}, {"max_p95_ms": -1},
-                                    {"min_coverage": 1.1}, {"min_coverage": True}])
+@pytest.mark.parametrize(
+    "options",
+    [
+        {"max_mean_ms": float("nan")},
+        {"max_p95_ms": -1},
+        {"min_coverage": 1.1},
+        {"min_coverage": True},
+    ],
+)
 def test_bad_thresholds(options):
     with pytest.raises(ValueError):
         evaluate(dataset(), **options)
@@ -57,8 +74,19 @@ def test_duplicates_and_noninteger_samples():
 def test_cli_threshold_exit(tmp_path):
     source, output = tmp_path / "input.json", tmp_path / "output.json"
     source.write_text(json.dumps(dataset()), encoding="utf-8")
-    result = subprocess.run([sys.executable, "-m", "open_karaoke_analysis.alignment_evaluator",
-                             str(source), str(output), "--max-mean-ms", "1"],
-                            check=False, capture_output=True, timeout=10)
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "open_karaoke_analysis.alignment_evaluator",
+            str(source),
+            str(output),
+            "--max-mean-ms",
+            "1",
+        ],
+        check=False,
+        capture_output=True,
+        timeout=10,
+    )
     assert result.returncode == 1
     assert json.loads(output.read_text())["passed"] is False

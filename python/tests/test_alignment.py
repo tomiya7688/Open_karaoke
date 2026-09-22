@@ -40,12 +40,25 @@ class FixtureBackend:
 def case(tmp_path):
     audio = 0.1 * np.sin(2 * np.pi * 220 * np.arange(48000) / 48000)
     sf.write(tmp_path / "vocals.wav", audio, 48000, subtype="FLOAT")
-    lyrics = {"format_version": 1, "analysis_version": 1, "segments": [
-        {"id": "line-1", "text": "あい", "start_sample": 0, "end_sample": 48000,
-         "text_confidence": None, "timing_confidence": None, "source": "asr-fixture"}]}
+    lyrics = {
+        "format_version": 1,
+        "analysis_version": 1,
+        "segments": [
+            {
+                "id": "line-1",
+                "text": "あい",
+                "start_sample": 0,
+                "end_sample": 48000,
+                "text_confidence": None,
+                "timing_confidence": None,
+                "source": "asr-fixture",
+            }
+        ],
+    }
     (tmp_path / "input.json").write_text(json.dumps(lyrics), encoding="utf-8")
-    context = AnalysisContext(tmp_path, "jobs/alignment/fixture", tmp_path / "vocals.wav",
-                              Event(), lambda *_: None)
+    context = AnalysisContext(
+        tmp_path, "jobs/alignment/fixture", tmp_path / "vocals.wav", Event(), lambda *_: None
+    )
     adapter = AlignmentAdapter(FixtureBackend)
     return tmp_path, context, adapter, lyrics
 
@@ -95,8 +108,10 @@ def test_bad_token_ids(tokens, blank):
         align_tokens(emission([1]), tokens, blank, lambda: None)
 
 
-@pytest.mark.parametrize("values", [np.array([[np.nan, -1.0]]), np.zeros((2, 2)),
-                                   np.array([[np.inf, -1]]), np.zeros((0, 2))])
+@pytest.mark.parametrize(
+    "values",
+    [np.array([[np.nan, -1.0]]), np.zeros((2, 2)), np.array([[np.inf, -1]]), np.zeros((0, 2))],
+)
 def test_bad_emissions(values):
     with pytest.raises(ServiceError):
         align_tokens(values, [1], 0, lambda: None)
@@ -158,19 +173,29 @@ def test_silence_never_loads_model_and_preserves_coarse_asr(case):
 def test_low_score_and_oov_not_invented(case):
     _, context, adapter, original = case
     options = adapter.validate_options({"lyrics_artifact": "input.json", "min_token_score": 1.0})
-    line = align_segment(original["segments"][0], emission([0, 1, 2]), {"あ": 1, "い": 2},
-                         0, options, context)
+    line = align_segment(
+        original["segments"][0], emission([0, 1, 2]), {"あ": 1, "い": 2}, 0, options, context
+    )
     assert line["status"] == "unaligned"
     assert line["characters"][0]["observed_span"] is not None
-    line = align_segment(original["segments"][0], emission([0, 1, 2]), {"あ": 1}, 0, options, context)
+    line = align_segment(
+        original["segments"][0], emission([0, 1, 2]), {"あ": 1}, 0, options, context
+    )
     assert "out_of_vocabulary" in line["flags"]
     assert all(c["start_sample"] is None for c in line["characters"])
 
 
-@pytest.mark.parametrize("change", [
-    {"start_sample": True}, {"end_sample": 0}, {"end_sample": 999999}, {"id": " "},
-    {"text_confidence": float("nan")}, {"start_sample": -1},
-])
+@pytest.mark.parametrize(
+    "change",
+    [
+        {"start_sample": True},
+        {"end_sample": 0},
+        {"end_sample": 999999},
+        {"id": " "},
+        {"text_confidence": float("nan")},
+        {"start_sample": -1},
+    ],
+)
 def test_invalid_lyrics(case, change):
     root, _, _, lyrics = case
     lyrics["segments"][0].update(change)
@@ -214,16 +239,30 @@ def test_text_normalization_offsets():
 
 
 def test_whitespace_word_aggregation():
-    chars = [{**c, "status": "aligned", "score": 0.9, "start_sample": i * 100,
-              "end_sample": i * 100 + 50} for i, c in enumerate(normalized_chars("ab a"))]
+    chars = [
+        {
+            **c,
+            "status": "aligned",
+            "score": 0.9,
+            "start_sample": i * 100,
+            "end_sample": i * 100 + 50,
+        }
+        for i, c in enumerate(normalized_chars("ab a"))
+    ]
     words = aggregate_units("ab a", chars, "whitespace_word", "s")
     assert [w["text"] for w in words] == ["ab", "a"]
     assert words[0]["end_sample"] == 150
 
 
-@pytest.mark.parametrize("options", [{}, {"lyrics_artifact": "x", "language": "en"},
-                                    {"lyrics_artifact": "x", "min_token_score": float("nan")},
-                                    {"lyrics_artifact": "x", "unknown": True}])
+@pytest.mark.parametrize(
+    "options",
+    [
+        {},
+        {"lyrics_artifact": "x", "language": "en"},
+        {"lyrics_artifact": "x", "min_token_score": float("nan")},
+        {"lyrics_artifact": "x", "unknown": True},
+    ],
+)
 def test_invalid_options(options):
     with pytest.raises(ServiceError):
         AlignmentAdapter().validate_options(options)
@@ -233,5 +272,13 @@ def test_python_output_matches_rust_fixture(case):
     from pathlib import Path
 
     lyrics, _, _ = run(case)
-    path = Path(__file__).parents[2] / 'core/tests/fixtures/aligned_lyrics.json'
-    assert lyrics == json.loads(path.read_text(encoding='utf-8'))
+    path = Path(__file__).parents[2] / "core/tests/fixtures/aligned_lyrics.json"
+    assert lyrics == json.loads(path.read_text(encoding="utf-8"))
+
+
+def test_nonfinite_extension_json_is_rejected(case):
+    root, context, _, lyrics = case
+    text = json.dumps(lyrics)[:-1] + ', "future_extension": 1e999}'
+    (root / "input.json").write_text(text, encoding="utf-8")
+    with pytest.raises(ServiceError):
+        read_lyrics(context, "input.json")

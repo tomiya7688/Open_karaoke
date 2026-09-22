@@ -20,6 +20,7 @@ Rust Core / Python Analysis Service / C#・Avalonia GUI のモノレポ。
 - 検証手順: [development](docs/development.md)、`scripts/check.ps1`、`.github/workflows/`。
 - 現状メモ: [Snapshot](docs/ai_workflow.md#snapshot)。更新日時とSHAを必ず確認する。
 - 歌詞抽出 #7: [Lyric transcription](docs/lyric_transcription.md)、`python/src/open_karaoke_analysis/lyrics.py`、`whisper_backend.py`、`lyric_evaluator.py`、`python/tests/test_lyric*.py`。実録歌唱の評価は別途確認する。
+- 歌詞整列 #8: [Lyric alignment](docs/lyric_alignment.md)、`python/src/open_karaoke_analysis/alignment*.py`、`ctc_alignment.py`、`python/tests/test_alignment*.py`、`core/tests/alignment_contract.rs`。日本語文字単位の整列と参照歌詞の差分保持。実録歌唱の時刻精度は未評価。
 
 仕様・コード・Issueの不一致は明示する。要約で原典を上書きしない。
 
