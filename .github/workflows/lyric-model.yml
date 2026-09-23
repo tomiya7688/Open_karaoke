@@ -1,0 +1,75 @@
+name: Lyric transcription
+
+on:
+  pull_request:
+    paths:
+      - 'python/**'
+      - 'core/tests/lyric_contract.rs'
+      - 'core/tests/fixtures/whisper_*.json'
+      - '.github/workflows/lyric-model.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  lyric-contracts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install test dependencies
+        run: python -m pip install --quiet -e './python[dev]'
+      - name: Check Python diagnostics
+        run: python -m ruff check python
+      - name: Check formatting with bounded patch diagnostics
+        if: always()
+        run: python -m ruff format --check --diff python
+      - name: Run lyric contracts
+        if: always()
+        run: python -m pytest python/tests/test_lyric*.py -q --junitxml=artifacts/lyric-tests.xml
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: lyric-contract-results
+          path: artifacts/lyric-tests.xml
+          if-no-files-found: error
+
+  real-whisper:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        model: [tiny, large-v3-turbo]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install CPU runtime
+        run: |
+          python -m pip install --quiet torch==2.10.0 --index-url https://download.pytorch.org/whl/cpu
+          python -m pip install --quiet numpy==2.2.6 scipy==1.15.3 soundfile==0.13.1
+          python -m pip install --quiet -e './python[dev,lyrics]'
+      - name: Run real checkpoint inference
+        env:
+          OPEN_KARAOKE_REAL_LYRICS: '1'
+          OPEN_KARAOKE_LYRIC_MODEL: ${{ matrix.model }}
+          OPEN_KARAOKE_METRICS_DIR: artifacts/lyrics
+          OMP_NUM_THREADS: '2'
+          MKL_NUM_THREADS: '2'
+        run: python -m pytest python/tests/test_lyric_real_model.py -v -s
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: whisper-${{ matrix.model }}-smoke
+          path: artifacts/lyrics
+          if-no-files-found: error
