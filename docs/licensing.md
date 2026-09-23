@@ -14,6 +14,16 @@ Open_karaoke のプロジェクト本体は **Apache License 2.0** で提供す�
 
 Apache-2.0 により、商用利用、店舗利用、改変、再配布を許可する。
 
+## Scope of this policy
+
+この文書の第三者ライセンス方針は、**Open_karaoke開発チームが公式に配布・推奨するバイナリ、モデル、Plugin、Model Registryの内容**に適用する。
+
+Open_karaokeは、ユーザーが自分の責任で導入するMOD、Plugin、AIモデル、外部ツールについて、ライセンス種別だけを理由に技術的な利用を禁止しない。
+
+したがって、ユーザーはGPL、AGPL、Non-Commercial、研究用途限定、独自ライセンス等のモデルやPluginをローカル環境で利用できる。ただし、その利用・複製・改変・再配布・店舗利用等が各ライセンスで許可されるかはユーザー自身が確認し、その条件に従う必要がある。
+
+ユーザー導入コンポーネントはOpen_karaoke本体のApache-2.0へ自動的に再ライセンスされるものではない。
+
 ## Third-party dependencies
 
 公式配布物へ含める第三者コンポーネントは、商用利用可能であることを最低条件とする。
@@ -30,7 +40,7 @@ Apache-2.0 により、商用利用、店舗利用、改変、再配布を許可
 - redistribution terms
 - attribution / NOTICE requirements
 
-### 原則として採用しないもの
+### 公式配布では原則として採用しないもの
 
 - Non-Commercial (NC) 条項を含むもの
 - 商用利用可否が不明なもの
@@ -42,9 +52,15 @@ GPL / AGPL 等は、プロジェクト全体へのライセンス波及や配布
 
 LGPL等は動的リンク、再リンク可能性、ソース提供等の条件を満たせる場合のみ採用を検討する。
 
+これらは公式配布方針であり、ローカルMODとしての利用を禁止するものではない。
+
 ## AI models
 
-モデルパッケージにはライセンス情報を必須とする。
+### Official models
+
+公式Model Registry / 公式配布物へ含めるモデルは、コードだけでなく学習済み重みの利用条件も確認済みでなければならない。
+
+公式モデルのmanifestではライセンス情報を必須とする。
 
 最低限:
 
@@ -57,19 +73,35 @@ LGPL等は動的リンク、再リンク可能性、ソース提供等の条件�
 }
 ```
 
-公式Model Registry / 公式配布物へ含めるモデルは、ライセンスおよび重みの商用利用・再配布条件を確認済みでなければならない。
+### User-supplied models / MODs
 
-ライセンス情報が欠落した第三者モデルをローカルで読み込む拡張機能を将来提供する場合も、公式に安全性を保証したモデルとは明確に区別する。
+ユーザーがローカルに追加するモデルについては、Open_karaoke側でライセンスの許否判定を強制しない。
+
+- NCモデル
+- GPL / AGPL系モデル
+- 研究用途ライセンス
+- 独自ライセンス
+- 再配布禁止モデル
+
+なども、技術的に互換性があればローカル導入できる設計とする。
+
+ただしOpen_karaokeは、それらの商用利用・店舗利用・再配布が許可されることを保証しない。
+
+ライセンス情報が取得できる場合はUIへ表示し、公式検証済みモデルとユーザー導入モデルを明確に区別する。
+
+ライセンス情報が不明なローカルモデルについても読み込み自体を一律禁止しないが、未検証であることを表示する。
 
 ## Third-party notices and inventory
 
-第三者依存関係は `THIRD_PARTY_NOTICES.md` または生成されたSBOM / license inventoryへ記録する。
+Open_karaokeが公式に配布する第三者依存関係は `THIRD_PARTY_NOTICES.md` または生成されたSBOM / license inventoryへ記録する。
+
+ユーザーが後から追加したMODやモデルは、公式配布物のSBOM対象外とする。
 
 CI / Release Evaluationで少なくとも以下を確認する。
 
 - dependency license inventory
 - unknown license detection
-- prohibited license detection
+- prohibited license detection for official distribution
 - bundled AI weight license metadata
 - FFmpeg等のビルド設定
 - redistribution obligations
@@ -79,6 +111,8 @@ CI / Release Evaluationで少なくとも以下を確認する。
 FFmpeg等を同梱する場合、実際のビルド構成によって適用ライセンスが変わるため、バイナリ単位で構成を記録する。
 
 公式配布では、GPL / nonfree 構成を無意識に混入させない。
+
+ユーザーが独自ビルドや外部ツールとして別構成を利用することまでは制限しない。
 
 ## Music, lyrics, and user content
 
@@ -90,4 +124,6 @@ Open_karaoke本体のApache-2.0ライセンスは、ユーザーが読み込む�
 
 ## Release gate
 
-商用利用・再配布条件を確認できない依存物は、1.0.0の公式配布物へ含めない。
+商用利用・再配布条件を確認できない依存物は、1.0.0の**公式配布物**へ含めない。
+
+このRelease gateはユーザーがローカル環境へ導入するMOD / Plugin / AI modelを対象としない。
