@@ -145,7 +145,7 @@ def test_pipeline_without_reference(case):
 
 
 def test_imported_line_breaks_and_unmatched_reference(case):
-    (case[0] / "reference.txt").write_text("あ\nい\nう\n", encoding="utf-8")
+    (case[0] / "reference.txt").write_bytes("あ\nい\nう\n".encode("utf-8"))
     _, report, _ = run(case, {"reference_lyrics_artifact": "reference.txt"})
     first, second, missing = report["reference_lines"]
     assert first["status"] == second["status"] == "matched"
