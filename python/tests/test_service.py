@@ -103,7 +103,7 @@ def test_failure_and_unknown_id(client):
         assert response.json()["error"]["code"] == "job_not_found"
 
 
-@pytest.mark.parametrize("role", ["stems", "lyrics", "alignment", "pitch", "notes", "song"])
+@pytest.mark.parametrize("role", ["lyrics", "alignment", "pitch", "notes", "song"])
 def test_unimplemented_roles_never_fake_success(client, role):
     response = client.post(f"/analysis/{role}", json={})
     assert response.status_code == 501
