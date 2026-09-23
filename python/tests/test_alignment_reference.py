@@ -53,7 +53,14 @@ def test_mapping_budget_not_unbounded(tmp_path):
         map_reference([{"id": "asr", "text": "あ" * 5000}], imported, context.checkpoint)
 
 
-@pytest.mark.parametrize("content", [b"\xff\xfe", b"text\x00", b"a" * 65537])
+@pytest.mark.parametrize(
+    "content",
+    [
+        pytest.param(b"\xff\xfe", id="invalid-utf8"),
+        pytest.param(b"text\x00", id="nul-byte"),
+        pytest.param(b"a" * 65537, id="oversize"),
+    ],
+)
 def test_invalid_import(tmp_path, content):
     (tmp_path / "reference.txt").write_bytes(content)
     context = AnalysisContext(tmp_path, "jobs/test/ref", None, Event(), lambda *_: None)
