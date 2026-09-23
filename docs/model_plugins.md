@@ -33,7 +33,7 @@ Analysis Service
  |
 Model Adapter
  +-- Whisper
- +-- Demucs
+ +-- Stem Separator
  +-- WhisperX
  +-- Future Model
  +-- Internal Model
@@ -42,6 +42,8 @@ Model Adapter
 ## manifest
 
 モデルパッケージはmanifestを持つ。
+
+ライセンス情報は必須項目とする。
 
 初期例:
 
@@ -54,6 +56,10 @@ Model Adapter
   "backend": "whisper",
   "version": "1",
   "languages": ["ja", "en", "multi"],
+  "license": "MIT",
+  "license_url": "https://example.invalid/license",
+  "commercial_use": true,
+  "redistribution": true,
   "capabilities": {
     "timestamps": true,
     "word_timestamps": true,
@@ -61,6 +67,16 @@ Model Adapter
   }
 }
 ```
+
+公式配布・公式Model Registryへ登録するモデルは、コードだけでなく学習済み重みの利用条件も確認済みであることを要求する。
+
+以下は公式配布対象外とする。
+
+- commercial_use != true
+- redistribution条件を満たせない
+- license不明
+- モデル重みのライセンス不明
+- Non-Commercial条項を含む
 
 ## 将来の追加方法
 
