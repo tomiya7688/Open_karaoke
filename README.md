@@ -16,9 +16,12 @@ Windowsでの開発手順は [Development](docs/development.md) を参照して�
 - [要件](docs/requirements.md)
 - [アーキテクチャ](docs/architecture.md)
 - [実装計画](docs/implementation_plan.md)
+- [Rust Core API](docs/core_api.md)
 - [曲データ形式](docs/song_format.md)
 - [モデル拡張設計](docs/model_plugins.md)
 - [解析パイプライン](docs/analysis_pipeline.md)
 - [採点設計](docs/scoring.md)
 - [品質評価・CI](docs/testing.md)
 - [既存手法・参考プロジェクト](docs/research.md)
+
+- [Python Analysis Service](docs/analysis_service.md)

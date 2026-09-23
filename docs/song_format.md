@@ -6,9 +6,9 @@ Open_karaoke内部ではJSONベースの独自Song Data Formatを使用する。
 
 外部形式をそのまま正本にはせず、MIDIや既存カラオケ形式はImport / Exportで内部形式へ変換する。
 
-時間の正本は48kHz基準の整数sample indexとする。
+時間の正本は48kHz基準の整数sample indexとする。Rust実装では `u64` を使用し、浮動小数秒は保存しない。
 
-## ディレクトリ例
+## ディレクトリ
 
 ```text
 songs/
@@ -31,133 +31,81 @@ songs/
 
 曲全体のメタデータと生成物への参照を持つ。
 
-例:
+主要フィールド:
+
+- `format_version`
+- `song_id`
+- `title`
+- `artist`
+- `sample_rate`（常に48000）
+- `duration_samples`
+- `analysis_version`
+- `files`
+- `artifacts`
+
+`artifacts` は部分再解析のための状態を保持する。
 
 ```json
 {
-  "format_version": 1,
-  "song_id": "example-id",
-  "title": "Example Song",
-  "artist": "Example Artist",
-  "sample_rate": 48000,
-  "duration_samples": 9600000,
-  "analysis_version": 1,
-  "files": {
-    "original": "audio/original_48k.wav",
-    "vocals": "audio/vocals.wav",
-    "accompaniment": "audio/accompaniment.wav",
-    "lyrics": "analysis/lyrics.json",
-    "notes": "analysis/notes.json"
+  "lyrics": {
+    "generation": 2,
+    "valid": true,
+    "depends_on": ["vocals"],
+    "analysis_version": 4
+  },
+  "notes": {
+    "generation": 3,
+    "valid": true,
+    "depends_on": ["lyrics"],
+    "analysis_version": 4
   }
 }
 ```
 
+上流artifactをinvalidateすると依存する下流artifactへ再帰的にinvalidateを伝播できる。再生成したartifactだけgenerationを進めるため、lyrics/notes等を独立して再生成できる。
+
 ## lyrics.json
 
-歌詞本文とタイミングを保持する。
+歌詞本文とタイミングを保持する。各segmentは整数の `start_sample` / `end_sample` を持つ。
 
-初期段階では行・単語・音節の粒度を将来拡張できるようにする。
+初期実装では以下を検証する。
 
-例:
+- `start_sample < end_sample`
+- 曲の `duration_samples` を超えない
+- confidenceは0..1
+- IDが空ではない
 
-```json
-{
-  "format_version": 1,
-  "segments": [
-    {
-      "id": "lyric-0001",
-      "text": "君の声が",
-      "start_sample": 590400,
-      "end_sample": 686400,
-      "text_confidence": 0.94,
-      "timing_confidence": 0.88,
-      "source": "whisper"
-    }
-  ]
-}
-```
-
-将来は以下を追加可能にする。
-
-- words
-- syllables
-- phonemes
-- reference lyric mapping
-- ASR candidates
-- evidence
+将来はwords / syllables / phonemes / reference mapping / ASR candidatesを追加できる。
 
 ## notes.json
 
-採点用の正解ノート列を保持する。
+採点用の正規化ノート列を保持する。
 
-例:
+- 整数sample index
+- MIDI note 0..127
+- pitch confidence
+- 任意のlyric segment参照
 
-```json
-{
-  "format_version": 1,
-  "notes": [
-    {
-      "id": "note-0001",
-      "start_sample": 590400,
-      "end_sample": 638400,
-      "midi_note": 64,
-      "pitch_confidence": 0.93,
-      "lyric_segment_id": "lyric-0001"
-    }
-  ]
-}
-```
-
-実歌唱のpitch contourをそのまま保存するデータと、採点用に正規化したnoteは分離して扱える設計にする。
+lyric segment参照は保存時・読込時に整合性を検証する。
 
 ## evidence.json
 
-初期E2Eでは必須ではない。
+複数モデルの観測値や信頼度を保存するための拡張領域。任意のモデル固有JSONを `evidence` map配下に保持できる。
 
-将来の複数モデル合議用に、各モデルの観測結果や信頼度を保持できるよう予約する。
+## Persistence
 
-例:
+Rust Coreの `SongStore` が4文書を保存・読込する。
 
-```json
-{
-  "format_version": 1,
-  "items": [
-    {
-      "target_id": "lyric-0001",
-      "evidence": {
-        "whisper": {
-          "text": "君の声が",
-          "confidence": 0.91
-        },
-        "reference_lyrics": null
-      }
-    }
-  ]
-}
-```
+保存前・読込後にvalidationを実行する。JSONはpretty-print + LFで決定的に出力する。
 
-## バージョニング
+書込時は一時ファイルを作成後に置換し、中途半端なJSONを書き込みにくい構造にする。
 
-最低限以下を分離する。
+## バージョニング / migration
 
-- format_version
-- analysis_version
-- model version
+現在の `CURRENT_FORMAT_VERSION` は1。
 
-モデル更新や解析ロジック変更で結果を再生成できるようにする。
+読込時はJSONを一度 `serde_json::Value` として読み、`migrate_document` を経由してから型へdeserializeする。
 
-既存の曲データが新バージョンでも読めるよう、schema migrationを前提とする。
+初期migration hookではversion未指定（v0扱い）の文書へv1必須フィールドを補完する。未知の将来versionは黙って読まずエラーとする。
 
-## 再解析
-
-解析単位は将来的に部分更新できるようにする。
-
-例:
-
-- lyricsのみ再生成
-- alignmentのみ再生成
-- notesのみ再生成
-- stemのみ再生成
-- 全体再解析
-
-依存関係を追跡し、必要な下流データだけをinvalidateできる設計を目標とする。
+モデル更新や解析ロジック更新は `analysis_version` とartifact単位のversion/generationで追跡する。
