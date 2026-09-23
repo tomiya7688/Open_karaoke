@@ -1,5 +1,7 @@
 # Development
 
+AI-assisted development starts at [AI_CONTEXT.md](../AI_CONTEXT.md). Use its task routes before reading full docs or source trees.
+
 ## Prerequisites
 
 - Rust stable with rustfmt and Clippy
@@ -51,5 +53,6 @@ dotnet run --project gui/OpenKaraoke.Gui/OpenKaraoke.Gui.csproj
 Core starts and supervises its private Python worker automatically. See
 [Analysis Service](analysis_service.md) for configuration and sample Job requests.
 The GUI is still a bootstrap shell; its Core API client is Issue #15.
-Only the mock analysis adapter ships at this stage. Actual stem separation and other AI
-inference are implemented by subsequent issues; reserved endpoints return a clear error.
+The mock adapter and the UMX-HQ stem adapter are registered. Real stem inference requires
+the optional runtime described in [Stem separation](stem_separation.md). Other AI roles
+remain unimplemented and return explicit errors; adapter registration is not model installation.

@@ -11,6 +11,8 @@
 
 Windowsでの開発手順は [Development](docs/development.md) を参照してください。
 
+AIによる開発は [AI_CONTEXT.md](AI_CONTEXT.md) を入口にし、対象Issueの参照先と検証範囲を先に絞ります。
+
 ## Documents
 
 - [要件](docs/requirements.md)
