@@ -39,11 +39,9 @@ Model Adapter
  +-- Internal Model
 ```
 
-## manifest
+## Official model manifest
 
-モデルパッケージはmanifestを持つ。
-
-ライセンス情報は必須項目とする。
+公式配布・公式Model Registryへ登録するモデルはmanifestを持ち、ライセンス情報を必須項目とする。
 
 初期例:
 
@@ -77,6 +75,20 @@ Model Adapter
 - license不明
 - モデル重みのライセンス不明
 - Non-Commercial条項を含む
+
+## User-supplied models / MODs
+
+上記の制限はOpen_karaoke開発チームが公式に配布・推奨するモデルへ適用する。
+
+ユーザーが自分で追加するローカルモデルについては、ライセンス種別を理由にローダー側で一律拒否しない。
+
+技術的互換性があれば、NC、GPL / AGPL、研究用途、独自ライセンス、再配布禁止モデル等もユーザー自身の責任で利用可能とする。
+
+ユーザー導入モデルではライセンス情報を任意にできる。ただし取得できる場合はmanifestへ記載することを推奨する。
+
+ライセンス情報がない、または公式審査を通過していないモデルはUI上で `Unverified / User supplied` として明確に区別する。
+
+Open_karaokeはユーザー導入モデルについて、商用利用・店舗利用・再配布等の許諾を保証しない。
 
 ## 将来の追加方法
 
