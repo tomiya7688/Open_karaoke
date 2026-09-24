@@ -1,8 +1,10 @@
+import asyncio
 import json
 import threading
 import time
 from uuid import UUID, uuid4
 
+import httpx
 import pytest
 from fastapi.testclient import TestClient
 
@@ -103,7 +105,7 @@ def test_failure_and_unknown_id(client):
         assert response.json()["error"]["code"] == "job_not_found"
 
 
-@pytest.mark.parametrize("role", ["stems", "lyrics", "alignment", "pitch", "notes", "song"])
+@pytest.mark.parametrize("role", ["pitch", "notes", "song"])
 def test_unimplemented_roles_never_fake_success(client, role):
     response = client.post(f"/analysis/{role}", json={})
     assert response.status_code == 501
@@ -185,22 +187,39 @@ def test_queue_is_bounded(tmp_path):
 
 
 def test_shutdown_cancels_worker_and_stops_admission(tmp_path):
-    stopped = threading.Event()
+    async def scenario():
+        loop = asyncio.get_running_loop()
+        started = asyncio.Event()
+        stopped = threading.Event()
 
-    class Cancellable(MockAdapter):
-        def analyze(self, context, options):
-            try:
-                context.cancelled.wait(3)
-                context.checkpoint()
-            finally:
-                stopped.set()
-            return []
+        class Cancellable(MockAdapter):
+            def analyze(self, context, options):
+                try:
+                    loop.call_soon_threadsafe(started.set)
+                    assert context.cancelled.wait(10), "Shutdown did not signal cancellation"
+                    context.checkpoint()
+                finally:
+                    stopped.set()
+                return []
 
-    app = create_app(tmp_path, TOKEN, [Cancellable()])
-    with TestClient(app, headers=HEADERS) as session:
-        job_id = submit(session)
-        time.sleep(0.03)
-        assert session.post("/shutdown").status_code == 200
-        assert session.post("/analysis/mock", json={}).status_code == 503
-    assert stopped.is_set()
-    assert app.state.jobs.get(UUID(job_id)).job.status == "cancelled"
+        app = create_app(tmp_path, TOKEN, [Cancellable()])
+        # Own the lifespan explicitly; ASGITransport does not start it automatically.
+        async with app.router.lifespan_context(app):
+            async with httpx.AsyncClient(
+                transport=httpx.ASGITransport(app=app),
+                base_url="http://test",
+                headers=HEADERS,
+            ) as session:
+                response = await session.post("/analysis/mock", json={})
+                assert response.status_code == 202, response.text
+                job_id = UUID(response.json()["id"])
+                await asyncio.wait_for(started.wait(), timeout=5)
+                snapshot = await session.get(f"/jobs/{job_id}")
+                assert snapshot.status_code == 200, snapshot.text
+                assert snapshot.json()["status"] == "running"
+                assert (await session.post("/shutdown")).status_code == 200
+                assert (await session.post("/analysis/mock", json={})).status_code == 503
+        assert started.is_set() and stopped.is_set()
+        assert app.state.jobs.get(job_id).job.status == "cancelled"
+
+    asyncio.run(scenario())

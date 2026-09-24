@@ -13,6 +13,8 @@
 
 Windowsでの開発手順は [Development](docs/development.md) を参照してください。
 
+AIによる開発は [AI_CONTEXT.md](AI_CONTEXT.md) を入口にし、対象Issueの参照先と検証範囲を先に絞ります。
+
 ## Documents
 
 - [要件](docs/requirements.md)
@@ -27,6 +29,7 @@ Windowsでの開発手順は [Development](docs/development.md) を参照して�
 - [品質評価・CI](docs/testing.md)
 - [既存手法・参考プロジェクト](docs/research.md)
 - [Python Analysis Service](docs/analysis_service.md)
+- [Stem separation](docs/stem_separation.md)
 
 ## Content rights
 

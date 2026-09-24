@@ -6,9 +6,9 @@ Rust Core owns process startup, the public Job IDs, polling, cancellation, and f
 Python is an offline worker; it is never called from an audio callback. The service uses FastAPI,
 Pydantic and Uvicorn. Startup imports no ML runtime and downloads no model weights.
 
-The only included adapter is `mock-v1` (role `mock`). Stem separation, ASR, alignment, pitch,
-notes and song generation are reserved endpoints, **not implemented inference**. Until a real
-adapter is registered they return HTTP 501 / `not_implemented`, not fabricated outputs.
+Included adapters are `mock-v1` (role `mock`) and `umxhq-vocals` (role `stems`).
+See [Stem separation](stem_separation.md) for runtime installation, pinned weights and evaluation.
+ASR, alignment, pitch, notes and song generation still return HTTP 501 / `not_implemented`.
 
 ## Start
 

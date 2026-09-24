@@ -25,7 +25,10 @@ from .adapters import (
     ModelAdapter,
     resolve_artifact,
 )
+from .alignment import AlignmentAdapter
 from .contracts import PROTOCOL_VERSION, AnalysisRequest, ErrorDetail, Job, Role, ServiceError
+from .lyrics import LyricsAdapter
+from .stems import StemsAdapter
 
 LOG = logging.getLogger(__name__)
 TERMINAL = {"completed", "failed", "cancelled"}
@@ -170,7 +173,17 @@ def create_app(
 ) -> FastAPI:
     if len(token) < 32 or capacity < 1:
         raise ValueError("A 32-character session token and positive capacity are required")
-    registry = AdapterRegistry([MockAdapter()] if adapters is None else adapters)
+    registry = AdapterRegistry(
+        [
+            MockAdapter(),
+            StemsAdapter(),
+            LyricsAdapter(),
+            LyricsAdapter(model_name="large-v3-turbo"),
+            AlignmentAdapter(),
+        ]
+        if adapters is None
+        else adapters
+    )
     instance_id = uuid4()
 
     @asynccontextmanager

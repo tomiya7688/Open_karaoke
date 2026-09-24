@@ -1,0 +1,32 @@
+{
+  "analysis_version": 1,
+  "format_version": 1,
+  "items": [
+    {
+      "target_id": "lyrics",
+      "evidence": {
+        "model": {"id": "fixture-asr", "version": "1", "mock": true},
+        "candidate_only": true,
+        "sample_rate": 48000
+      }
+    },
+    {
+      "target_id": "lyric-000001",
+      "evidence": {
+        "window": 0,
+        "segment": 0,
+        "diagnostics": {
+          "avg_logprob": -0.2,
+          "no_speech_prob": 0.01,
+          "compression_ratio": 1.1,
+          "temperature": null
+        },
+        "flags": ["window_boundary_review"],
+        "disposition": "candidate",
+        "confidence_calibrated": false,
+        "timing_kind": "coarse_asr_segment",
+        "target_id": "lyric-000001"
+      }
+    }
+  ]
+}
