@@ -121,9 +121,7 @@ class YinDetector:
                 {"reason": "below_energy_floor", "threshold": self.threshold},
             )
 
-        minimum_lag, maximum_lag = _lag_bounds(
-            len(centered), sample_rate, min_hz, max_hz
-        )
+        minimum_lag, maximum_lag = _lag_bounds(len(centered), sample_rate, min_hz, max_hz)
         autocorrelation = _linear_autocorrelation(centered)
         squared = centered * centered
         prefix = np.concatenate(([0.0], np.cumsum(squared)))
@@ -201,9 +199,7 @@ class NormalizedAutocorrelationDetector:
             )
 
         windowed = centered * np.hanning(len(centered))
-        minimum_lag, maximum_lag = _lag_bounds(
-            len(windowed), sample_rate, min_hz, max_hz
-        )
+        minimum_lag, maximum_lag = _lag_bounds(len(windowed), sample_rate, min_hz, max_hz)
         autocorrelation = _linear_autocorrelation(windowed)
         squared = windowed * windowed
         prefix = np.concatenate(([0.0], np.cumsum(squared)))
@@ -213,10 +209,12 @@ class NormalizedAutocorrelationDetector:
         denominator = np.sqrt(np.maximum(left_energy * right_energy, 1e-12))
         correlation = np.clip(autocorrelation[lags] / denominator, -1.0, 1.0)
 
-        peaks = np.flatnonzero(
-            (correlation[1:-1] >= correlation[:-2])
-            & (correlation[1:-1] >= correlation[2:])
-        ) + 1
+        peaks = (
+            np.flatnonzero(
+                (correlation[1:-1] >= correlation[:-2]) & (correlation[1:-1] >= correlation[2:])
+            )
+            + 1
+        )
         if len(peaks) == 0:
             selected_index = int(np.argmax(correlation))
         else:
