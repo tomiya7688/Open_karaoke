@@ -143,7 +143,7 @@ class PitchAdapter:
                         if len(block) != end_sample - start_sample:
                             raise ServiceError("invalid_audio", "Pitch input was truncated")
                         if not np.isfinite(block).all():
-                            raise ServiceError("invalid_audio", "Pitch input contains NaN or infinity")
+                            raise ServiceError(\n                                "invalid_audio", "Pitch input contains NaN or infinity"\n                            )
 
                         flags: list[str] = []
                         mono = block.mean(axis=1, dtype=np.float64)
