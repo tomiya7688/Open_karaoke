@@ -131,9 +131,7 @@ class PitchAdapter:
                     duration_samples = int(audio.frames)
                     frame_count = math.ceil(duration_samples / HOP_SAMPLES)
 
-                    for index, start_sample in enumerate(
-                        range(0, duration_samples, HOP_SAMPLES)
-                    ):
+                    for index, start_sample in enumerate(range(0, duration_samples, HOP_SAMPLES)):
                         context.checkpoint()
                         end_sample = min(start_sample + WINDOW_SAMPLES, duration_samples)
                         audio.seek(start_sample)
@@ -150,9 +148,7 @@ class PitchAdapter:
                         flags: list[str] = []
                         mono = block.mean(axis=1, dtype=np.float64)
                         if audio.channels == 2 and len(block):
-                            channel_rms = np.sqrt(
-                                np.mean(block.astype(np.float64) ** 2, axis=0)
-                            )
+                            channel_rms = np.sqrt(np.mean(block.astype(np.float64) ** 2, axis=0))
                             mono_rms = float(np.sqrt(np.mean(mono * mono)))
                             loudest = int(np.argmax(channel_rms))
                             if (
