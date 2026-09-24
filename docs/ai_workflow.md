@@ -63,6 +63,7 @@ GitHub connectorだけの環境では対象Issue、対象PRのhead/base SHA、�
 | Python API / Adapter契約 | `python/src/open_karaoke_analysis/contracts.py`、`adapters.py`、`service.py`（同ディレクトリ） | `python/tests/test_service.py`、`docs/analysis_service.md` |
 | 音源分離 | `python/src/open_karaoke_analysis/stems.py`、`stem_backend.py`、`stem_audio.py`（同ディレクトリ） | `python/tests/test_stem*.py`、`python/tests/test_stems.py`、`docs/stem_separation.md` |
 | 歌詞抽出 #7 | [Lyrics task](#lyrics-task) | `docs/analysis_pipeline.md`の歌詞節、`docs/song_format.md` |
+| F0 / Pitch #9 | [Pitch task](#pitch-task) | `docs/pitch_analysis.md`、`python/tests/test_pitch*.py` |
 | GUI | `gui/OpenKaraoke.Gui/`の対象view/code-behind | `gui/OpenKaraoke.sln`、`docs/architecture.md`。現在はbootstrap shell |
 | Build / CI | 対象manifest、`scripts/check.ps1`、`.github/workflows/` | `docs/development.md`、`docs/testing.md` |
 | 未着手の機能 | 対象Issueと`docs/implementation_plan.md`から担当領域を特定 | その領域の仕様節だけ確認。存在しないsourceを推測しない |
@@ -79,6 +80,16 @@ Issue #7を開始する場合の入口。Issueを再取得して以下との差�
 新規の歌詞Adapter/backend/Evaluator/testファイルはこの時点では予定。実装後にこの行を実パスへ更新する。
 音源分離の内部、GUI、採点、全履歴は初期探索から外す。ただし入力契約や共有APIの問題が出た場合は直接依存へ広げる。
 歌唱データが不足している場合はfixtureの出典・権利・未評価範囲を残し、合成音声だけで歌唱精度を確認済みにしない。
+
+## Pitch task
+
+Issue #9の入口。Issueを再取得して以下との差分を確認する。
+
+- Goal: 分離済みvocalsから48 kHz整数timelineへ正規化したF0を生成し、detector単体とensembleを切替可能にする。
+- Required: `PitchDetector`共通契約、detector confidence、voiced probability、octave consistency、temporal continuity、evidence保存。
+- Acceptance: `pitch.json`と`pitch_evidence.json`、single/ensemble設定、合成tone sweep・octave・voiced/unvoiced回帰、detector別/ensemble評価。
+- Working set: `pitch.py`、`pitch_detectors.py`、`pitch_fusion.py`、`pitch_evaluator.py`、`test_pitch*.py`。registry変更時のみ`service.py`と`test_service.py`。
+- Accuracy boundary: 合成fixtureはアルゴリズム回帰用。実録歌唱の精度確認として扱わない。
 
 ## Validation
 
