@@ -33,15 +33,15 @@ Analysis Service
  |
 Model Adapter
  +-- Whisper
- +-- Demucs
+ +-- Stem Separator
  +-- WhisperX
  +-- Future Model
  +-- Internal Model
 ```
 
-## manifest
+## Official model manifest
 
-モデルパッケージはmanifestを持つ。
+公式配布・公式Model Registryへ登録するモデルはmanifestを持ち、ライセンス情報を必須項目とする。
 
 初期例:
 
@@ -54,6 +54,10 @@ Model Adapter
   "backend": "whisper",
   "version": "1",
   "languages": ["ja", "en", "multi"],
+  "license": "MIT",
+  "license_url": "https://example.invalid/license",
+  "commercial_use": true,
+  "redistribution": true,
   "capabilities": {
     "timestamps": true,
     "word_timestamps": true,
@@ -61,6 +65,26 @@ Model Adapter
   }
 }
 ```
+
+公式配布・公式Model Registryへ登録するモデルは、コードだけでなく学習済み重みの利用条件も確認済みであることを要求する。
+
+以下は公式配布対象外とする。
+
+- commercial_use != true
+- redistribution条件を満たせない
+- license不明
+- モデル重みのライセンス不明
+- Non-Commercial条項を含む
+
+## User-supplied models / MODs
+
+上記の制限は、Open_karaoke開発チームが公式に配布・推奨するモデルにのみ適用する。
+
+ユーザーが追加するローカルモデルは公式ライセンス審査の対象外とし、ライセンス種別だけを理由にローダー側で一律拒否しない。
+
+ライセンス情報が取得できる場合はUIへ表示し、公式検証済みモデルとユーザー導入モデルを区別する。
+
+ライセンス情報がない、または公式審査を通過していないモデルはUI上で `Unverified / User supplied` と表示できるようにする。
 
 ## 将来の追加方法
 
