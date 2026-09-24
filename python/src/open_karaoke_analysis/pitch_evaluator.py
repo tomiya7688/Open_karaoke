@@ -177,7 +177,10 @@ def main() -> int:
     arguments = parser.parse_args()
 
     report = synthetic_benchmark()
-    content = json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True, allow_nan=False) + "\n"
+    content = (
+        json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True, allow_nan=False)
+        + "\n"
+    )
     if arguments.output:
         arguments.output.parent.mkdir(parents=True, exist_ok=True)
         arguments.output.write_text(content, encoding="utf-8", newline="\n")
