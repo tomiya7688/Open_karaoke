@@ -36,12 +36,17 @@ def fuse_frame(
         if observation.hz is not None and observation.voiced_probability > 0.05
     ]
     if not valid:
-        return None, 0.0, 0.0, {
-            "mode": "ensemble",
-            "reason": "no_voiced_candidates",
-            "states": [],
-            "corrections": {},
-        }
+        return (
+            None,
+            0.0,
+            0.0,
+            {
+                "mode": "ensemble",
+                "reason": "no_voiced_candidates",
+                "states": [],
+                "corrections": {},
+            },
+        )
 
     states: set[float] = set()
     for observation in valid:
@@ -51,14 +56,10 @@ def fuse_frame(
             if min_hz <= candidate <= max_hz:
                 states.add(round(candidate, 9))
 
-    detector_weight = sum(
-        observation.reliability * observation.confidence for observation in valid
-    )
+    detector_weight = sum(observation.reliability * observation.confidence for observation in valid)
     voiced_probability = (
         sum(
-            observation.reliability
-            * observation.confidence
-            * observation.voiced_probability
+            observation.reliability * observation.confidence * observation.voiced_probability
             for observation in valid
         )
         / detector_weight
@@ -66,9 +67,7 @@ def fuse_frame(
         else 0.0
     )
     total_support_weight = sum(
-        observation.reliability
-        * observation.confidence
-        * observation.voiced_probability
+        observation.reliability * observation.confidence * observation.voiced_probability
         for observation in valid
     )
 
@@ -84,9 +83,7 @@ def fuse_frame(
             adjusted = observation.hz * (2.0**octave_shift)
             error_cents = abs(cents_between(state, adjusted))
             weight = (
-                observation.reliability
-                * observation.confidence
-                * observation.voiced_probability
+                observation.reliability * observation.confidence * observation.voiced_probability
             )
             similarity = math.exp(-0.5 * (error_cents / 45.0) ** 2)
             support += weight * similarity
@@ -96,9 +93,7 @@ def fuse_frame(
 
         continuity_penalty = 0.0
         if previous_hz is not None:
-            continuity_penalty = 0.55 * min(
-                abs(cents_between(state, previous_hz)) / 600.0, 2.0
-            )
+            continuity_penalty = 0.55 * min(abs(cents_between(state, previous_hz)) / 600.0, 2.0)
         score = support - shift_penalty + direct_anchor - continuity_penalty
         scored.append(
             {
@@ -114,9 +109,7 @@ def fuse_frame(
     scored.sort(key=lambda item: (item["score"], item["support"], item["hz"]), reverse=True)
     chosen = scored[0]
     confidence = (
-        _clamp(chosen["support"] / total_support_weight)
-        if total_support_weight > 1e-12
-        else 0.0
+        _clamp(chosen["support"] / total_support_weight) if total_support_weight > 1e-12 else 0.0
     )
     chosen_hz = float(chosen["hz"]) if voiced_probability >= voiced_threshold else None
 
@@ -130,13 +123,18 @@ def fuse_frame(
                 shift if abs(cents_between(chosen_hz, shifted)) <= 100.0 else None
             )
 
-    return chosen_hz, confidence, _clamp(voiced_probability), {
-        "mode": "ensemble",
-        "previous_hz": previous_hz,
-        "selected_state_hz": float(chosen["hz"]),
-        "selected_score": chosen["score"],
-        "confidence_calibrated": False,
-        "voiced_probability_calibrated": False,
-        "corrections": corrections,
-        "states": scored[: min(8, len(scored))],
-    }
+    return (
+        chosen_hz,
+        confidence,
+        _clamp(voiced_probability),
+        {
+            "mode": "ensemble",
+            "previous_hz": previous_hz,
+            "selected_state_hz": float(chosen["hz"]),
+            "selected_score": chosen["score"],
+            "confidence_calibrated": False,
+            "voiced_probability_calibrated": False,
+            "corrections": corrections,
+            "states": scored[: min(8, len(scored))],
+        },
+    )
