@@ -79,9 +79,7 @@ def evaluate(reference: list[float | None], predicted: list[float | None]) -> di
             false_voiced / unvoiced_reference if unvoiced_reference else None
         ),
         "median_abs_cents": float(np.median(cents_errors)) if cents_errors else None,
-        "p95_abs_cents": (
-            float(np.percentile(cents_errors, 95)) if cents_errors else None
-        ),
+        "p95_abs_cents": (float(np.percentile(cents_errors, 95)) if cents_errors else None),
         "gross_pitch_error_rate": gross_errors / voiced_reference if voiced_reference else None,
         "octave_error_rate": octave_errors / voiced_reference if voiced_reference else None,
     }
@@ -102,8 +100,7 @@ def synthetic_benchmark() -> dict:
             else np.zeros(WINDOW_SAMPLES, dtype=np.float64)
         )
         observations = [
-            detector.detect(frame, RATE, 55.0, 1760.0, 0.0001)
-            for detector in detectors
+            detector.detect(frame, RATE, 55.0, 1760.0, 0.0001) for detector in detectors
         ]
         for observation in observations:
             by_detector[observation.detector].append(
@@ -153,9 +150,7 @@ def synthetic_benchmark() -> dict:
         "external_recordings": False,
         "real_singing_accuracy_verified": False,
         "confidence_calibrated": False,
-        "detectors": {
-            name: evaluate(reference, values) for name, values in by_detector.items()
-        },
+        "detectors": {name: evaluate(reference, values) for name, values in by_detector.items()},
         "ensemble": evaluate(reference, ensemble),
         "octave_recovery_fixture": {
             "reference_hz": [220.0, 220.0, 220.0],
@@ -178,8 +173,7 @@ def main() -> int:
 
     report = synthetic_benchmark()
     content = (
-        json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True, allow_nan=False)
-        + "\n"
+        json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True, allow_nan=False) + "\n"
     )
     if arguments.output:
         arguments.output.parent.mkdir(parents=True, exist_ok=True)
@@ -188,20 +182,14 @@ def main() -> int:
         print(content, end="")
 
     ensemble = report["ensemble"]
-    if (
-        arguments.max_ensemble_median_cents is not None
-        and (
-            ensemble["median_abs_cents"] is None
-            or ensemble["median_abs_cents"] > arguments.max_ensemble_median_cents
-        )
+    if arguments.max_ensemble_median_cents is not None and (
+        ensemble["median_abs_cents"] is None
+        or ensemble["median_abs_cents"] > arguments.max_ensemble_median_cents
     ):
         return 1
-    if (
-        arguments.max_ensemble_gross_rate is not None
-        and (
-            ensemble["gross_pitch_error_rate"] is None
-            or ensemble["gross_pitch_error_rate"] > arguments.max_ensemble_gross_rate
-        )
+    if arguments.max_ensemble_gross_rate is not None and (
+        ensemble["gross_pitch_error_rate"] is None
+        or ensemble["gross_pitch_error_rate"] > arguments.max_ensemble_gross_rate
     ):
         return 1
     if not report["octave_recovery_fixture"]["passed"]:
