@@ -127,11 +127,9 @@ def setup_step_case(tmp_path, noise=0.0):
     write_pitch(
         tmp_path,
         len(audio),
-        lambda sample: None
-        if sample < 4800 or sample >= 28800
-        else 220.0
-        if sample < 16800
-        else 440.0,
+        lambda sample: (
+            None if sample < 4800 or sample >= 28800 else 220.0 if sample < 16800 else 440.0
+        ),
     )
     write_alignment(tmp_path)
     write_notes(tmp_path)
