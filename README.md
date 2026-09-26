@@ -31,6 +31,7 @@ AIによる開発は [AI_CONTEXT.md](AI_CONTEXT.md) を入口にし、対象Issu
 - [Python Analysis Service](docs/analysis_service.md)
 - [Stem separation](docs/stem_separation.md)
 - [Pitch / F0 analysis](docs/pitch_analysis.md)
+- [Vocal Event fusion](docs/vocal_events.md)
 
 ## Content rights
 
