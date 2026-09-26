@@ -30,6 +30,9 @@ alignment = [
 pitch = [
     "numpy>=1.26,<3", "soundfile>=0.13,<1",
 ]
+events = [
+    "numpy>=1.26,<3", "soundfile>=0.13,<1",
+]
 
 [project.scripts]
 open-karaoke-analysis = "open_karaoke_analysis.__main__:main"
