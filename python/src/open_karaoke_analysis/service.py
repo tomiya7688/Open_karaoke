@@ -30,6 +30,7 @@ from .contracts import PROTOCOL_VERSION, AnalysisRequest, ErrorDetail, Job, Role
 from .lyrics import LyricsAdapter
 from .pitch import PitchAdapter
 from .stems import StemsAdapter
+from .vocal_events import VocalEventAdapter
 
 LOG = logging.getLogger(__name__)
 TERMINAL = {"completed", "failed", "cancelled"}
