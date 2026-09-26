@@ -98,9 +98,7 @@ def extract_audio_features(context: AnalysisContext) -> dict:
             or audio.channels not in {1, 2}
             or not 0 < audio.frames <= MAX_DURATION_SAMPLES
         ):
-            raise ServiceError(
-                "invalid_audio", "Expected <=30 min 48 kHz float32 mono/stereo WAV"
-            )
+            raise ServiceError("invalid_audio", "Expected <=30 min 48 kHz float32 mono/stereo WAV")
         duration_samples = int(audio.frames)
         starts = list(range(0, duration_samples, HOP_SAMPLES))
         for index, start in enumerate(starts):
