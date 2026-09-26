@@ -80,13 +80,17 @@ def fuse_frame(
     lyric, lyric_contributions = _weighted_probability(
         frame_features, active_features, availability, LYRIC_WEIGHTS, mode
     )
-    return note, lyric, {
-        "mode": mode,
-        "active_features": list(active_features),
-        "note_contributions": note_contributions,
-        "lyric_contributions": lyric_contributions,
-        "boundary_probability_calibrated": False,
-    }
+    return (
+        note,
+        lyric,
+        {
+            "mode": mode,
+            "active_features": list(active_features),
+            "note_contributions": note_contributions,
+            "lyric_contributions": lyric_contributions,
+            "boundary_probability_calibrated": False,
+        },
+    )
 
 
 def pick_boundaries(
