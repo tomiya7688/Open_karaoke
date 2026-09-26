@@ -64,9 +64,7 @@ def evaluate_boundaries(
         "precision": precision,
         "recall": recall,
         "f1": f1,
-        "mean_abs_error_ms": (
-            sum(errors) / len(errors) / RATE * 1000.0 if errors else None
-        ),
+        "mean_abs_error_ms": (sum(errors) / len(errors) / RATE * 1000.0 if errors else None),
         "max_abs_error_ms": max(errors) / RATE * 1000.0 if errors else None,
     }
 
