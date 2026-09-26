@@ -37,6 +37,12 @@ jobs:
           python -m ruff format --check python
       - name: Python contract and process tests
         run: python -m pytest python/tests -q --junitxml=artifacts/python-tests.xml
+      - name: Pitch synthetic regression
+        run: |
+          open-karaoke-pitch-evaluator \
+            --output artifacts/pitch-regression.json \
+            --max-ensemble-median-cents 5 \
+            --max-ensemble-gross-rate 0.05
       - name: Rust format and lint
         run: |
           cargo fmt --all -- --check
@@ -50,7 +56,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: linux-test-report
-          path: artifacts/python-tests.xml
+          path: |
+            artifacts/python-tests.xml
+            artifacts/pitch-regression.json
           if-no-files-found: ignore
 
   windows-build-and-check:

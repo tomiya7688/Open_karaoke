@@ -27,12 +27,20 @@ alignment = [
     "transformers==4.57.1", "torch>=2.6,<3",
     "numpy>=1.26,<3", "scipy>=1.11,<2", "soundfile>=0.13,<1",
 ]
+pitch = [
+    "numpy>=1.26,<3", "soundfile>=0.13,<1",
+]
+events = [
+    "numpy>=1.26,<3", "soundfile>=0.13,<1",
+]
 
 [project.scripts]
 open-karaoke-analysis = "open_karaoke_analysis.__main__:main"
 open-karaoke-stem-evaluator = "open_karaoke_analysis.stem_evaluator:main"
 open-karaoke-lyric-evaluator = "open_karaoke_analysis.lyric_evaluator:main"
 open-karaoke-alignment-evaluator = "open_karaoke_analysis.alignment_evaluator:main"
+open-karaoke-pitch-evaluator = "open_karaoke_analysis.pitch_evaluator:main"
+open-karaoke-vocal-event-evaluator = "open_karaoke_analysis.vocal_event_evaluator:main"
 
 [tool.setuptools]
 package-dir = {"" = "src"}

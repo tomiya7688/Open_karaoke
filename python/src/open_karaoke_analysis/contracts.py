@@ -16,6 +16,7 @@ class Role(StrEnum):
     LYRICS = "lyrics"
     ALIGNMENT = "alignment"
     PITCH = "pitch"
+    EVENTS = "events"
     NOTES = "notes"
     SONG = "song"
 
