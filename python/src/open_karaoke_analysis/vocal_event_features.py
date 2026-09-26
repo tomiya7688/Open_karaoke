@@ -390,9 +390,7 @@ def derive_silence_breath(
     breath = []
     boundary = []
     previous_silence = None
-    for energy_value, flux, voiced in zip(
-        energy, spectral_flux, voiced_probability, strict=True
-    ):
+    for energy_value, flux, voiced in zip(energy, spectral_flux, voiced_probability, strict=True):
         current_silence = (1.0 - voiced) * (1.0 - energy_value)
         current_breath = (1.0 - voiced) * energy_value * min(1.0, 0.35 + flux)
         transition = (
