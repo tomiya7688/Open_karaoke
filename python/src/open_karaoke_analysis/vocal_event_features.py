@@ -212,7 +212,10 @@ def read_pitch_features(
         hz = frame.get("f0_hz")
         probability = frame.get("voiced_probability")
         if hz is not None and (
-            isinstance(hz, bool) or not isinstance(hz, (int, float)) or not math.isfinite(hz) or hz <= 0
+            isinstance(hz, bool)
+            or not isinstance(hz, (int, float))
+            or not math.isfinite(hz)
+            or hz <= 0
         ):
             raise ServiceError("invalid_pitch", "Pitch F0 values must be positive finite numbers")
         if (
