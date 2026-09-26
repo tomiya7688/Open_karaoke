@@ -183,6 +183,7 @@ def create_app(
             LyricsAdapter(model_name="large-v3-turbo"),
             AlignmentAdapter(),
             PitchAdapter(),
+            VocalEventAdapter(),
         ]
         if adapters is None
         else adapters
