@@ -213,10 +213,7 @@ def test_low_quality_audio_remains_finite_and_uses_pitch_evidence(tmp_path):
             "boundary_threshold": 0.4,
         },
     )
-    values = [
-        frame["note_boundary_probability"]
-        for frame in timeline["frames"]
-    ]
+    values = [frame["note_boundary_probability"] for frame in timeline["frames"]]
     assert np.isfinite(values).all()
     assert abs(nearest(timeline["note_boundaries"], 16800)["sample"] - 16800) <= 960
 
