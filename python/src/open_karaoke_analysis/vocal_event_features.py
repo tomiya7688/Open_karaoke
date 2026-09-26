@@ -359,7 +359,11 @@ def read_note_onsets(
             raise ServiceError("invalid_notes", "Note candidates must be objects")
         sample = note.get("start_sample")
         confidence = note.get("pitch_confidence")
-        if isinstance(sample, bool) or not isinstance(sample, int) or not 0 <= sample < duration_samples:
+        if (
+            isinstance(sample, bool)
+            or not isinstance(sample, int)
+            or not 0 <= sample < duration_samples
+        ):
             raise ServiceError("invalid_notes", "Note onset is outside the vocals input")
         strength = 0.8
         if (
