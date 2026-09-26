@@ -45,14 +45,10 @@ def evaluate_boundaries(
     false_positive = len(predicted) - true_positive
     false_negative = len(reference) - true_positive
     precision = (
-        true_positive / (true_positive + false_positive)
-        if true_positive + false_positive
-        else None
+        true_positive / (true_positive + false_positive) if true_positive + false_positive else None
     )
     recall = (
-        true_positive / (true_positive + false_negative)
-        if true_positive + false_negative
-        else None
+        true_positive / (true_positive + false_negative) if true_positive + false_negative else None
     )
     f1 = (
         2.0 * precision * recall / (precision + recall)
