@@ -17,9 +17,13 @@ def evaluate_boundaries(
 ) -> dict:
     if tolerance_samples < 0:
         raise ValueError("Boundary tolerance must be non-negative")
-    if any(isinstance(value, bool) or not isinstance(value, int) or value < 0 for value in reference):
+    if any(
+        isinstance(value, bool) or not isinstance(value, int) or value < 0 for value in reference
+    ):
         raise ValueError("Reference boundaries must be non-negative integer samples")
-    if any(isinstance(value, bool) or not isinstance(value, int) or value < 0 for value in predicted):
+    if any(
+        isinstance(value, bool) or not isinstance(value, int) or value < 0 for value in predicted
+    ):
         raise ValueError("Predicted boundaries must be non-negative integer samples")
 
     remaining = set(range(len(predicted)))
