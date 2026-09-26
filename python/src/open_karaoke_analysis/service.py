@@ -28,6 +28,7 @@ from .adapters import (
 from .alignment import AlignmentAdapter
 from .contracts import PROTOCOL_VERSION, AnalysisRequest, ErrorDetail, Job, Role, ServiceError
 from .lyrics import LyricsAdapter
+from .pitch import PitchAdapter
 from .stems import StemsAdapter
 
 LOG = logging.getLogger(__name__)
@@ -180,6 +181,7 @@ def create_app(
             LyricsAdapter(),
             LyricsAdapter(model_name="large-v3-turbo"),
             AlignmentAdapter(),
+            PitchAdapter(),
         ]
         if adapters is None
         else adapters

@@ -189,7 +189,7 @@ async fn python_startup_mock_cancel_crash_recovery_shutdown() {
             .unwrap()
             .contains("mock_failure")
     );
-    let unsupported = create(&router, json!({"kind":"analysis.pitch"})).await;
+    let unsupported = create(&router, json!({"kind":"analysis.notes"})).await;
     assert!(
         terminal(&router, unsupported)
             .await
