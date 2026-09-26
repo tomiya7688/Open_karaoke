@@ -268,7 +268,11 @@ def test_unavailable_single_feature_and_invalid_options(tmp_path):
     adapter = VocalEventAdapter()
     for options in [
         {},
-        {"pitch_artifact": "pitch.json", "mode": "single", "features": ["f0_transition", "spectral_flux"]},
+        {
+            "pitch_artifact": "pitch.json",
+            "mode": "single",
+            "features": ["f0_transition", "spectral_flux"],
+        },
         {"pitch_artifact": "pitch.json", "mode": "ensemble", "features": ["f0_transition"]},
         {"pitch_artifact": "pitch.json", "features": ["spectral_flux", "spectral_flux"]},
         {"pitch_artifact": "pitch.json", "unknown": True},
