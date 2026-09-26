@@ -50,7 +50,9 @@ def _weighted_probability(
     mode: str,
 ) -> tuple[float, dict[str, float]]:
     available = [
-        name for name in active_features if availability.get(name, False) and weights.get(name, 0) > 0
+        name
+        for name in active_features
+        if availability.get(name, False) and weights.get(name, 0) > 0
     ]
     if not available:
         return 0.0, {}
