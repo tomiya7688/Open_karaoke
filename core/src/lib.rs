@@ -199,14 +199,7 @@ async fn create_job(
     if let Some(role) = request.kind.strip_prefix("analysis.") {
         if !matches!(
             role,
-            "mock"
-                | "stems"
-                | "lyrics"
-                | "alignment"
-                | "pitch"
-                | "events"
-                | "notes"
-                | "song"
+            "mock" | "stems" | "lyrics" | "alignment" | "pitch" | "events" | "notes" | "song"
         ) {
             return Err(ApiError(
                 StatusCode::BAD_REQUEST,
