@@ -107,9 +107,7 @@ def evaluate_dataset(document: dict, tolerance_samples: int) -> dict:
         "tolerance_ms": tolerance_samples / RATE * 1000.0,
         "cases": results,
         "aggregate": {
-            kind: evaluate_boundaries(
-                values["reference"], values["predicted"], tolerance_samples
-            )
+            kind: evaluate_boundaries(values["reference"], values["predicted"], tolerance_samples)
             for kind, values in aggregate.items()
         },
         "quality_gate_applied": False,
