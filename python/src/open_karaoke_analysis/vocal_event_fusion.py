@@ -80,14 +80,37 @@ def fuse_frame(
     lyric, lyric_contributions = _weighted_probability(
         frame_features, active_features, availability, LYRIC_WEIGHTS, mode
     )
+    anchors = {"note": {}, "lyric": {}}
+    if mode == "ensemble":
+        active = set(active_features)
+
+        def anchor(name: str, factor: float) -> float:
+            if name not in active or not availability.get(name, False):
+                return 0.0
+            return clamp01(frame_features[name]) * factor
+
+        anchors["note"] = {
+            "voiced_transition": anchor("voiced_transition", 0.65),
+            "note_onset": anchor("note_onset", 0.85),
+            "acoustic_onset": anchor("acoustic_onset", 0.55),
+        }
+        anchors["lyric"] = {
+            "lyric_timing": anchor("lyric_timing", 0.85),
+            "voiced_transition": anchor("voiced_transition", 0.50),
+            "acoustic_onset": anchor("acoustic_onset", 0.45),
+        }
+        note = max(note, *anchors["note"].values())
+        lyric = max(lyric, *anchors["lyric"].values())
+
     return (
-        note,
-        lyric,
+        clamp01(note),
+        clamp01(lyric),
         {
             "mode": mode,
             "active_features": list(active_features),
             "note_contributions": note_contributions,
             "lyric_contributions": lyric_contributions,
+            "anchors": anchors,
             "boundary_probability_calibrated": False,
         },
     )
