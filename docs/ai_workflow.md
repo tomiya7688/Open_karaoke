@@ -64,6 +64,7 @@ GitHub connectorだけの環境では対象Issue、対象PRのhead/base SHA、�
 | 音源分離 | `python/src/open_karaoke_analysis/stems.py`、`stem_backend.py`、`stem_audio.py`（同ディレクトリ） | `python/tests/test_stem*.py`、`python/tests/test_stems.py`、`docs/stem_separation.md` |
 | 歌詞抽出 #7 | [Lyrics task](#lyrics-task) | `docs/analysis_pipeline.md`の歌詞節、`docs/song_format.md` |
 | F0 / Pitch #9 | [Pitch task](#pitch-task) | `docs/pitch_analysis.md`、`python/tests/test_pitch*.py` |
+| Vocal Event #10 | [Vocal Event task](#vocal-event-task) | `docs/vocal_events.md`、`python/tests/test_vocal_event*.py` |
 | GUI | `gui/OpenKaraoke.Gui/`の対象view/code-behind | `gui/OpenKaraoke.sln`、`docs/architecture.md`。現在はbootstrap shell |
 | Build / CI | 対象manifest、`scripts/check.ps1`、`.github/workflows/` | `docs/development.md`、`docs/testing.md` |
 | 未着手の機能 | 対象Issueと`docs/implementation_plan.md`から担当領域を特定 | その領域の仕様節だけ確認。存在しないsourceを推測しない |
@@ -90,6 +91,15 @@ Issue #9の入口。Issueを再取得して以下との差分を確認する。
 - Acceptance: `pitch.json`と`pitch_evidence.json`、single/ensemble設定、合成tone sweep・octave・voiced/unvoiced回帰、detector別/ensemble評価。
 - Working set: `pitch.py`、`pitch_detectors.py`、`pitch_fusion.py`、`pitch_evaluator.py`、`test_pitch*.py`。registry変更時のみ`service.py`と`test_service.py`。
 - Accuracy boundary: 合成fixtureはアルゴリズム回帰用。実録歌唱の精度確認として扱わない。
+
+## Vocal Event task
+
+Issue #10の入口。Issueを再取得し、Pitch #9のhead/merge状態も確認する。
+
+- Goal: F0/VUV、音響onset、energy/spectral、歌詞alignment、将来のnote onsetを同一48 kHz timelineへ投影する。
+- Required: 各特徴量の独立evidence、note/lyric境界score、single/ensemble比較、低品質・legato/melisma回帰。
+- Working set: `vocal_events.py`、`vocal_event_features.py`、`vocal_event_fusion.py`、`vocal_event_evaluator.py`、`test_vocal_event*.py`。
+- Accuracy boundary: scoreは0..1だが未校正。合成/注釈fixtureを実歌唱精度として扱わない。
 
 ## Validation
 

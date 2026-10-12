@@ -1,0 +1,41 @@
+{
+  "dataset_version": "generated-vocal-boundaries-v1",
+  "cases": [
+    {
+      "id": "clean-transitions",
+      "duration_samples": 48000,
+      "note": {
+        "reference": [4800, 14400, 24000],
+        "predicted": [4800, 14880, 24000]
+      },
+      "lyric": {
+        "reference": [4800, 24000],
+        "predicted": [4800, 24000]
+      }
+    },
+    {
+      "id": "low-quality-audio",
+      "duration_samples": 48000,
+      "note": {
+        "reference": [7200, 21600],
+        "predicted": [7680, 21600, 36000]
+      },
+      "lyric": {
+        "reference": [7200],
+        "predicted": [7680]
+      }
+    },
+    {
+      "id": "legato-melisma",
+      "duration_samples": 48000,
+      "note": {
+        "reference": [9600],
+        "predicted": [10080]
+      },
+      "lyric": {
+        "reference": [4800, 28800],
+        "predicted": [4800, 28800]
+      }
+    }
+  ]
+}

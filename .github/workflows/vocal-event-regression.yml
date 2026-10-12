@@ -1,0 +1,47 @@
+name: Vocal Event regression
+
+on:
+  pull_request:
+    paths:
+      - 'python/**'
+      - 'core/src/lib.rs'
+      - 'docs/vocal_events.md'
+      - '.github/workflows/vocal-event-regression.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  vocal-event-regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install Vocal Event test dependencies
+        run: python -m pip install --quiet -e './python[dev,events]'
+      - name: Static diagnostics
+        run: |
+          mkdir -p artifacts/vocal-events
+          python -m ruff check python --output-format concise > artifacts/vocal-events/lint.txt
+          python -m ruff format --check --diff python > artifacts/vocal-events/format.patch
+      - name: Vocal Event contracts and boundary regressions
+        run: |
+          python -m pytest python/tests/test_vocal_event*.py -q --junitxml=artifacts/vocal-events/tests.xml
+          open-karaoke-vocal-event-evaluator \
+            python/tests/fixtures/vocal_event_boundaries.json \
+            artifacts/vocal-events/regression.json \
+            --tolerance-ms 30 \
+            --min-note-f1 0.90 \
+            --min-lyric-f1 0.95
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: vocal-event-regression
+          path: artifacts/vocal-events
+          if-no-files-found: error
