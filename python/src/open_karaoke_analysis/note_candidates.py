@@ -313,9 +313,7 @@ def build_note_candidates(
 
             trim = 2 if len(frames) >= 15 else 1 if len(frames) >= 7 else 0
             steady = (
-                frames[trim : len(frames) - trim]
-                if trim and len(frames) > 2 * trim
-                else frames
+                frames[trim : len(frames) - trim] if trim and len(frames) > 2 * trim else frames
             )
             weighted = []
             confidence_weighted = []
@@ -341,8 +339,8 @@ def build_note_candidates(
             stability = math.exp(-0.5 * (median_deviation / 65.0) ** 2)
             pitch_confidence = clamp(mean_support * (0.65 + 0.35 * stability))
             spread_cents = (
-                (max(midi for midi, _ in weighted) - min(midi for midi, _ in weighted)) * 100.0
-            )
+                max(midi for midi, _ in weighted) - min(midi for midi, _ in weighted)
+            ) * 100.0
 
             before = accepted.get(start_sample)
             after = accepted.get(end_sample)

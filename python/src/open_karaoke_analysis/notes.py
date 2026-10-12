@@ -88,9 +88,7 @@ def _validate_pitch(document: dict) -> None:
         ):
             raise ValueError("Pitch frame timeline is invalid")
         midi = frame.get("midi")
-        if midi is not None and (
-            not _finite_number(midi) or not 0.0 <= float(midi) <= 127.0
-        ):
+        if midi is not None and (not _finite_number(midi) or not 0.0 <= float(midi) <= 127.0):
             raise ValueError("Pitch MIDI values must be finite and in range")
         if not _probability(frame.get("confidence")) or not _probability(
             frame.get("voiced_probability")
@@ -251,9 +249,7 @@ def _validate_repeated_sections(document: dict | None, pitch: dict) -> list[dict
         pairs.append(
             {
                 "id": (
-                    item.get("id")
-                    if isinstance(item.get("id"), str)
-                    else f"repeat-{index + 1:04d}"
+                    item.get("id") if isinstance(item.get("id"), str) else f"repeat-{index + 1:04d}"
                 ),
                 "source_start_sample": source_start,
                 "source_end_sample": source_end,
@@ -335,9 +331,7 @@ def generate_score_documents(
         events["note_boundaries"],
         external,
         voiced_threshold=validated_options["voiced_threshold"],
-        bridge_unvoiced_samples=round(
-            validated_options["bridge_unvoiced_ms"] * RATE / 1000
-        ),
+        bridge_unvoiced_samples=round(validated_options["bridge_unvoiced_ms"] * RATE / 1000),
         min_pitch_change_cents=validated_options["min_pitch_change_cents"],
         strong_boundary_probability=validated_options["strong_boundary_probability"],
     )

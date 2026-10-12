@@ -239,12 +239,16 @@ class TemporalDynamicProgrammingOptimizer:
         min_note_samples: int,
     ) -> tuple[list[dict], list[dict], dict]:
         if not candidates:
-            return [], [], {
-                "id": self.id,
-                "replaceable": True,
-                "candidate_count": 0,
-                "repetition_prior_count": 0,
-            }
+            return (
+                [],
+                [],
+                {
+                    "id": self.id,
+                    "replaceable": True,
+                    "candidate_count": 0,
+                    "repetition_prior_count": 0,
+                },
+            )
 
         priors = build_repetition_priors(candidates, repeated_sections)
         dp: list[dict[int, tuple[float, int | None]]] = []
@@ -292,11 +296,7 @@ class TemporalDynamicProgrammingOptimizer:
                         if interval in {12, 24}:
                             transition_penalty += 0.05
                     score = (
-                        previous_score
-                        + local
-                        + key_bonus
-                        + repetition_bonus
-                        - transition_penalty
+                        previous_score + local + key_bonus + repetition_bonus - transition_penalty
                     )
                     if best is None or score > best[0]:
                         best = (score, previous_midi)
@@ -328,9 +328,7 @@ class TemporalDynamicProgrammingOptimizer:
             hypothesis = next(
                 item for item in candidate["hypotheses"] if item["midi_note"] == midi_note
             )
-            confidence = clamp(
-                0.55 * candidate["pitch_confidence"] + 0.45 * hypothesis["score"]
-            )
+            confidence = clamp(0.55 * candidate["pitch_confidence"] + 0.45 * hypothesis["score"])
             repeat = priors.get(candidate["id"])
             notes.append(
                 {
