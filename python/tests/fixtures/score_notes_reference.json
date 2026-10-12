@@ -1,0 +1,70 @@
+{
+  "dataset_version": "hand-authored-score-regression-v1",
+  "description": "Manually annotated synthetic F0/Vocal Event contours for deterministic score-generation regression. This is not a real-singer accuracy dataset.",
+  "real_recordings": false,
+  "cases": [
+    {
+      "id": "vibrato-scoop-single",
+      "duration_samples": 48000,
+      "pitch_regions": [
+        {
+          "start_sample": 0,
+          "end_sample": 48000,
+          "midi": 60,
+          "contour_cents": [-70, -40, -15, 0, 20, -20, 25, -25, 15, -15, 0]
+        }
+      ],
+      "note_boundaries": [
+        {"sample": 14400, "probability": 0.64},
+        {"sample": 28800, "probability": 0.66}
+      ],
+      "reference_notes": [
+        {"start_sample": 0, "end_sample": 48000, "midi_note": 60}
+      ]
+    },
+    {
+      "id": "two-note-step",
+      "duration_samples": 48000,
+      "pitch_regions": [
+        {"start_sample": 0, "end_sample": 24000, "midi": 60, "contour_cents": [0, 6, -6]},
+        {"start_sample": 24000, "end_sample": 48000, "midi": 62, "contour_cents": [0, 7, -7]}
+      ],
+      "note_boundaries": [
+        {"sample": 24000, "probability": 0.72}
+      ],
+      "reference_notes": [
+        {"start_sample": 0, "end_sample": 24000, "midi_note": 60},
+        {"start_sample": 24000, "end_sample": 48000, "midi_note": 62}
+      ]
+    },
+    {
+      "id": "repeated-same-pitch-gap",
+      "duration_samples": 38400,
+      "pitch_regions": [
+        {"start_sample": 0, "end_sample": 18000, "midi": 69, "contour_cents": [0, 5, -5]},
+        {"start_sample": 21600, "end_sample": 38400, "midi": 69, "contour_cents": [0, -4, 4]}
+      ],
+      "note_boundaries": [],
+      "reference_notes": [
+        {"start_sample": 0, "end_sample": 17760, "midi_note": 69},
+        {"start_sample": 21600, "end_sample": 38400, "midi_note": 69}
+      ]
+    },
+    {
+      "id": "kobushi-short-motion",
+      "duration_samples": 48000,
+      "pitch_regions": [
+        {"start_sample": 0, "end_sample": 21600, "midi": 64, "contour_cents": [0, 10, -10]},
+        {"start_sample": 21600, "end_sample": 24000, "midi": 66, "contour_cents": [0]},
+        {"start_sample": 24000, "end_sample": 48000, "midi": 64, "contour_cents": [0, -10, 10]}
+      ],
+      "note_boundaries": [
+        {"sample": 21600, "probability": 0.55},
+        {"sample": 24000, "probability": 0.55}
+      ],
+      "reference_notes": [
+        {"start_sample": 0, "end_sample": 48000, "midi_note": 64}
+      ]
+    }
+  ]
+}

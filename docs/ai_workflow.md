@@ -65,6 +65,7 @@ GitHub connectorだけの環境では対象Issue、対象PRのhead/base SHA、�
 | 歌詞抽出 #7 | [Lyrics task](#lyrics-task) | `docs/analysis_pipeline.md`の歌詞節、`docs/song_format.md` |
 | F0 / Pitch #9 | [Pitch task](#pitch-task) | `docs/pitch_analysis.md`、`python/tests/test_pitch*.py` |
 | Vocal Event #10 | [Vocal Event task](#vocal-event-task) | `docs/vocal_events.md`、`python/tests/test_vocal_event*.py` |
+| Score generation #11 | [Score generation task](#score-generation-task) | `docs/score_generation.md`、`python/tests/test_note*.py` |
 | GUI | `gui/OpenKaraoke.Gui/`の対象view/code-behind | `gui/OpenKaraoke.sln`、`docs/architecture.md`。現在はbootstrap shell |
 | Build / CI | 対象manifest、`scripts/check.ps1`、`.github/workflows/` | `docs/development.md`、`docs/testing.md` |
 | 未着手の機能 | 対象Issueと`docs/implementation_plan.md`から担当領域を特定 | その領域の仕様節だけ確認。存在しないsourceを推測しない |
@@ -100,6 +101,16 @@ Issue #10の入口。Issueを再取得し、Pitch #9のhead/merge状態も確認
 - Required: 各特徴量の独立evidence、note/lyric境界score、single/ensemble比較、低品質・legato/melisma回帰。
 - Working set: `vocal_events.py`、`vocal_event_features.py`、`vocal_event_fusion.py`、`vocal_event_evaluator.py`、`test_vocal_event*.py`。
 - Accuracy boundary: scoreは0..1だが未校正。合成/注釈fixtureを実歌唱精度として扱わない。
+
+## Score generation task
+
+Issue #11の入口。Issueを再取得し、Pitch #9 / Vocal Event #10がdefault branchへ統合済みか確認する。
+
+- Goal: F0とVocal Eventを統合し、48 kHz整数timelineの採点用notes.jsonを生成する。
+- Required: F0/Eventの同一snapshot検証、交換可能なcandidate provider / optimizer、key/scale soft prior、歌詞・反復evidence hook、expressive motionの過分割抑制。
+- Working set: `notes.py`、`note_candidates.py`、`note_optimizer.py`、`note_evaluator.py`、`test_note*.py`。registry変更時のみ`service.py`と共有契約test。
+- Candidate boundary: repository-local baselineはF0/Event由来。Basic Pitchやimported MIDIはversioned candidate artifact越しに追加し、未審査のmodel/runtime/weightsを暗黙にbundleしない。
+- Accuracy boundary: committed hand-authored fixtureは合成F0/Event回帰。実録歌唱・実譜面corpusでの精度は別途検証する。
 
 ## Validation
 
