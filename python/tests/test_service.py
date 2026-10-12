@@ -46,7 +46,9 @@ def test_health_and_models(client):
     assert health["protocol_version"] == 1
     assert health["status"] == "ok"
     assert health["pid"] > 0
-    assert client.get("/models").json()["models"][0]["role"] == "mock"
+    models = client.get("/models").json()["models"]
+    assert models[0]["role"] == "mock"
+    assert any(model["role"] == "events" for model in models)
     assert TOKEN not in json.dumps(health)
 
 
