@@ -78,6 +78,8 @@ def evaluate_notes(reference: list[dict], predicted: list[dict], tolerance_sampl
     f1 = (
         2.0 * precision * recall / (precision + recall)
         if precision is not None and recall is not None and precision + recall
+        else 0.0
+        if precision is not None and recall is not None
         else None
     )
     onset_errors = [
