@@ -124,6 +124,7 @@ Windowsでのセットアップ・ビルド方法は [Development](docs/developm
 - [Lyric Alignment](docs/lyric_alignment.md) — 既存歌詞 / ASRと時間軸の整列
 - [Pitch / F0 Analysis](docs/pitch_analysis.md) — 複数F0 detectorとensemble
 - [Vocal Event / Boundary Fusion](docs/vocal_events.md) — 音符・歌詞境界の共通evidenceとfusion
+- [Score Generation](docs/score_generation.md) — F0 / Vocal Eventから採点用notes.jsonを生成
 - [Model Plugins](docs/model_plugins.md) — AIモデルの差し替え・追加
 
 ### カラオケ・採点

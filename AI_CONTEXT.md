@@ -23,6 +23,7 @@ Rust Core / Python Analysis Service / C#・Avalonia GUI のモノレポ。
 - 歌詞整列 #8: [Lyric alignment](docs/lyric_alignment.md)、`python/src/open_karaoke_analysis/alignment*.py`、`ctc_alignment.py`、`python/tests/test_alignment*.py`、`core/tests/alignment_contract.rs`。日本語文字単位の整列と参照歌詞の差分保持。実録歌唱の時刻精度は未評価。
 - F0解析 #9: [Pitch / F0 analysis](docs/pitch_analysis.md)、`python/src/open_karaoke_analysis/pitch.py`、`pitch_detectors.py`、`pitch_fusion.py`、`pitch_evaluator.py`、`python/tests/test_pitch*.py`。single/ensemble、voiced確率、octave/時間連続性と合成Evaluator。実録歌唱精度は未評価。
 - Vocal Event #10: [Vocal Event fusion](docs/vocal_events.md)、`vocal_events.py`、`vocal_event_features.py`、`vocal_event_fusion.py`、`vocal_event_evaluator.py`、`python/tests/test_vocal_event*.py`。note/lyric境界scoreは未校正。
+- 採点譜面生成 #11: [Score generation](docs/score_generation.md)、`notes.py`、`note_candidates.py`、`note_optimizer.py`、`note_evaluator.py`、`python/tests/test_note*.py`。合成fixture回帰のみで実録歌唱精度は未評価。
 
 仕様・コード・Issueの不一致は明示する。要約で原典を上書きしない。
 

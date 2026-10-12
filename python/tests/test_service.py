@@ -49,6 +49,7 @@ def test_health_and_models(client):
     models = client.get("/models").json()["models"]
     assert models[0]["role"] == "mock"
     assert any(model["role"] == "events" for model in models)
+    assert any(model["role"] == "notes" for model in models)
     assert TOKEN not in json.dumps(health)
 
 
@@ -107,9 +108,8 @@ def test_failure_and_unknown_id(client):
         assert response.json()["error"]["code"] == "job_not_found"
 
 
-@pytest.mark.parametrize("role", ["notes", "song"])
-def test_unimplemented_roles_never_fake_success(client, role):
-    response = client.post(f"/analysis/{role}", json={})
+def test_unimplemented_roles_never_fake_success(client):
+    response = client.post("/analysis/song", json={})
     assert response.status_code == 501
     assert response.json()["error"]["code"] == "not_implemented"
 

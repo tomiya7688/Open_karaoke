@@ -1,0 +1,50 @@
+name: Note generation regression
+
+on:
+  pull_request:
+    paths:
+      - 'python/**'
+      - 'core/tests/job_api.rs'
+      - 'docs/score_generation.md'
+      - '.github/workflows/note-regression.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  note-regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install score-generation test dependencies
+        run: python -m pip install --quiet -e './python[dev]'
+      - name: Static diagnostics
+        run: |
+          mkdir -p artifacts/notes
+          python -m ruff check python --output-format concise > artifacts/notes/lint.txt
+          python -m ruff format --check --diff python > artifacts/notes/format.patch
+      - name: Score generation contracts and regressions
+        run: |
+          python -m pytest python/tests/test_notes.py python/tests/test_note_evaluator.py -q \
+            --junitxml=artifacts/notes/tests.xml
+          open-karaoke-note-evaluator \
+            python/tests/fixtures/score_notes_reference.json \
+            artifacts/notes/regression.json \
+            --tolerance-ms 30 \
+            --min-pitch-f1 0.95 \
+            --max-mean-onset-ms 20 \
+            --max-mean-offset-ms 20 \
+            --max-octave-error-rate 0.01
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: note-generation-regression
+          path: artifacts/notes
+          if-no-files-found: error

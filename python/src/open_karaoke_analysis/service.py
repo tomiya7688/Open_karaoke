@@ -28,6 +28,7 @@ from .adapters import (
 from .alignment import AlignmentAdapter
 from .contracts import PROTOCOL_VERSION, AnalysisRequest, ErrorDetail, Job, Role, ServiceError
 from .lyrics import LyricsAdapter
+from .notes import NotesAdapter
 from .pitch import PitchAdapter
 from .stems import StemsAdapter
 from .vocal_events import VocalEventAdapter
@@ -184,6 +185,7 @@ def create_app(
             AlignmentAdapter(),
             PitchAdapter(),
             VocalEventAdapter(),
+            NotesAdapter(),
         ]
         if adapters is None
         else adapters
