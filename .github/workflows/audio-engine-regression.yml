@@ -35,6 +35,7 @@ jobs:
           cargo fmt --all -- --check
           cargo clippy --workspace --all-targets -- -D warnings
       - name: Confirm checked-in dependency lockfile
+        if: always()
         run: |
           git diff -- Cargo.lock
           git diff --exit-code -- Cargo.lock
@@ -60,6 +61,7 @@ jobs:
           cargo fmt --all -- --check
           cargo clippy --workspace --all-targets -- -D warnings
       - name: Confirm checked-in dependency lockfile
+        if: always()
         shell: pwsh
         run: |
           git diff -- Cargo.lock

@@ -177,10 +177,18 @@ mod platform {
             .and_then(|device| device.name().ok());
         let mut devices = Vec::new();
         for device in host.output_devices().map_err(|error| error.to_string())? {
-            devices.push(describe(&device, DeviceDirection::Output, output_default.as_ref())?);
+            devices.push(describe(
+                &device,
+                DeviceDirection::Output,
+                output_default.as_ref(),
+            )?);
         }
         for device in host.input_devices().map_err(|error| error.to_string())? {
-            devices.push(describe(&device, DeviceDirection::Input, input_default.as_ref())?);
+            devices.push(describe(
+                &device,
+                DeviceDirection::Input,
+                input_default.as_ref(),
+            )?);
         }
         Ok(devices)
     }
