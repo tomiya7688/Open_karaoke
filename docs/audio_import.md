@@ -1,5 +1,9 @@
 # Audio import and normalization
 
+> 現在実装されているのはRust CoreのFFmpeg呼び出しによる**取り込み・正規化処理**です。
+> GUIから楽曲登録・解析Jobまで一度に進む完成済みのインポート画面を意味しません。
+> 残る結合は [Current status](current_status.md) を参照してください。
+
 ## Internal format
 
 Supported source formats for the initial product requirement:
