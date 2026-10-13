@@ -53,6 +53,10 @@ dotnet run --project gui/OpenKaraoke.Gui/OpenKaraoke.Gui.csproj
 Core starts and supervises its private Python worker automatically. See
 [Analysis Service](analysis_service.md) for configuration and sample Job requests.
 The GUI is still a bootstrap shell; its Core API client is Issue #15.
-The mock adapter and the UMX-HQ stem adapter are registered. Real stem inference requires
-the optional runtime described in [Stem separation](stem_separation.md). Other AI roles
-remain unimplemented and return explicit errors; adapter registration is not model installation.
+The worker now registers adapters for stems, lyrics, alignment, offline pitch,
+Vocal Events and score notes in addition to the mock. The `analysis.song` role is
+still unimplemented. Most real inference requires **optional model runtimes and
+verified weights**; adapter registration is not model installation. See
+[Current status](current_status.md) and [Analysis Service](analysis_service.md)
+for the actual roles, and each feature document for its optional dependencies.
+The GUI remains a bootstrap shell and is not yet a functioning karaoke player.
