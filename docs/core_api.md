@@ -5,6 +5,7 @@ The bootstrap Core server listens on `127.0.0.1:32145`.
 ## Endpoints
 
 - `GET /health`
+- `GET /devices` (WASAPI device enumeration on Windows; 503 elsewhere)
 - `POST /jobs`
 - `GET /jobs/{id}`
 - `POST /jobs/{id}/cancel`

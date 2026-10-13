@@ -14,6 +14,9 @@ tokio = { version = "1", features = ["macros", "rt-multi-thread", "net", "signal
 tokio-stream = { version = "0.1", features = ["sync"] }
 uuid = { version = "1", features = ["v4", "serde"] }
 
+[target.'cfg(windows)'.dependencies]
+cpal = { version = "=0.16.0", default-features = false }
+
 [dev-dependencies]
 tempfile = "3"
 tower = { version = "0.5", features = ["util"] }

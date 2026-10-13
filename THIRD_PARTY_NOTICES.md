@@ -7,6 +7,7 @@ This file tracks third-party software, models, runtimes, data, and other compone
 | Component | Type | Version | License | Commercial use | Redistribution | Included in official build | Notes |
 |---|---|---|---|---|---|---|---|
 | TBD | — | — | — | — | — | — | Add entries when dependencies are selected |
+| [CPAL](https://github.com/RustAudio/cpal) | Rust audio I/O library (Windows backend) | 0.16.0 | Apache-2.0 | Yes | Yes (license/notice required) | Planned for Windows build | Source crate only; no ASIO; WASAPI shared; complete transitive inventory at release |
 
 ## Review rules
 
