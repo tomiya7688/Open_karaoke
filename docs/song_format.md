@@ -8,7 +8,14 @@ Open_karaoke内部ではJSONベースの独自Song Data Formatを使用する。
 
 時間の正本は48kHz基準の整数sample indexとする。Rust実装では `u64` を使用し、浮動小数秒は保存しない。
 
-## ディレクトリ
+## Job成果物とSongStoreの違い
+
+`analysis.stems` や `analysis.lyrics` 等の完了後に返る `jobs/<instance>/<id>/...`
+は **一時的な解析成果物への参照** です。曲ライブラリの正本（下記の `songs/<song-id>/`）へ
+自動的に取り込まれるとは限りません。個別解析Jobを連結し保存する処理は、
+[現在の実装状況](current_status.md) の「楽曲全体の一括解析」欄を参照してください。
+
+## ディレクトリ（保存レイアウト例）
 
 ```text
 songs/
