@@ -14,18 +14,12 @@
 
 ## Snapshot
 
-2026-09-22時点。作業再開時にはremoteと対象Issue/PRを再確認する。
+開発用の固定スナップショットは古くなるため、現在の実装状況は
+[Current status](current_status.md) に集約する。そこに記載された確認日・main SHAは
+**当時の記録**であり、作業前には必ず対象Issue/PRと最新のmain/headを再確認する。
 
-| 対象 | 確認した参照 | 状態・限界 |
-|---|---|---|
-| `main` | `0d2a01d4603346da41bd575ab93700c42040fb5c` | 下記の機能ブランチ全体は未統合 |
-| Analysis Service | [PR #24](https://github.com/tomiya7688/Open_karaoke/pull/24)、`27122203fb4430a8a97064ac5e0cfe6bd83113da` | Core/Python基盤。Jobはメモリ内 |
-| Stem separation | [PR #25](https://github.com/tomiya7688/Open_karaoke/pull/25)、`620601f6aced82e312247d28ebf35006848b8181` | UMX-HQ、キャッシュ、Evaluator。実曲品質・CUDA・GUI登録は未確認/未実装 |
-| 次の機能 | [Issue #7](https://github.com/tomiya7688/Open_karaoke/issues/7) | Whisper歌詞抽出。まだ実装済みとして扱わない |
-
-PR #24はmain向け、#25は#24のブランチ向け。この導入変更は#25の実装SHA上で作成している。
-マージは別操作。依存PRをmainへ取り込んだ後、後続PRもmainへretargetして差分を確認する。
-中間ブランチへのマージだけでmain反映済みとしない。上記SHAの古いCI結果を新しい変更の検証結果へ流用しない。
+過去のPR #24〜#34のマージ履歴は [GitHub Pull Requests](https://github.com/tomiya7688/Open_karaoke/pulls?q=is%3Apr) から追える。
+2026-09-22当時の「歌詞は未実装」「Stem PR未統合」という情報を現在の前提として使わない。
 
 ## Remote delta
 
@@ -62,7 +56,7 @@ GitHub connectorだけの環境では対象Issue、対象PRのhead/base SHA、�
 | 音源入力・正規化 | `core/src/audio_import.rs` | 同ファイル内tests、`docs/audio_import.md` |
 | Python API / Adapter契約 | `python/src/open_karaoke_analysis/contracts.py`、`adapters.py`、`service.py`（同ディレクトリ） | `python/tests/test_service.py`、`docs/analysis_service.md` |
 | 音源分離 | `python/src/open_karaoke_analysis/stems.py`、`stem_backend.py`、`stem_audio.py`（同ディレクトリ） | `python/tests/test_stem*.py`、`python/tests/test_stems.py`、`docs/stem_separation.md` |
-| 歌詞抽出 #7 | [Lyrics task](#lyrics-task) | `docs/analysis_pipeline.md`の歌詞節、`docs/song_format.md` |
+| 歌詞抽出 #7 | [Lyrics task](#lyrics-task)、`python/src/open_karaoke_analysis/lyrics.py` | `docs/lyric_transcription.md`、`python/tests/test_lyric*.py` |
 | F0 / Pitch #9 | [Pitch task](#pitch-task) | `docs/pitch_analysis.md`、`python/tests/test_pitch*.py` |
 | Vocal Event #10 | [Vocal Event task](#vocal-event-task) | `docs/vocal_events.md`、`python/tests/test_vocal_event*.py` |
 | Score generation #11 | [Score generation task](#score-generation-task) | `docs/score_generation.md`、`python/tests/test_note*.py` |
@@ -72,20 +66,18 @@ GitHub connectorだけの環境では対象Issue、対象PRのhead/base SHA、�
 
 ## Lyrics task
 
-Issue #7を開始する場合の入口。Issueを再取得して以下との差分を確認する。
+歌詞処理の修正を行う場合は、Issue #7と現在のコードを先に照合する。Issueのopen/closedだけで
+実装有無を判定しない。
 
-- Goal: 分離済みvocalsから、Whisper large-v3系で歌詞候補を生成する。
-- Required: Adapter契約、LyricsDocumentとの互換性、48 kHz整数時刻への変換、日本語/多言語、モデル・重みの出典とライセンス。
-- Acceptance: `lyrics.json`候補、モデル/version、raw ASRとconfidence/evidence、backend交換、明確なJob error。CER/WER、反復・幻覚回帰、日本語歌唱fixtureの根拠を確認する。
-- Working set: 最初は`adapters.py`、`contracts.py`、`core/src/song_data.rs`のLyricsDocument周辺。登録時だけ`service.py`、テストは`test_service.py`のAdapter例を参照する。
-
-新規の歌詞Adapter/backend/Evaluator/testファイルはこの時点では予定。実装後にこの行を実パスへ更新する。
-音源分離の内部、GUI、採点、全履歴は初期探索から外す。ただし入力契約や共有APIの問題が出た場合は直接依存へ広げる。
-歌唱データが不足している場合はfixtureの出典・権利・未評価範囲を残し、合成音声だけで歌唱精度を確認済みにしない。
+- Goal: Whisper候補生成、48 kHz整数タイムライン、未校正なconfidence/evidence保持、モデル差し替え可能なAdapter。
+- Current implementation: `lyrics.py`、`whisper_backend.py`、`lyric_evaluator.py`、`python/tests/test_lyric*.py`。
+- Contracts: `core/src/song_data.rs`、`core/tests/lyric_contract.rs`、`docs/lyric_transcription.md`。
+- Validation: 合成fixturesとモデル起動は実録歌唱CERの証明にならない。実曲での性能・閾値は別途評価する。
+- Scope: 変更対象のファイルと対応テストに絞り、音源分離・GUI・他の解析モデルへ不用意に広げない。
 
 ## Pitch task
 
-Issue #9の入口。Issueを再取得して以下との差分を確認する。
+Pitchコードの修正時の入口。Issue #9とコード/CIの現在状態を再確認する。
 
 - Goal: 分離済みvocalsから48 kHz整数timelineへ正規化したF0を生成し、detector単体とensembleを切替可能にする。
 - Required: `PitchDetector`共通契約、detector confidence、voiced probability、octave consistency、temporal continuity、evidence保存。
@@ -95,7 +87,7 @@ Issue #9の入口。Issueを再取得して以下との差分を確認する。
 
 ## Vocal Event task
 
-Issue #10の入口。Issueを再取得し、Pitch #9のhead/merge状態も確認する。
+Vocal Eventコードの修正時の入口。Issue #10とPitch #9のコード/CIの現在状態を確認する。
 
 - Goal: F0/VUV、音響onset、energy/spectral、歌詞alignment、将来のnote onsetを同一48 kHz timelineへ投影する。
 - Required: 各特徴量の独立evidence、note/lyric境界score、single/ensemble比較、低品質・legato/melisma回帰。
@@ -104,7 +96,7 @@ Issue #10の入口。Issueを再取得し、Pitch #9のhead/merge状態も確認
 
 ## Score generation task
 
-Issue #11の入口。Issueを再取得し、Pitch #9 / Vocal Event #10がdefault branchへ統合済みか確認する。
+譜面生成コードの修正時の入口。Issue #11を確認し、Pitch #9とVocal Event #10の現在の共有契約を確認する。
 
 - Goal: F0とVocal Eventを統合し、48 kHz整数timelineの採点用notes.jsonを生成する。
 - Required: F0/Eventの同一snapshot検証、交換可能なcandidate provider / optimizer、key/scale soft prior、歌詞・反復evidence hook、expressive motionの過分割抑制。
