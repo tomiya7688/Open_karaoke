@@ -47,6 +47,10 @@
 
 ## 次の入口
 
-実装・残タスクは [Implementation Plan](implementation_plan.md) と [GitHub Issues](https://github.com/tomiya7688/Open_karaoke/issues) を参照してください。Issueの開閉とコードが存在することは一致しない場合があります。Issueを閉じる判断は実装済みかどうかだけでなく、そのIssueの受け入れ条件・実モデル評価等に基づきます。
+実装・残タスクは [Implementation Plan](implementation_plan.md) と [GitHub Issues](https://github.com/tomiya7688/Open_karaoke/issues) を参照してください。
+今回の監査で、全曲の解析・登録 [#36](https://github.com/tomiya7688/Open_karaoke/issues/36)、
+MIDI/外部譜面取込 [#37](https://github.com/tomiya7688/Open_karaoke/issues/37)、
+任意の歌詞/譜面編集 [#38](https://github.com/tomiya7688/Open_karaoke/issues/38)、
+Windows同梱配布 [#39](https://github.com/tomiya7688/Open_karaoke/issues/39) を追加しました。Issueの開閉とコードが存在することは一致しない場合があります。Issueを閉じる判断は実装済みかどうかだけでなく、そのIssueの受け入れ条件・実モデル評価等に基づきます。
 
 AI/Agentで作業する場合は [AI_CONTEXT.md](../AI_CONTEXT.md) から、対象Issueに必要なファイルだけを読む手順を使ってください。
