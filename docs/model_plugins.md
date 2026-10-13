@@ -4,6 +4,16 @@
 
 初期実装は固定モデルで開始するが、将来的には開発者でなくてもモデルを追加・切り替えできる構造にする。
 
+## 現在の実装と今後の設計
+
+現在は `python/src/open_karaoke_analysis/service.py` が信頼済みのPython Adapterを**静的に登録**し、`GET /models` は `id / version / role / capabilities` を返します。
+
+下記の `manifest.json` は**将来の公式モデルパッケージ形式の設計例**です。現行のAdapter登録と同一のスキーマではなく、フォルダから自動発見する仕組み、ZIPインポート、公式Model Registry、GUI選択画面はまだ実装されていません。これらを本番機能として扱わないでください。
+
+追加のPython Adapterは任意コードを実行する**信頼済み拡張**です。ローカルモデルのライセンスチェックを省く方針は、未知の実行コードを安全に隔離できるという意味ではありません。
+
+現在の状態は [現在の実装状況](current_status.md)、解析側の登録境界は [Analysis Service](analysis_service.md) に記載します。
+
 ## モデルロール
 
 初期想定:
@@ -39,7 +49,7 @@ Model Adapter
  +-- Internal Model
 ```
 
-## Official model manifest
+## Official model manifest（将来のパッケージ形式）
 
 公式配布・公式Model Registryへ登録するモデルはmanifestを持ち、ライセンス情報を必須項目とする。
 
@@ -55,7 +65,7 @@ Model Adapter
   "version": "1",
   "languages": ["ja", "en", "multi"],
   "license": "MIT",
-  "license_url": "https://example.invalid/license",
+  "license_url": "https://github.com/openai/whisper/blob/main/LICENSE",
   "commercial_use": true,
   "redistribution": true,
   "capabilities": {
@@ -84,7 +94,7 @@ Model Adapter
 
 ライセンス情報が取得できる場合はUIへ表示し、公式検証済みモデルとユーザー導入モデルを区別する。
 
-ライセンス情報がない、または公式審査を通過していないモデルはUI上で `Unverified / User supplied` と表示できるようにする。
+ライセンス情報がない、または公式審査を通過していないモデルは**将来のUI**上で `Unverified / User supplied` と表示できるようにする。現時点ではロード用UIがない。
 
 ## 将来の追加方法
 
