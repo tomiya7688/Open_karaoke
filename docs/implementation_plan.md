@@ -24,8 +24,12 @@
 | Avalonia GUI / カラオケ画面 | [#15](https://github.com/tomiya7688/Open_karaoke/issues/15)、[#16](https://github.com/tomiya7688/Open_karaoke/issues/16) | `gui/`、[Architecture](architecture.md) |
 | モデル選択と拡張 | [#17](https://github.com/tomiya7688/Open_karaoke/issues/17) | [Model Plugins](model_plugins.md) |
 | Evaluator / Release gates | [#18](https://github.com/tomiya7688/Open_karaoke/issues/18)、[#19](https://github.com/tomiya7688/Open_karaoke/issues/19) | [Testing / CI](testing.md)、[Licensing](licensing.md) |
+| 個別解析から曲全体を登録 | [#36](https://github.com/tomiya7688/Open_karaoke/issues/36) | [Analysis Service](analysis_service.md)、[Song Format](song_format.md) |
+| 外部MIDI / 既存譜面取込 | [#37](https://github.com/tomiya7688/Open_karaoke/issues/37) | [Requirements](requirements.md)、[Song Format](song_format.md) |
+| 任意の歌詞・譜面編集 | [#38](https://github.com/tomiya7688/Open_karaoke/issues/38) | [Requirements](requirements.md)、[Song Format](song_format.md) |
+| Windows同梱・インストーラー | [#39](https://github.com/tomiya7688/Open_karaoke/issues/39) | [Development](development.md)、[Licensing](licensing.md) |
 
-**2026-10-14時点**: #1、#5、#9〜#11はclosed、#2〜#4と#6〜#8、#12〜#19はopen。
+**2026-10-14時点**: #1、#5、#9〜#11はclosed、#2〜#4と#6〜#8、#12〜#19はopen。#36〜#39は今回の文書監査で未起票だった1.0.0要件の抜けとして追加。
 ただし、openのIssueにも実装済みのコードがある場合があります。実装が存在しても、
 実データ評価やIssueの受け入れ条件が未完なら完了としません。最新状態は[Issues](https://github.com/tomiya7688/Open_karaoke/issues)を確認してください。
 
@@ -36,7 +40,8 @@
 - Rust CoreのJob APIとSong Dataを安定させてから、解析Adapterが出すartifactを連結する。
 - F0・Vocal Event・notesは同じ48kHz sample timelineと入力hashを共有する。
 - GUIはRust Coreの公開APIへ接続し、Pythonの非公開ポートには接続しない。
-- 全曲Job `analysis.song`、自動SongStoreへの登録、店舗向けリアルタイム音声機能は別途統合が必要。
+- 全曲Job `analysis.song` とSongStoreへの登録は #36、外部譜面取込は #37、任意編集は #38、実配布物の構築は #39 をそれぞれ担当する。
+- 店舗向けリアルタイム音声機能（#12〜#14）とGUI（#15〜#16）はその後の統合が必要。
 - 実曲精度・商用配布ライセンス・Windows機材検証は1.0.0をブロックし得る品質ゲート。
 
 ## Issueの受け入れ条件
