@@ -4,7 +4,7 @@
 
 The default analysis registry now exposes `umxhq-vocals` for role `stems`, alongside
 `mock-v1`. This is an actual pretrained Open-Unmix UMX-HQ vocals model, not a channel
-subtraction placeholder. Other AI roles remain unimplemented.
+subtraction placeholder. Other roles now have separate adapters; see [Current status](current_status.md).
 
 Input must already be a nonempty **48 kHz stereo WAV** in the Core artifact root.
 The audio importer in Issue #4 provides normalization; this adapter does not invoke
