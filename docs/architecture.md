@@ -1,5 +1,9 @@
 # アーキテクチャ
 
+> **この文書は製品の目標構成・決定済みの技術方針です。** 現在の実装状況は
+> [現在の実装状況](current_status.md) を参照してください。CoreにAPI基盤はありますが、
+> CPAL音声エンジン、リアルタイム採点、GUIのCore連携が完成したという意味ではありません。
+
 ## 対象OS
 
 初期対象は Windows とする。
@@ -84,7 +88,7 @@ AI・オフライン解析はPythonを利用する。
 
 Pythonはリアルタイム再生経路には置かず、曲生成・再解析等のオフライン処理を担当する。
 
-## 全体構成
+## 全体構成（目標）
 
 ```text
 +---------------------------+
@@ -129,24 +133,22 @@ GUI と Rust Core も安定したAPI境界を持ち、GUIからコア内部実�
 
 解析はJobとして扱い、テスト・Evaluator・CIからGUIを介さず実行できるようにする。
 
-例:
+現在の **Rust Core公開API**:
 
 ```text
 GET    /health
+GET    /analysis/health
 GET    /models
-GET    /devices
-
 POST   /jobs
 GET    /jobs/{job_id}
 POST   /jobs/{job_id}/cancel
-
-POST   /analysis/stems
-POST   /analysis/lyrics
-POST   /analysis/alignment
-POST   /analysis/pitch
-POST   /analysis/notes
-POST   /analysis/song
+GET    /jobs/{job_id}/events
 ```
+
+解析の起動は `POST /jobs` の `kind: "analysis.<role>"` を使用します。
+`POST /analysis/{role}` はPython子プロセス内部の認証付きAPIであり、Coreの公開ルートではありません。
+`GET /devices` や GUI向け再生APIは**将来実装**の対象です。正確な実装仕様は
+[Core API](core_api.md) と [Analysis Service](analysis_service.md) に記載します。
 
 Job状態の最低限:
 
@@ -224,7 +226,7 @@ F0検出器は1種類に固定しない。
 
 ## 譜面生成方針
 
-譜面生成は製品のコア機能として最初から精度重視で設計する。
+譜面生成は製品のコア機能として最初から精度重視で設計する。現行のベースラインはF0・Vocal Eventと候補生成・時系列DPの組み合わせであり、実録歌唱精度を検証済みという意味ではない（[Score Generation](score_generation.md)）。
 
 単一モデルの出力を正式譜面とせず、以下を統合する。
 
@@ -260,4 +262,6 @@ Original Song
   -> scoring
 ```
 
-複数ASR、内製モデル、Transformer破綻検出、Song Global Optimizer、whole-song optimization、曲単位LoRA / Adapterは、E2E完成後の精度改善フェーズで追加する。
+複数ASR、内製モデル、Transformer破綻検出、曲全体を複数回読み直す
+高度な Song Global Optimizer、曲単位LoRA / Adapterは、E2E完成後の精度改善候補とする。
+**譜面候補間の時系列DPは現行ベースラインに既に存在**し、ここで言う将来の全曲最適化とは別である。
