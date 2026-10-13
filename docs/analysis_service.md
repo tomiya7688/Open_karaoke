@@ -6,9 +6,20 @@ Rust Core owns process startup, the public Job IDs, polling, cancellation, and f
 Python is an offline worker; it is never called from an audio callback. The service uses FastAPI,
 Pydantic and Uvicorn. Startup imports no ML runtime and downloads no model weights.
 
-Included adapters are `mock-v1` (role `mock`) and `umxhq-vocals` (role `stems`).
-See [Stem separation](stem_separation.md) for runtime installation, pinned weights and evaluation.
-ASR, alignment, pitch, notes and song generation still return HTTP 501 / `not_implemented`.
+Registered adapters on the reviewed `main` branch are listed below. Listing a model is not proof that its optional runtime or weights are already installed.
+
+| Role | Default / available model | Implementation |
+|---|---|---|
+| `mock` | `mock-v1` | Integration-test fixture |
+| `stems` | `umxhq-vocals` | [Stem separation](stem_separation.md) |
+| `lyrics` | `whisper-large-v3`, `whisper-large-v3-turbo` | [Lyric transcription](lyric_transcription.md) |
+| `alignment` | `wav2vec2-ja-alignment` | [Lyric alignment](lyric_alignment.md) |
+| `pitch` | `f0-ensemble-v1` | [Pitch / F0](pitch_analysis.md) |
+| `events` | `vocal-event-fusion-v1` | [Vocal Events](vocal_events.md) |
+| `notes` | `score-note-optimizer-v1` | [Score generation](score_generation.md) |
+| `song` | No adapter registered | HTTP 501 / `not_implemented` |
+
+Each implemented analysis role is a **separate Job**, not a complete import-to-karaoke workflow. Only the mock adapter runs without model or analysis-specific dependencies. The current implementation and outstanding product work are tracked in [Current status](current_status.md).
 
 ## Start
 
@@ -59,7 +70,7 @@ framework-smoke jobs remain available. Core SSE sends an initial snapshot when s
 `GET /health`, `GET /models`, `POST /analysis/{role}`, `GET /jobs/{uuid}`,
 `POST /jobs/{uuid}/cancel`, `POST /shutdown`. All require the launch token.
 
-Roles: `mock`, `stems`, `lyrics`, `alignment`, `pitch`, `notes`, `song`.
+Roles: `mock`, `stems`, `lyrics`, `alignment`, `pitch`, `events`, `notes`, `song`. `song` is reserved and has no default adapter.
 An analysis request contains optional `model_id`, optional `input_artifact`, and `options`.
 Unknown fields and invalid role-specific options fail validation. Structured HTTP errors:
 
