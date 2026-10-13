@@ -1,7 +1,7 @@
 //! CPAL audio device boundary. The initial production backend is Windows/WASAPI shared mode.
 //!
 //! Only control threads enumerate, build, play and pause streams. The device callbacks call
-//! the allocation-free AudioIo methods and never take a mutex or perform disk I/O.
+//! the allocation-free `AudioIo` methods and never take a mutex or perform disk I/O.
 
 use serde::Serialize;
 

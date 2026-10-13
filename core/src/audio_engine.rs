@@ -256,7 +256,7 @@ impl AudioIo {
             }
             for (channel, sample) in frame.iter_mut().enumerate() {
                 let value = if channels == 1 {
-                    (left + right) * 0.5
+                    f32::midpoint(left, right)
                 } else if channel == 0 {
                     left
                 } else if channel == 1 {
@@ -438,12 +438,12 @@ mod tests {
             assert_eq!(io.enqueue_stereo(&frames).unwrap(), 480);
             let mut output = [0.0; 960];
             io.render_mock(&mut output, 2);
-            assert!(output.chunks_exact(2).all(|v| v == [0.35, 0.15]));
+            assert!(output.as_chunks::<2>().0.iter().all(|v| v == &[0.35, 0.15]));
             let raw = [0.4_f32; 480];
             io.capture_mock(&raw, 1);
             let mut result = [0.0; 480];
             assert_eq!(io.read_microphone(&mut result), 480);
-            assert!(result.iter().all(|sample| *sample == 0.4));
+            assert!(result.iter().all(|sample| (*sample - 0.4).abs() < 1e-6));
             assert_eq!(io.counters().playback_sample_position, (block + 1) * 480);
         }
         assert_eq!(

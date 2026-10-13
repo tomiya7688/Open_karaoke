@@ -74,10 +74,8 @@ fn parse_wav(file: &mut File) -> io::Result<WavMetadata> {
                 && sample_rate == SAMPLE_RATE
                 && align == 8
                 && bits == 32;
-        } else if &tag[..4] == b"data" {
-            if data.replace((start, chunk_size)).is_some() {
-                return Err(invalid("Multiple WAV data chunks are unsupported"));
-            }
+        } else if &tag[..4] == b"data" && data.replace((start, chunk_size)).is_some() {
+            return Err(invalid("Multiple WAV data chunks are unsupported"));
         }
         let padded_end = end + (chunk_size % 2);
         if padded_end > declared_end {
@@ -145,12 +143,22 @@ impl WavFeeder {
                     failure.store(true, Ordering::Release);
                     break;
                 }
-                for index in 0..count {
+                for (index, frame) in samples.iter_mut().enumerate().take(count) {
                     let left = index * 8;
                     let right = left + 4;
-                    samples[index] = [
-                        f32::from_le_bytes(bytes[left..right].try_into().unwrap()),
-                        f32::from_le_bytes(bytes[right..right + 4].try_into().unwrap()),
+                    *frame = [
+                        f32::from_le_bytes([
+                            bytes[left],
+                            bytes[left + 1],
+                            bytes[left + 2],
+                            bytes[left + 3],
+                        ]),
+                        f32::from_le_bytes([
+                            bytes[right],
+                            bytes[right + 1],
+                            bytes[right + 2],
+                            bytes[right + 3],
+                        ]),
                     ];
                 }
                 if samples[..count]
