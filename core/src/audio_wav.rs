@@ -68,9 +68,7 @@ fn parse_wav(file: &mut File) -> io::Result<WavMetadata> {
             let align = u16::from_le_bytes([bytes[12], bytes[13]]);
             let bits = u16::from_le_bytes([bytes[14], bytes[15]]);
             let ieee_float = format == 3
-                || (format == 0xfffe
-                    && bytes.len() >= 40
-                    && bytes[24..40] == FLOAT_SUBFORMAT);
+                || (format == 0xfffe && bytes.len() >= 40 && bytes[24..40] == FLOAT_SUBFORMAT);
             normalized_format = ieee_float
                 && channels == 2
                 && sample_rate == SAMPLE_RATE
@@ -169,7 +167,8 @@ impl WavFeeder {
                         Ok(0) => thread::sleep(Duration::from_millis(2)),
                         Ok(accepted) => {
                             written += accepted;
-                            sending.fetch_add(u64::try_from(accepted).unwrap_or(0), Ordering::Release);
+                            sending
+                                .fetch_add(u64::try_from(accepted).unwrap_or(0), Ordering::Release);
                         }
                         Err(_) => {
                             failure.store(true, Ordering::Release);

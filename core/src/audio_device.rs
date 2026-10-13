@@ -40,9 +40,9 @@ pub fn enumerate_devices() -> Result<Vec<AudioDeviceInfo>, String> {
 #[cfg(windows)]
 mod platform {
     use cpal::{
-        traits::{DeviceTrait, HostTrait, StreamTrait},
         BufferSize, Device, Host, SampleFormat, SampleRate, Stream, StreamConfig,
         SupportedStreamConfigRange,
+        traits::{DeviceTrait, HostTrait, StreamTrait},
     };
 
     use crate::audio_engine::SAMPLE_RATE;
@@ -53,13 +53,20 @@ mod platform {
         cpal::host_from_id(cpal::HostId::Wasapi).map_err(|error| error.to_string())
     }
 
-    fn formats(device: &Device, direction: DeviceDirection) -> Result<Vec<SupportedStreamConfigRange>, String> {
-        let ranges = match direction {
-            DeviceDirection::Output => device.supported_output_configs(),
-            DeviceDirection::Input => device.supported_input_configs(),
+    fn formats(
+        device: &Device,
+        direction: DeviceDirection,
+    ) -> Result<Vec<SupportedStreamConfigRange>, String> {
+        match direction {
+            DeviceDirection::Output => device
+                .supported_output_configs()
+                .map(|ranges| ranges.collect())
+                .map_err(|error| error.to_string()),
+            DeviceDirection::Input => device
+                .supported_input_configs()
+                .map(|ranges| ranges.collect())
+                .map_err(|error| error.to_string()),
         }
-        .map_err(|error| error.to_string())?;
-        Ok(ranges.collect())
     }
 
     fn supports_48khz(ranges: &[SupportedStreamConfigRange]) -> bool {
@@ -67,7 +74,10 @@ mod platform {
             range.min_sample_rate().0 <= SAMPLE_RATE
                 && range.max_sample_rate().0 >= SAMPLE_RATE
                 && range.channels() > 0
-                && matches!(range.sample_format(), SampleFormat::F32 | SampleFormat::I16 | SampleFormat::U16)
+                && matches!(
+                    range.sample_format(),
+                    SampleFormat::F32 | SampleFormat::I16 | SampleFormat::U16
+                )
         })
     }
 
@@ -118,14 +128,18 @@ mod platform {
         selected_name: Option<&str>,
     ) -> Result<Option<Device>, String> {
         if let Some(name) = selected_name {
-            let devices = match direction {
-                DeviceDirection::Output => host.output_devices(),
-                DeviceDirection::Input => host.input_devices(),
-            }
-            .map_err(|error| error.to_string())?;
-            let matches: Vec<Device> = devices
-                .filter(|device| device.name().is_ok_and(|label| label == name))
-                .collect();
+            let matches: Vec<Device> = match direction {
+                DeviceDirection::Output => host
+                    .output_devices()
+                    .map_err(|error| error.to_string())?
+                    .filter(|device| device.name().is_ok_and(|label| label == name))
+                    .collect(),
+                DeviceDirection::Input => host
+                    .input_devices()
+                    .map_err(|error| error.to_string())?
+                    .filter(|device| device.name().is_ok_and(|label| label == name))
+                    .collect(),
+            };
             return match matches.len() {
                 0 => Err(format!("Audio device not found: {name}")),
                 1 => Ok(matches.into_iter().next()),
@@ -138,6 +152,21 @@ mod platform {
         })
     }
 
+    fn describe(
+        device: &Device,
+        direction: DeviceDirection,
+        default_name: Option<&String>,
+    ) -> Result<AudioDeviceInfo, String> {
+        let name = device.name().map_err(|error| error.to_string())?;
+        Ok(AudioDeviceInfo {
+            is_default: default_name == Some(&name),
+            supports_48khz: supports_48khz(&formats(device, direction)?),
+            name,
+            direction,
+            host: "wasapi".to_owned(),
+        })
+    }
+
     pub(super) fn enumerate_devices() -> Result<Vec<AudioDeviceInfo>, String> {
         let host = host()?;
         let output_default = host
@@ -147,26 +176,11 @@ mod platform {
             .default_input_device()
             .and_then(|device| device.name().ok());
         let mut devices = Vec::new();
-        for direction in [DeviceDirection::Output, DeviceDirection::Input] {
-            let list = match direction {
-                DeviceDirection::Output => host.output_devices(),
-                DeviceDirection::Input => host.input_devices(),
-            }
-            .map_err(|error| error.to_string())?;
-            for device in list {
-                let name = device.name().map_err(|error| error.to_string())?;
-                let is_default = match direction {
-                    DeviceDirection::Output => output_default.as_ref() == Some(&name),
-                    DeviceDirection::Input => input_default.as_ref() == Some(&name),
-                };
-                devices.push(AudioDeviceInfo {
-                    name,
-                    direction,
-                    is_default,
-                    supports_48khz: supports_48khz(&formats(&device, direction)?),
-                    host: "wasapi".to_owned(),
-                });
-            }
+        for device in host.output_devices().map_err(|error| error.to_string())? {
+            devices.push(describe(&device, DeviceDirection::Output, output_default.as_ref())?);
+        }
+        for device in host.input_devices().map_err(|error| error.to_string())? {
+            devices.push(describe(&device, DeviceDirection::Input, input_default.as_ref())?);
         }
         Ok(devices)
     }
@@ -270,10 +284,12 @@ mod platform {
             let (output_config, output_format) =
                 configure(&output_device, DeviceDirection::Output)?;
             let output = output_stream(&output_device, &output_config, output_format, &audio)?;
-            let input = input_device.map(|device| {
-                let (input_config, input_format) = configure(&device, DeviceDirection::Input)?;
-                input_stream(&device, &input_config, input_format, &audio)
-            }).transpose()?;
+            let input = input_device
+                .map(|device| {
+                    let (input_config, input_format) = configure(&device, DeviceDirection::Input)?;
+                    input_stream(&device, &input_config, input_format, &audio)
+                })
+                .transpose()?;
             Ok(Self {
                 audio,
                 output,
@@ -307,14 +323,20 @@ mod platform {
         /// # Errors
         /// Reports stream start failures and unavailable microphones.
         pub fn start_microphone(&self) -> Result<(), String> {
-            let stream = self.input.as_ref().ok_or_else(|| "No microphone stream".to_owned())?;
+            let stream = self
+                .input
+                .as_ref()
+                .ok_or_else(|| "No microphone stream".to_owned())?;
             stream.play().map_err(|error| error.to_string())
         }
 
         /// # Errors
         /// Returns a stream pause error if the microphone exists.
         pub fn stop_microphone(&self) -> Result<(), String> {
-            let stream = self.input.as_ref().ok_or_else(|| "No microphone stream".to_owned())?;
+            let stream = self
+                .input
+                .as_ref()
+                .ok_or_else(|| "No microphone stream".to_owned())?;
             stream.pause().map_err(|error| error.to_string())
         }
 

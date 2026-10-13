@@ -219,11 +219,15 @@ impl AudioIo {
 
     /// Stream callbacks report errors as flags; consumers decide when to rebuild the streams.
     pub fn mark_output_device_error(&self) {
-        self.shared.output_stream_error.store(true, Ordering::Release);
+        self.shared
+            .output_stream_error
+            .store(true, Ordering::Release);
     }
 
     pub fn mark_input_device_error(&self) {
-        self.shared.input_stream_error.store(true, Ordering::Release);
+        self.shared
+            .input_stream_error
+            .store(true, Ordering::Release);
     }
 
     /// Deterministic device mock entry point. Hardware callbacks use the same implementation.
@@ -265,12 +269,15 @@ impl AudioIo {
             emitted += 1;
         }
         chunks.into_remainder().fill(S::silence());
-        self.shared.output_position.fetch_add(emitted, Ordering::Release);
+        self.shared
+            .output_position
+            .fetch_add(emitted, Ordering::Release);
         self.shared
             .output_underruns
             .fetch_add(underruns, Ordering::Relaxed);
     }
 
+    #[allow(clippy::cast_precision_loss)]
     pub(crate) fn capture<S: InputSample>(&self, samples: &[S], channels: usize) {
         if channels == 0 {
             return;
@@ -279,8 +286,7 @@ impl AudioIo {
         let mut dropped = 0_u64;
         for frame in samples.chunks_exact(channels) {
             // All channel conversions are pure and allocation-free.
-            let sample = frame.iter().copied().map(S::to_normalized).sum::<f32>()
-                / channels as f32;
+            let sample = frame.iter().copied().map(S::to_normalized).sum::<f32>() / channels as f32;
             if !self.shared.microphone.push([sample]) {
                 dropped += 1;
             }
@@ -409,6 +415,21 @@ mod tests {
     }
 
     #[test]
+    fn converts_signed_and_unsigned_pcm_without_crossing_streams() {
+        let io = AudioIo::new(32).unwrap();
+        io.enqueue_stereo(&[[-1.0, 1.0]]).unwrap();
+        io.set_playing(true);
+        let mut signed = [0_i16; 2];
+        io.render(&mut signed, 2);
+        assert_eq!(signed, [-32767, 32767]);
+        io.capture(&[0_u16, 65535_u16], 2);
+        let mut mic = [0.0_f32];
+        assert_eq!(io.read_microphone(&mut mic), 1);
+        assert!(mic[0].abs() < 0.0001);
+        assert_eq!(io.counters().playback_sample_position, 1);
+    }
+
+    #[test]
     fn loopback_clock_and_raw_microphone_align_on_48khz_timeline() {
         let io = AudioIo::new(1024).unwrap();
         io.set_playing(true);
@@ -425,7 +446,10 @@ mod tests {
             assert!(result.iter().all(|sample| *sample == 0.4));
             assert_eq!(io.counters().playback_sample_position, (block + 1) * 480);
         }
-        assert_eq!(io.counters().playback_sample_position, u64::from(SAMPLE_RATE));
+        assert_eq!(
+            io.counters().playback_sample_position,
+            u64::from(SAMPLE_RATE)
+        );
         assert_eq!(io.counters().output_underrun_frames, 0);
         assert_eq!(io.counters().input_overrun_frames, 0);
     }
