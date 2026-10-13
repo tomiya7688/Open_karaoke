@@ -18,8 +18,8 @@ Rust Core / Python Analysis Service / C#・Avalonia GUI のモノレポ。
 - 要件・責務: [requirements](docs/requirements.md)、[architecture](docs/architecture.md)。必要な節だけ読む。
 - 実際の挙動・互換性: 作業対象SHAのsource、matching tests、API・保存形式の定義。
 - 検証手順: [development](docs/development.md)、`scripts/check.ps1`、`.github/workflows/`。
-- 現状メモ: [Snapshot](docs/ai_workflow.md#snapshot)。更新日時とSHAを必ず確認する。
-- 歌詞抽出 #7: [Lyric transcription](docs/lyric_transcription.md)、`python/src/open_karaoke_analysis/lyrics.py`、`whisper_backend.py`、`lyric_evaluator.py`、`python/tests/test_lyric*.py`。実録歌唱の評価は別途確認する。
+- 現在の実装と未評価範囲: [Current status](docs/current_status.md)。記載日のmain SHAと作業対象のSHAを区別する。
+- 歌詞抽出 #7（実装あり・Issue受け入れ条件は要確認）: [Lyric transcription](docs/lyric_transcription.md)、`python/src/open_karaoke_analysis/lyrics.py`、`whisper_backend.py`、`lyric_evaluator.py`、`python/tests/test_lyric*.py`。実録歌唱の評価は別途確認する。
 - 歌詞整列 #8: [Lyric alignment](docs/lyric_alignment.md)、`python/src/open_karaoke_analysis/alignment*.py`、`ctc_alignment.py`、`python/tests/test_alignment*.py`、`core/tests/alignment_contract.rs`。日本語文字単位の整列と参照歌詞の差分保持。実録歌唱の時刻精度は未評価。
 - F0解析 #9: [Pitch / F0 analysis](docs/pitch_analysis.md)、`python/src/open_karaoke_analysis/pitch.py`、`pitch_detectors.py`、`pitch_fusion.py`、`pitch_evaluator.py`、`python/tests/test_pitch*.py`。single/ensemble、voiced確率、octave/時間連続性と合成Evaluator。実録歌唱精度は未評価。
 - Vocal Event #10: [Vocal Event fusion](docs/vocal_events.md)、`vocal_events.py`、`vocal_event_features.py`、`vocal_event_fusion.py`、`vocal_event_evaluator.py`、`python/tests/test_vocal_event*.py`。note/lyric境界scoreは未校正。
