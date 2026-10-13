@@ -1,5 +1,12 @@
 # Third-Party Notices
 
+> 現在は**公式配布物の台帳テンプレート**です。下表が空だから依存コンポーネントが
+> 存在しないわけではありません。個別モデルの出典は
+> [Stem provenance](docs/stem_separation.md)、[Whisper provenance](docs/lyric_transcription.md)、
+> [Alignment provenance](docs/lyric_alignment.md)、`docs/licenses/` に記載しています。
+> 配布バイナリごとの依存台帳・NOTICE統合は [Issue #19](https://github.com/tomiya7688/Open_karaoke/issues/19)
+> までに実施する必要があります。
+
 This file tracks third-party software, models, runtimes, data, and other components distributed with or required by official Open_karaoke builds.
 
 > This list is intentionally maintained alongside automated dependency/license inventory. Inclusion in source dependencies does not automatically mean inclusion in a distributed binary.

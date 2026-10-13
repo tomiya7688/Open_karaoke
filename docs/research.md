@@ -1,6 +1,23 @@
 # 既存手法・参考プロジェクト
 
-この文書は技術選定前の調査メモである。採用を確定したライブラリ一覧ではない。
+この文書は**初期の参考技術・プロジェクト調査メモ**である。
+下記の「候補」はそのまま採用済みという意味ではない。現在の採用技術と実装上の制約は
+[Architecture](architecture.md)、[Current status](current_status.md)、
+[Stem Separation](stem_separation.md)、[Lyric Transcription](lyric_transcription.md)、
+[Lyric Alignment](lyric_alignment.md)、[Pitch Analysis](pitch_analysis.md) を正本とする。
+
+## 初期調査後に確定・実装されたもの
+
+| 領域 | 現在の方針・実装 | 将来候補との区別 |
+|---|---|---|
+| 本体 | Rust Core / C# Avalonia GUI / Python Analysis | Tauri/Qt/JUCE案は参考比較のみ |
+| ボーカル分離 | ライセンス確認済みUMX-HQを初期Adapterに採用 | Demucs/UVRは比較対象で未採用 |
+| ASR | ネイティブWhisper large-v3系のAdapter | 複数ASR合議は将来 |
+| 歌詞整列 | 日本語wav2vec2系CTCの自前Alignment | WhisperX一式を丸ごと導入したわけではない |
+| オフラインF0 | YIN/NACFを併用可能 | CREPE等は追加候補 |
+| 譜面生成 | F0 + Vocal Event + 時系列DP | Basic Pitchモデルは未同梱 |
+
+この表は実装コードの存在を指し、実曲精度や配布品質の保証ではない。
 
 ## 参考プロジェクト
 
@@ -186,7 +203,7 @@ Whisper単独を正解源にしない。
 - echo / reverb
 - latency compensation
 
-候補技術は実装言語とGUI / Audio Engine決定後に選定する。
+本体言語はRust、音声I/O候補はCPAL/WASAPIに決定済み。ただしリアルタイムAudio Engine自体は未実装。
 
 ## 技術的な実現性
 

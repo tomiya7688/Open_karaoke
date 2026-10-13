@@ -4,6 +4,16 @@
 
 **License: Apache-2.0**
 
+## 現在どこまで使えるか
+
+現在は**開発途中**です。Rust CoreのJob APIとSong Data、Pythonの各解析Adapter、
+合成fixtureによる評価基盤はありますが、マイクを使うカラオケ再生・採点画面や
+一般ユーザー向けのモデル同梱・インストーラーは未完成です。
+
+機能別に「実装あり」「未実装」「実録歌唱精度未評価」を分けた
+[現在の実装状況](docs/current_status.md) を参照してください。
+今すぐ動かす開発手順は [Development](docs/development.md) にあります。
+
 ## このリポジトリの構成
 
 ```text
@@ -104,6 +114,7 @@ Windowsでのセットアップ・ビルド方法は [Development](docs/developm
 
 ### まず読むもの
 
+- [Current status](docs/current_status.md) — 現在の実装と未検証範囲
 - [Requirements](docs/requirements.md) — 製品として何を作るか
 - [Architecture](docs/architecture.md) — Rust / Python / Avaloniaの責務と全体構成
 - [Implementation Plan](docs/implementation_plan.md) — 実装順序とIssue分割方針

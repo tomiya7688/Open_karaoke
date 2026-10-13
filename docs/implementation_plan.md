@@ -1,45 +1,53 @@
 # Implementation Plan
 
-## 方針
+## この文書の役割
 
-実装は機能単位で分割し、各機能には対応するEvaluator / testを同時に用意する。
+この文書は**実装順序とIssueへの導線**です。現在使える機能の判定は
+[Current status](current_status.md)、具体的な実行手順は
+[Development](development.md) を参照してください。
 
-0.1.x系は細かく分割してよい。1.0.0では要件で定義した主要機能を一通り実装し、Release Evaluationを通過する。
+0.1.x系は小さくリリースしてよい一方、1.0.0は[Requirements](requirements.md)にある主要機能を一通り実装し、
+権利・モデル重み・遅延・実録歌唱精度を含むRelease Evaluationを通過する必要があります。
 
-## 実装順序
+## 実装のまとまり
 
-1. Repository / build基盤
-2. Rust Core API / Job基盤
-3. Song Data schema / persistence
-4. Audio normalization
-5. Python Analysis Service
-6. Stem Separation
-7. Whisper lyrics
-8. Alignment
-9. F0 detector interface / ensemble
-10. Vocal Event / Boundary Fusion
-11. High-accuracy Score Generation
-12. Rust Audio Engine / CPAL / WASAPI
-13. Microphone monitoring / Mixer / Effects
-14. Realtime Pitch / Scoring
-15. Avalonia GUI shell
-16. Library / analysis progress UI
-17. Karaoke playback UI
-18. Model package management
-19. CI Evaluators / regression gates
-20. 1.0.0 Release Evaluation
+| 領域 | GitHub Issue | 開発の入口 |
+|---|---|---|
+| ワークスペース/CI土台 | [#1](https://github.com/tomiya7688/Open_karaoke/issues/1) | [Development](development.md) |
+| Core Job API | [#2](https://github.com/tomiya7688/Open_karaoke/issues/2) | [Core API](core_api.md) |
+| Song JSON | [#3](https://github.com/tomiya7688/Open_karaoke/issues/3) | [Song Format](song_format.md) |
+| 音源読み込み/48kHz | [#4](https://github.com/tomiya7688/Open_karaoke/issues/4) | [Audio Import](audio_import.md) |
+| Python Service | [#5](https://github.com/tomiya7688/Open_karaoke/issues/5) | [Analysis Service](analysis_service.md) |
+| Stem / 歌詞 / Alignment | [#6](https://github.com/tomiya7688/Open_karaoke/issues/6)、[#7](https://github.com/tomiya7688/Open_karaoke/issues/7)、[#8](https://github.com/tomiya7688/Open_karaoke/issues/8) | [Stem](stem_separation.md)、[ASR](lyric_transcription.md)、[Alignment](lyric_alignment.md) |
+| F0 / Vocal Events / 譜面生成 | [#9](https://github.com/tomiya7688/Open_karaoke/issues/9)、[#10](https://github.com/tomiya7688/Open_karaoke/issues/10)、[#11](https://github.com/tomiya7688/Open_karaoke/issues/11) | [Pitch](pitch_analysis.md)、[Vocal Events](vocal_events.md)、[Score Generation](score_generation.md) |
+| Rust音声再生・DSP・採点 | [#12](https://github.com/tomiya7688/Open_karaoke/issues/12)〜[#14](https://github.com/tomiya7688/Open_karaoke/issues/14) | [Architecture](architecture.md)、[Scoring](scoring.md) |
+| Avalonia GUI / カラオケ画面 | [#15](https://github.com/tomiya7688/Open_karaoke/issues/15)、[#16](https://github.com/tomiya7688/Open_karaoke/issues/16) | `gui/`、[Architecture](architecture.md) |
+| モデル選択と拡張 | [#17](https://github.com/tomiya7688/Open_karaoke/issues/17) | [Model Plugins](model_plugins.md) |
+| Evaluator / Release gates | [#18](https://github.com/tomiya7688/Open_karaoke/issues/18)、[#19](https://github.com/tomiya7688/Open_karaoke/issues/19) | [Testing / CI](testing.md)、[Licensing](licensing.md) |
+| 個別解析から曲全体を登録 | [#36](https://github.com/tomiya7688/Open_karaoke/issues/36) | [Analysis Service](analysis_service.md)、[Song Format](song_format.md) |
+| 外部MIDI / 既存譜面取込 | [#37](https://github.com/tomiya7688/Open_karaoke/issues/37) | [Requirements](requirements.md)、[Song Format](song_format.md) |
+| 任意の歌詞・譜面編集 | [#38](https://github.com/tomiya7688/Open_karaoke/issues/38) | [Requirements](requirements.md)、[Song Format](song_format.md) |
+| Windows同梱・インストーラー | [#39](https://github.com/tomiya7688/Open_karaoke/issues/39) | [Development](development.md)、[Licensing](licensing.md) |
 
-## Issueの原則
+**2026-10-14時点**: #1、#5、#9〜#11はclosed、#2〜#4と#6〜#8、#12〜#19はopen。#36〜#39は今回の文書監査で未起票だった1.0.0要件の抜けとして追加。
+ただし、openのIssueにも実装済みのコードがある場合があります。実装が存在しても、
+実データ評価やIssueの受け入れ条件が未完なら完了としません。最新状態は[Issues](https://github.com/tomiya7688/Open_karaoke/issues)を確認してください。
 
-各Issueは可能な限り以下を含める。
+## 開発順序と依存
 
-- Purpose
-- Scope
-- Out of scope
-- Acceptance criteria
-- Tests / Evaluator
-- Dependencies
+基本は基盤 → 解析 → 譜面 → 音声 → GUI → 統合評価。ただしCIやEvaluatorは最後にまとめず、**機能追加時に同時実装**します。
 
-機能実装とEvaluatorを分離しすぎず、少なくとも基本的な回帰テストは同じIssueで用意する。
+- Rust CoreのJob APIとSong Dataを安定させてから、解析Adapterが出すartifactを連結する。
+- F0・Vocal Event・notesは同じ48kHz sample timelineと入力hashを共有する。
+- GUIはRust Coreの公開APIへ接続し、Pythonの非公開ポートには接続しない。
+- 全曲Job `analysis.song` とSongStoreへの登録は #36、外部譜面取込は #37、任意編集は #38、実配布物の構築は #39 をそれぞれ担当する。
+- 店舗向けリアルタイム音声機能（#12〜#14）とGUI（#15〜#16）はその後の統合が必要。
+- 実曲精度・商用配布ライセンス・Windows機材検証は1.0.0をブロックし得る品質ゲート。
 
-大型の精度改善は別Issueへ分ける。
+## Issueの受け入れ条件
+
+各Issueに目的、Scope/Out of scope、入力と出力、依存、Acceptance Criteria、Evaluator、
+実行コマンドと検証結果を記録します。
+
+合成fixtureによるAPI・回帰テスト成功、実モデルのロード成功、実録歌唱での精度確認、
+製品としてのE2E/パッケージ検証は**別の証拠**として扱います。

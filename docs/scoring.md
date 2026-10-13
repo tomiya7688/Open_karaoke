@@ -1,5 +1,9 @@
 # Scoring Design
 
+> これは **Rustで今後実装するリアルタイム採点の設計** です。
+> 現在のPython側 [Score Generation](score_generation.md) は採点用正解譜面の**生成**であり、
+> マイク歌唱の採点機能ではありません。実装状況は [Current status](current_status.md) を参照してください。
+
 ## 方針
 
 採点は1つのヒューリスティックへ依存せず、独立した評価軸を算出して最後に統合する。
