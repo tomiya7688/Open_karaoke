@@ -203,10 +203,7 @@ fn conflicting_anchors_and_implausible_drift_are_rejected() {
         LatencyCalibration::Unknown,
     );
     session.bind(valid).unwrap();
-    assert_eq!(
-        session.bind(valid),
-        Err(ClockError::DomainAlreadyAnchored)
-    );
+    assert_eq!(session.bind(valid), Err(ClockError::DomainAlreadyAnchored));
     assert_eq!(
         session.bind(anchor(
             &session,
