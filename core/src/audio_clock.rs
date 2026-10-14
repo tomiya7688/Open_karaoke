@@ -201,14 +201,12 @@ impl ClockSession {
         } else {
             (numerator - PPM_BASE / 2) / PPM_BASE
         };
-        let mapped = i128::from(anchor.song_sample)
-            + rounded
-            + i128::from(anchor.latency.compensation());
+        let mapped =
+            i128::from(anchor.song_sample) + rounded + i128::from(anchor.latency.compensation());
         if mapped < 0 {
             return Err(ClockError::BeforeSongStart);
         }
-        let song_sample =
-            u64::try_from(mapped).map_err(|_| ClockError::ArithmeticOverflow)?;
+        let song_sample = u64::try_from(mapped).map_err(|_| ClockError::ArithmeticOverflow)?;
         Ok(MappedSongSample {
             epoch,
             song_sample,
