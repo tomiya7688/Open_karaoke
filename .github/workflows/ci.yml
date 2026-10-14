@@ -49,6 +49,9 @@ jobs:
           cargo clippy --locked --workspace --all-targets -- -D warnings
       - name: Rust unit and API tests
         run: cargo test --locked --workspace --all-targets
+      - name: Audio clock synthetic evaluator
+        run: |
+          cargo run --locked -p open-karaoke-core --example audio_clock_evaluator -- artifacts/audio-clock-regression.json
       - name: Core to Python lifecycle and crash recovery
         run: cargo test --locked --test job_api -- --ignored --nocapture
       - name: Upload test report
@@ -59,6 +62,7 @@ jobs:
           path: |
             artifacts/python-tests.xml
             artifacts/pitch-regression.json
+            artifacts/audio-clock-regression.json
           if-no-files-found: ignore
 
   windows-build-and-check:
