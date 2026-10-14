@@ -58,13 +58,13 @@ fn signed_latency_compensation_preserves_quality_and_pre_roll() {
         .bind(anchor(
             &session,
             ClockDomain::Capture,
-            8_000,
+            20_000,
             12_000,
             0,
             measured,
         ))
         .unwrap();
-    let sample = session.resolve(ClockDomain::Capture, e, 8_000).unwrap();
+    let sample = session.resolve(ClockDomain::Capture, e, 20_000).unwrap();
     assert_eq!(sample.song_sample, 9_600);
     assert_eq!(sample.latency, measured);
     assert_eq!(
