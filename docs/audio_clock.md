@@ -144,6 +144,16 @@ Run the deterministic unit/contract tests:
 cargo test --locked -p open-karaoke-core --test audio_clock
 ```
 
+The standalone evaluator also writes deterministic JSON metrics:
+
+```powershell
+cargo run --locked -p open-karaoke-core --example audio_clock_evaluator -- artifacts/audio-clock-regression.json
+```
+
+The Linux CI uploads `artifacts/audio-clock-regression.json` as part of the
+test-report artifact. `max_absolute_error_samples = 0` is a **synthetic contract
+gate only**; `hardware_latency_verified` remains `false`.
+
 This test is included in the existing Rust `--all-targets` CI. It covers:
 
 - unknown vs measured latency metadata, signed corrections and pre-roll
