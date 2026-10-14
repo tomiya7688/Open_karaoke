@@ -133,7 +133,7 @@ impl ClockSession {
     /// Discard both anchors at the same instant as a transport discontinuity.
     ///
     /// # Errors
-    /// Returns ArithmeticOverflow if the epoch counter is exhausted.
+    /// Returns `ArithmeticOverflow` if the epoch counter is exhausted.
     pub fn begin_new_epoch(&mut self) -> Result<ClockEpoch, ClockError> {
         self.epoch = ClockEpoch(
             self.epoch
@@ -175,7 +175,7 @@ impl ClockSession {
     /// mis-score pre-roll. A mapping's latency quality remains observable.
     ///
     /// # Errors
-    /// Returns StaleEpoch, UnanchoredDomain, BeforeSongStart, or ArithmeticOverflow.
+    /// Returns `StaleEpoch`, `UnanchoredDomain`, `BeforeSongStart`, or `ArithmeticOverflow`.
     pub fn resolve(
         &self,
         domain: ClockDomain,
