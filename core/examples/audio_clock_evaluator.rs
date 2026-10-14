@@ -41,8 +41,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let mut max_absolute_error_samples = 0_u64;
     for (domain, source_frame, expected) in cases {
         let actual = session.resolve(domain, epoch, source_frame)?.song_sample;
-        max_absolute_error_samples =
-            max_absolute_error_samples.max(actual.abs_diff(expected));
+        max_absolute_error_samples = max_absolute_error_samples.max(actual.abs_diff(expected));
     }
 
     let before_start_rejected = matches!(
