@@ -2,6 +2,7 @@
 
 pub mod analysis_service;
 pub mod audio_import;
+pub mod audio_clock;
 pub mod song_data;
 
 use std::{collections::HashMap, convert::Infallible, sync::Arc, time::Duration};
