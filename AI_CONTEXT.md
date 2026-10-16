@@ -24,6 +24,7 @@ Rust Core / Python Analysis Service / C#・Avalonia GUI のモノレポ。
 - F0解析 #9: [Pitch / F0 analysis](docs/pitch_analysis.md)、`python/src/open_karaoke_analysis/pitch.py`、`pitch_detectors.py`、`pitch_fusion.py`、`pitch_evaluator.py`、`python/tests/test_pitch*.py`。single/ensemble、voiced確率、octave/時間連続性と合成Evaluator。実録歌唱精度は未評価。
 - Vocal Event #10: [Vocal Event fusion](docs/vocal_events.md)、`vocal_events.py`、`vocal_event_features.py`、`vocal_event_fusion.py`、`vocal_event_evaluator.py`、`python/tests/test_vocal_event*.py`。note/lyric境界scoreは未校正。
 - 採点譜面生成 #11: [Score generation](docs/score_generation.md)、`notes.py`、`note_candidates.py`、`note_optimizer.py`、`note_evaluator.py`、`python/tests/test_note*.py`。合成fixture回帰のみで実録歌唱精度は未評価。
+- Rust Audio Engine #12: [Audio engine](docs/audio_engine.md)、`core/src/audio_engine.rs`、`audio_device.rs`、`audio_wav.rs`、`core/examples/wasapi_smoke.rs`。CIはmockとWindowsビルド、物理デバイスの音声・遅延・hot-plugは未検証。
 
 仕様・コード・Issueの不一致は明示する。要約で原典を上書きしない。
 

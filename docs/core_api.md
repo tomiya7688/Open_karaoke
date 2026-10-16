@@ -7,6 +7,7 @@ Rust Coreは既定で `http://127.0.0.1:32145` へbindします（`OPEN_KARAOKE_
 | Method | Path | 用途 |
 |---|---|---|
 | GET | `/health` | Rust Core自身の生存確認 |
+| GET | `/devices` | Windows WASAPIの48 kHz対応デバイス一覧（他OSは503） |
 | GET | `/analysis/health` | 監視中のPython workerのhealth |
 | GET | `/models` | workerに登録済みのAdapter一覧 |
 | POST | `/jobs` | Job作成（HTTP 202） |

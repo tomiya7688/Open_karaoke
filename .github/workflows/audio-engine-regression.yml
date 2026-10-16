@@ -1,0 +1,69 @@
+name: Audio engine regression
+
+on:
+  pull_request:
+    paths:
+      - 'Cargo.lock'
+      - 'core/Cargo.toml'
+      - 'core/src/audio_*.rs'
+      - 'core/examples/wasapi_smoke.rs'
+      - 'core/src/lib.rs'
+      - 'docs/audio_engine.md'
+      - '.github/workflows/audio-engine-regression.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  linux-mock-audio:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - name: Mock realtime ring and WAV feeder tests
+        run: |
+          cargo test -p open-karaoke-core audio_engine::tests
+          cargo test -p open-karaoke-core audio_wav::tests
+      - name: Audio source format and lint
+        run: |
+          cargo fmt --all -- --check
+          cargo clippy --workspace --all-targets -- -D warnings
+      - name: Confirm checked-in dependency lockfile
+        if: always()
+        run: |
+          git diff -- Cargo.lock
+          git diff --exit-code -- Cargo.lock
+
+  windows-wasapi-compile:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - name: Compile CPAL/WASAPI plus hardware smoke example
+        run: cargo check -p open-karaoke-core --all-targets
+      - name: Run mocked audio contract tests
+        run: |
+          cargo test -p open-karaoke-core audio_engine::tests
+          cargo test -p open-karaoke-core audio_wav::tests
+      - name: Format and lint
+        run: |
+          cargo fmt --all -- --check
+          cargo clippy --workspace --all-targets -- -D warnings
+      - name: Confirm checked-in dependency lockfile
+        if: always()
+        shell: pwsh
+        run: |
+          git diff -- Cargo.lock
+          git diff --exit-code -- Cargo.lock
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

@@ -60,6 +60,7 @@ GitHub connectorだけの環境では対象Issue、対象PRのhead/base SHA、�
 | F0 / Pitch #9 | [Pitch task](#pitch-task) | `docs/pitch_analysis.md`、`python/tests/test_pitch*.py` |
 | Vocal Event #10 | [Vocal Event task](#vocal-event-task) | `docs/vocal_events.md`、`python/tests/test_vocal_event*.py` |
 | Score generation #11 | [Score generation task](#score-generation-task) | `docs/score_generation.md`、`python/tests/test_note*.py` |
+| Audio engine #12 | [Audio engine task](#audio-engine-task) | `docs/audio_engine.md`、`core/src/audio_*.rs`、`core/examples/wasapi_smoke.rs` |
 | GUI | `gui/OpenKaraoke.Gui/`の対象view/code-behind | `gui/OpenKaraoke.sln`、`docs/architecture.md`。現在はbootstrap shell |
 | Build / CI | 対象manifest、`scripts/check.ps1`、`.github/workflows/` | `docs/development.md`、`docs/testing.md` |
 | 未着手の機能 | 対象Issueと`docs/implementation_plan.md`から担当領域を特定 | その領域の仕様節だけ確認。存在しないsourceを推測しない |
@@ -104,6 +105,15 @@ Vocal Eventコードの修正時の入口。Issue #10とPitch #9のコード/CI�
 - Candidate boundary: repository-local baselineはF0/Event由来。Basic Pitchやimported MIDIはversioned candidate artifact越しに追加し、未審査のmodel/runtime/weightsを暗黙にbundleしない。
 - Accuracy boundary: committed hand-authored fixtureは合成F0/Event回帰。実録歌唱・実譜面corpusでの精度は別途検証する。
 
+## Audio engine task
+
+Issue #12の入口。GUIは関与せず、`core/src/audio_engine.rs`のcallbackをmockで先に検証する。
+
+- Goal: Windows/WASAPI sharedで48 kHz stereo再生とraw monoマイク入力、整数sample clock、ring buffers、underrun/overrunを提供。
+- Required: callbackにロック・I/O・alloc・Pythonなし。Core公開API、デバイス列挙、明示的な再オープン境界、normalized WAV非RT feeder。
+- Working set: `core/src/audio_engine.rs`、`audio_device.rs`、`audio_wav.rs`、`core/examples/wasapi_smoke.rs`、`.github/workflows/audio-engine-regression.yml`。API route変更時のみ`core/src/lib.rs`。
+- Accuracy boundary: モックloopback/長時間反復は物理デバイスの同期や遅延を証明しない。実機での聴取・hotplug/latency計測をUnverifiedのまま残す。
+
 ## Validation
 
 開発依存は[development.md](development.md)の手順で準備する。毎回の局所修正で再installしない。
@@ -115,6 +125,7 @@ Vocal Eventコードの修正時の入口。Issue #10とPitch #9のコード/CI�
 | Song Data | `cargo test --locked -p open-karaoke-core song_data::tests` | 保存形式・共有契約ならRust全体と利用側 |
 | Audio import | `cargo test --locked -p open-karaoke-core audio_import::tests` | コマンド/変換を変えたら実FFmpegと出力WAVの検証も必要 |
 | Audio clock #40 | `cargo test --locked -p open-karaoke-core --test audio_clock` | #12実機loopbackと遅延p95は別途検証。Epochや公開APIを変えたらRust全体へ広げる |
+| Audio engine | `cargo test --locked -p open-karaoke-core audio_engine::tests` と `audio_wav::tests` | WindowsのCPALコンパイル・実機起動は別途確認し、音声callbackの変更はfull CIまで広げる |
 | Python局所 | `python -m pytest python/tests/<対象test>.py -q` | 共通契約/registry/依存/影響不明ならPython全体 |
 | Stem pipeline | `python -m pytest python/tests -q -k stem` | 推論/重み/依存/変換変更なら実モデルworkflowも必須 |
 | Core/Python共有契約 | `python -m pytest python/tests -q`、`cargo test --locked --workspace --all-targets` | 加えて`cargo test --locked --test job_api -- --ignored`で実プロセスを明示実行 |

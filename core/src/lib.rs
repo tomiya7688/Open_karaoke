@@ -2,7 +2,10 @@
 
 pub mod analysis_service;
 pub mod audio_clock;
+pub mod audio_device;
+pub mod audio_engine;
 pub mod audio_import;
+pub mod audio_wav;
 pub mod song_data;
 
 use std::{collections::HashMap, convert::Infallible, sync::Arc, time::Duration};
@@ -148,6 +151,7 @@ impl AppState {
 pub fn app(state: AppState) -> Router {
     Router::new()
         .route("/health", get(health))
+        .route("/devices", get(devices))
         .route("/models", get(models))
         .route("/analysis/health", get(analysis_health))
         .route("/jobs", post(create_job))
@@ -155,6 +159,12 @@ pub fn app(state: AppState) -> Router {
         .route("/jobs/{id}/cancel", post(cancel_job))
         .route("/jobs/{id}/events", get(job_events))
         .with_state(state)
+}
+
+async fn devices() -> Result<Json<Vec<audio_device::AudioDeviceInfo>>, ApiError> {
+    audio_device::enumerate_devices()
+        .map(Json)
+        .map_err(ApiError::unavailable)
 }
 
 async fn health() -> Json<serde_json::Value> {
