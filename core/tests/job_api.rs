@@ -11,7 +11,8 @@ use open_karaoke_core::{
     app,
 };
 use serde_json::{Value, json};
-use tokio::time::{Instant, sleep};
+use tokio::time::{Instant, sleep, timeout};
+use tokio_stream::StreamExt;
 use tower::ServiceExt;
 use uuid::Uuid;
 
@@ -23,6 +24,7 @@ async fn call(router: &Router, method: &str, path: &str, body: Value) -> (Status
                 .method(method)
                 .uri(path)
                 .header("content-type", "application/json")
+                .header("x-open-karaoke-api-version", "1")
                 .body(Body::from(body.to_string()))
                 .unwrap(),
         )
@@ -63,6 +65,7 @@ async fn health_contract() {
     let (status, value) = call(&router, "GET", "/health", Value::Null).await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(value["service"], "open-karaoke-core");
+    assert_eq!(value["api_version"], 1);
     assert_eq!(
         call(&router, "GET", "/models", Value::Null).await.0,
         StatusCode::SERVICE_UNAVAILABLE
@@ -130,6 +133,125 @@ async fn invalid_requests_and_unknown_jobs() {
         .0,
         StatusCode::NOT_FOUND
     );
+}
+
+#[tokio::test]
+async fn api_version_and_browser_origin_rejections() {
+    let router = app(AppState::new());
+    for (name, value, expected) in [
+        (
+            "x-open-karaoke-api-version",
+            "2",
+            StatusCode::UPGRADE_REQUIRED,
+        ),
+        ("origin", "https://example.invalid", StatusCode::FORBIDDEN),
+    ] {
+        let response = router
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/jobs")
+                    .header("content-type", "application/json")
+                    .header(name, value)
+                    .body(Body::from(r#"{"kind":"test"}"#))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), expected);
+    }
+
+    // Existing native callers without the version header remain on v1.
+    let response = router
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/jobs")
+                .header("content-type", "application/json")
+                .body(Body::from(r#"{"kind":"test","steps":1}"#))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::ACCEPTED);
+}
+
+#[tokio::test]
+async fn oversized_job_request_is_rejected() {
+    let router = app(AppState::new());
+    let response = router
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/jobs")
+                .header("content-type", "application/json")
+                .body(Body::from("x".repeat(65_537)))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::PAYLOAD_TOO_LARGE);
+}
+
+#[tokio::test]
+async fn active_job_budget_limits_concurrency_and_recovers() {
+    let router = app(AppState::new());
+    let mut jobs = Vec::new();
+    for _ in 0..16 {
+        jobs.push(create(&router, json!({"kind": "test", "steps": 100})).await);
+    }
+    let (status, response) = call(
+        &router,
+        "POST",
+        "/jobs",
+        json!({"kind": "test", "steps": 100}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::TOO_MANY_REQUESTS, "{response}");
+
+    for id in &jobs {
+        let (status, _) = call(&router, "POST", &format!("/jobs/{id}/cancel"), Value::Null).await;
+        assert_eq!(status, StatusCode::OK);
+    }
+    assert_eq!(
+        terminal(&router, jobs[0]).await.status,
+        JobStatus::Cancelled,
+    );
+    let next = create(&router, json!({"kind": "test", "steps": 1})).await;
+    assert_eq!(terminal(&router, next).await.status, JobStatus::Completed);
+}
+
+#[tokio::test]
+async fn sse_reconnect_starts_with_terminal_snapshot() {
+    let router = app(AppState::new());
+    let id = create(&router, json!({"kind": "test", "steps": 1})).await;
+    assert_eq!(terminal(&router, id).await.status, JobStatus::Completed);
+
+    let response = router
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri(format!("/jobs/{id}/events"))
+                .header("x-open-karaoke-api-version", "1")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let mut stream = response.into_body().into_data_stream();
+    let first = timeout(Duration::from_secs(2), stream.next())
+        .await
+        .unwrap()
+        .unwrap()
+        .unwrap();
+    let event = String::from_utf8_lossy(&first);
+    assert!(event.contains(&id.to_string()), "{event}");
+    assert!(event.contains("completed"), "{event}");
 }
 
 #[tokio::test]

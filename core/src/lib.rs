@@ -13,10 +13,11 @@ use std::{collections::HashMap, convert::Infallible, sync::Arc, time::Duration};
 use analysis_service::{AnalysisClient, AnalysisRequest, RemoteJob};
 use axum::{
     Json, Router,
-    extract::{Path, State},
-    http::StatusCode,
+    extract::{DefaultBodyLimit, Path, Request, State},
+    http::{StatusCode, header},
+    middleware::{self, Next},
     response::{
-        IntoResponse,
+        IntoResponse, Response,
         sse::{Event, KeepAlive, Sse},
     },
     routing::{get, post},
@@ -26,6 +27,13 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::{RwLock, broadcast};
 use tokio_stream::{Stream, StreamExt, wrappers::BroadcastStream};
 use uuid::Uuid;
+
+/// Protocol version for the native GUI and test client contract.
+pub const CORE_API_VERSION: u32 = 1;
+pub const CORE_API_VERSION_HEADER: &str = "x-open-karaoke-api-version";
+const MAX_CORE_REQUEST_BYTES: usize = 64 * 1024;
+const MAX_ACTIVE_JOBS: usize = 16;
+const MAX_RETAINED_JOBS: usize = 512;
 
 #[derive(Clone, Default)]
 pub struct AppState {
@@ -150,7 +158,6 @@ impl AppState {
 
 pub fn app(state: AppState) -> Router {
     Router::new()
-        .route("/health", get(health))
         .route("/devices", get(devices))
         .route("/models", get(models))
         .route("/analysis/health", get(analysis_health))
@@ -158,7 +165,31 @@ pub fn app(state: AppState) -> Router {
         .route("/jobs/{id}", get(get_job))
         .route("/jobs/{id}/cancel", post(cancel_job))
         .route("/jobs/{id}/events", get(job_events))
+        .route_layer(middleware::from_fn(api_guard))
+        .route("/health", get(health))
+        .layer(DefaultBodyLimit::max(MAX_CORE_REQUEST_BYTES))
         .with_state(state)
+}
+
+/// Reject browser-origin access to the device, model and job APIs.
+/// This is a first step; a future session credential is still required to
+/// protect against unauthorised non-browser processes on the same machine.
+async fn api_guard(request: Request, next: Next) -> Result<Response, ApiError> {
+    if request.headers().contains_key(header::ORIGIN) {
+        return Err(ApiError(
+            StatusCode::FORBIDDEN,
+            "Browser-origin requests are not permitted".to_owned(),
+        ));
+    }
+    if let Some(version) = request.headers().get(CORE_API_VERSION_HEADER)
+        && version.as_bytes() != b"1"
+    {
+        return Err(ApiError(
+            StatusCode::UPGRADE_REQUIRED,
+            "Unsupported Core API version; expected 1".to_owned(),
+        ));
+    }
+    Ok(next.run(request).await)
 }
 
 async fn devices() -> Result<Json<Vec<audio_device::AudioDeviceInfo>>, ApiError> {
@@ -168,7 +199,9 @@ async fn devices() -> Result<Json<Vec<audio_device::AudioDeviceInfo>>, ApiError>
 }
 
 async fn health() -> Json<serde_json::Value> {
-    Json(serde_json::json!({"status":"ok", "service":"open-karaoke-core"}))
+    Json(
+        serde_json::json!({"status":"ok", "service":"open-karaoke-core", "api_version": CORE_API_VERSION}),
+    )
 }
 
 async fn models(State(state): State<AppState>) -> Result<Json<serde_json::Value>, ApiError> {
@@ -237,7 +270,38 @@ async fn create_job(
         artifacts: Vec::new(),
     };
     let (events, _) = broadcast::channel(64);
-    state.jobs.write().await.insert(
+    let mut jobs = state.jobs.write().await;
+    // Admission is atomic with insertion, so concurrent requests cannot
+    // bypass the active-job budget.
+    if jobs
+        .values()
+        .filter(|record| !record.snapshot.status.terminal())
+        .count()
+        >= MAX_ACTIVE_JOBS
+    {
+        return Err(ApiError(
+            StatusCode::TOO_MANY_REQUESTS,
+            "Too many active jobs".to_owned(),
+        ));
+    }
+    if jobs.len() >= MAX_RETAINED_JOBS {
+        // Keep active jobs and discard only the oldest completed/failed/cancelled
+        // snapshot. Clients must treat an evicted job as expired (404).
+        if let Some(oldest_id) = jobs
+            .iter()
+            .filter(|(_, record)| record.snapshot.status.terminal())
+            .min_by(|(_, a), (_, b)| a.snapshot.created_at.cmp(&b.snapshot.created_at))
+            .map(|(id, _)| *id)
+        {
+            jobs.remove(&oldest_id);
+        } else {
+            return Err(ApiError(
+                StatusCode::TOO_MANY_REQUESTS,
+                "Job history capacity reached".to_owned(),
+            ));
+        }
+    }
+    jobs.insert(
         id,
         JobRecord {
             snapshot: job.clone(),
@@ -245,6 +309,7 @@ async fn create_job(
             events,
         },
     );
+    drop(jobs);
     tokio::spawn(run_job(state, id, request));
     Ok((StatusCode::ACCEPTED, Json(job)))
 }
