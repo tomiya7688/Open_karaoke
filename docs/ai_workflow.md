@@ -114,6 +114,7 @@ Vocal Eventコードの修正時の入口。Issue #10とPitch #9のコード/CI�
 | 文書だけ | `git diff --check`、リンク・パス・見出し・SHA・ルーティング先の存在確認 | API例や実行コマンドを変更したら対応する実行検証も追加 |
 | Song Data | `cargo test --locked -p open-karaoke-core song_data::tests` | 保存形式・共有契約ならRust全体と利用側 |
 | Audio import | `cargo test --locked -p open-karaoke-core audio_import::tests` | コマンド/変換を変えたら実FFmpegと出力WAVの検証も必要 |
+| Audio clock #40 | `cargo test --locked -p open-karaoke-core --test audio_clock` | #12実機loopbackと遅延p95は別途検証。Epochや公開APIを変えたらRust全体へ広げる |
 | Python局所 | `python -m pytest python/tests/<対象test>.py -q` | 共通契約/registry/依存/影響不明ならPython全体 |
 | Stem pipeline | `python -m pytest python/tests -q -k stem` | 推論/重み/依存/変換変更なら実モデルworkflowも必須 |
 | Core/Python共有契約 | `python -m pytest python/tests -q`、`cargo test --locked --workspace --all-targets` | 加えて`cargo test --locked --test job_api -- --ignored`で実プロセスを明示実行 |
