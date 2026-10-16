@@ -181,13 +181,13 @@ async fn api_guard(request: Request, next: Next) -> Result<Response, ApiError> {
             "Browser-origin requests are not permitted".to_owned(),
         ));
     }
-    if let Some(version) = request.headers().get(CORE_API_VERSION_HEADER) {
-        if version.as_bytes() != b"1" {
-            return Err(ApiError(
-                StatusCode::UPGRADE_REQUIRED,
-                "Unsupported Core API version; expected 1".to_owned(),
-            ));
-        }
+    if let Some(version) = request.headers().get(CORE_API_VERSION_HEADER)
+        && version.as_bytes() != b"1"
+    {
+        return Err(ApiError(
+            StatusCode::UPGRADE_REQUIRED,
+            "Unsupported Core API version; expected 1".to_owned(),
+        ));
     }
     Ok(next.run(request).await)
 }
