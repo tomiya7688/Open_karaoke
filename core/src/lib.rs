@@ -199,7 +199,9 @@ async fn devices() -> Result<Json<Vec<audio_device::AudioDeviceInfo>>, ApiError>
 }
 
 async fn health() -> Json<serde_json::Value> {
-    Json(serde_json::json!({"status":"ok", "service":"open-karaoke-core", "api_version": CORE_API_VERSION}))
+    Json(
+        serde_json::json!({"status":"ok", "service":"open-karaoke-core", "api_version": CORE_API_VERSION}),
+    )
 }
 
 async fn models(State(state): State<AppState>) -> Result<Json<serde_json::Value>, ApiError> {

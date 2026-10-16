@@ -135,7 +135,6 @@ async fn invalid_requests_and_unknown_jobs() {
     );
 }
 
-
 #[tokio::test]
 async fn api_version_and_browser_origin_rejections() {
     let router = app(AppState::new());
@@ -214,13 +213,7 @@ async fn active_job_budget_limits_concurrency_and_recovers() {
     assert_eq!(status, StatusCode::TOO_MANY_REQUESTS, "{response}");
 
     for id in &jobs {
-        let (status, _) = call(
-            &router,
-            "POST",
-            &format!("/jobs/{id}/cancel"),
-            Value::Null,
-        )
-        .await;
+        let (status, _) = call(&router, "POST", &format!("/jobs/{id}/cancel"), Value::Null).await;
         assert_eq!(status, StatusCode::OK);
     }
     assert_eq!(
