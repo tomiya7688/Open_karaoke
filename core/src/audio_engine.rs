@@ -438,7 +438,10 @@ mod tests {
             assert_eq!(io.enqueue_stereo(&frames).unwrap(), 480);
             let mut output = [0.0; 960];
             io.render_mock(&mut output, 2);
-            assert!(output.as_chunks::<2>().0.iter().all(|v| v == &[0.35, 0.15]));
+            for sample in output.as_chunks::<2>().0 {
+                assert!((sample[0] - 0.35).abs() < 1e-6);
+                assert!((sample[1] - 0.15).abs() < 1e-6);
+            }
             let raw = [0.4_f32; 480];
             io.capture_mock(&raw, 1);
             let mut result = [0.0; 480];

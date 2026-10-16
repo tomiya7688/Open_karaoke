@@ -142,6 +142,7 @@ Windowsでのセットアップ・ビルド方法は [Development](docs/developm
 
 - [Scoring](docs/scoring.md) — Pitch / Timing / Coverage / Stabilityによる採点
 - [Audio Import](docs/audio_import.md) — WAV / AAC / MP3 / MP4と48kHz正規化
+- [Audio clock / Latency](docs/audio_clock.md) — 48kHzサンプル時刻・seek/epoch・入出力遅延と校正の契約
 - [Rust Audio Engine](docs/audio_engine.md) — 48 kHz CPAL/WASAPI再生・録音・sample clock・回帰検証
 
 ### 品質・ライセンス・調査

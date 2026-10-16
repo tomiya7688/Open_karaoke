@@ -60,11 +60,11 @@ mod platform {
         match direction {
             DeviceDirection::Output => device
                 .supported_output_configs()
-                .map(|ranges| ranges.collect())
+                .map(std::iter::Iterator::collect)
                 .map_err(|error| error.to_string()),
             DeviceDirection::Input => device
                 .supported_input_configs()
-                .map(|ranges| ranges.collect())
+                .map(std::iter::Iterator::collect)
                 .map_err(|error| error.to_string()),
         }
     }

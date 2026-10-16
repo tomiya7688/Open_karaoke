@@ -19,6 +19,7 @@
 | Workflow | 対象 | 確認するもの |
 |---|---|---|
 | [CI](../.github/workflows/ci.yml) | push/PR等 | Rust/Python lint・format・テスト、Core/Pythonプロセス統合、Avaloniaビルド、依存inventory |
+| [Audio clock synthetic evaluator](../.github/workflows/ci.yml) | 同じCIのRust test後 | sample-level drift/latency/epoch契約を数値レポートへ出力（物理機材は未計測） |
 | [Stem model integration](../.github/workflows/stem-model.yml) | 該当PR/手動 | UMX-HQの重み・推論・cacheとsynthetic smoke |
 | [Lyric transcription](../.github/workflows/lyric-model.yml) | 該当PR/手動 | Whisper関連contract・実モデルsmoke |
 | [Lyric alignment](../.github/workflows/alignment-model.yml) | 該当PR/手動 | 日本語CTCのcontract・実モデルsmoke |
@@ -39,6 +40,7 @@ Path filterがあるworkflowは**全変更で必ず走るわけではない**。
 | Pitch | cent誤差、voicing、octave error | 正解F0/voicing |
 | Vocal Event | 境界precision/recall/F1 | 注釈済みnote・lyric境界 |
 | Score Generation | note F1、onset/offset誤差、octave error | 人手検証した理想譜面 |
+| Audio clock | 48kHz整数sampleの最大誤差、stale epoch拒否、補正品質 | 実機loopbackによるroundtrip p95、clock drift、seek等の検証 |
 | Realtime Scoring | cent・タイミングずれに対する単調性、人手評価相関 | マイク歌唱・機材遅延・基準譜面 |
 | Commercial release | 依存ライセンス・同梱重み・長時間稼働 | 実配布バイナリ、実機、権利処理済みデータ |
 

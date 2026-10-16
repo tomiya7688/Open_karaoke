@@ -1,6 +1,7 @@
 //! Product Core APIs. Audio/DSP never depend on the offline analysis process.
 
 pub mod analysis_service;
+pub mod audio_clock;
 pub mod audio_device;
 pub mod audio_engine;
 pub mod audio_import;
