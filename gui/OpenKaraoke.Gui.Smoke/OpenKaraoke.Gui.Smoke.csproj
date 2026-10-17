@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <PackageLicenseExpression>Apache-2.0</PackageLicenseExpression>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../OpenKaraoke.Gui/OpenKaraoke.Gui.csproj" />
+    <!-- Test-only headless platform; never added to the production GUI. -->
+    <PackageReference Include="Avalonia.Headless" Version="11.3.4" />
+  </ItemGroup>
+</Project>

@@ -38,6 +38,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         return Err("Core must bind to loopback".into());
     }
     let listener = TcpListener::bind(bind).await?;
+    let port = listener.local_addr()?.port();
     let executable = std::env::current_exe()?;
     let directory = executable
         .parent()
@@ -72,18 +73,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     .await
     .map_err(std::io::Error::other)?;
     let router = session.router(AppState::with_analysis(service.client()));
-    // Machine-readable readiness is deliberately credential-free. Authentication
-    // against /session verifies this instance after the launcher sees this record.
-    println!(
-        "{}",
-        serde_json::json!({
-            "event": "core_ready",
-            "api_version": CORE_API_VERSION,
-            "instance_id": instance_id,
-            "port": listener.local_addr()?.port(),
-        })
-    );
-    io::stdout().flush()?;
+    if let Err(error) = publish_ready(port, instance_id) {
+        // A launcher that exited during startup must not leave its worker behind.
+        service.shutdown().await;
+        return Err(error.into());
+    }
     let result = tokio::select! {
         result = axum::serve(listener, router).into_future() => result,
         result = tokio::signal::ctrl_c() => result,
@@ -92,4 +86,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     service.shutdown().await;
     result?;
     Ok(())
+}
+
+fn publish_ready(port: u16, instance_id: uuid::Uuid) -> io::Result<()> {
+    // Readiness is credential-free and uses fallible I/O, not a broken-pipe panic.
+    let mut output = io::stdout().lock();
+    writeln!(
+        output,
+        "{}",
+        serde_json::json!({
+            "event": "core_ready",
+            "api_version": CORE_API_VERSION,
+            "instance_id": instance_id,
+            "port": port,
+        })
+    )?;
+    output.flush()
 }
