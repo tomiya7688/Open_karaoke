@@ -8,6 +8,7 @@ public sealed class ShellViewModel : INotifyPropertyChanged, IAsyncDisposable
     private readonly Func<string, string, string?, CancellationToken, Task<ICoreConnection>> _launch;
     private ICoreConnection? _connection;
     private CancellationTokenSource? _lifetime;
+    private Task _shutdown = Task.CompletedTask;
     private long _epoch;
     private bool _connecting;
     private bool _disconnecting;
@@ -178,11 +179,21 @@ public sealed class ShellViewModel : INotifyPropertyChanged, IAsyncDisposable
         await DisconnectAsync();
     }
 
-    public async Task DisconnectAsync()
+    public Task DisconnectAsync()
     {
-        if (_disconnecting) return;
-        var epoch = ++_epoch;
+        // Window close and a simultaneous disconnect/heartbeat failure must
+        // await the same shutdown, not report completion while Core still runs.
+        if (_disconnecting) return _shutdown;
+        var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        _shutdown = completion.Task;
         _disconnecting = true;
+        _ = DisconnectCoreAsync(completion);
+        return _shutdown;
+    }
+
+    private async Task DisconnectCoreAsync(TaskCompletionSource completion)
+    {
+        var epoch = ++_epoch;
         _lifetime?.Cancel();
         _lifetime?.Dispose();
         _lifetime = null;
@@ -203,6 +214,7 @@ public sealed class ShellViewModel : INotifyPropertyChanged, IAsyncDisposable
         finally
         {
             if (epoch == _epoch) { _disconnecting = false; Changed(); }
+            completion.TrySetResult();
         }
     }
 

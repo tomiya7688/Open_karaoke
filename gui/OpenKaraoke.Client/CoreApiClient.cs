@@ -51,7 +51,8 @@ public sealed class CoreApiClient : ICoreApi, IDisposable
             UseProxy = false,
             AllowAutoRedirect = false,
             UseCookies = false,
-        }) { }
+        })
+    { }
 
     internal CoreApiClient(Uri endpoint, string token, HttpMessageHandler handler)
     {

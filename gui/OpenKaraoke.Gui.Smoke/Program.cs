@@ -72,8 +72,9 @@ internal static class Program
             Save(window, output, "03-connected.png");
 
             Click(start);
-            PumpUntil(() => model.CurrentJob is { Status: "running" } || model.Error.Length > 0, "Running job");
+            PumpUntil(() => model.CurrentJob is { Status: "running", Progress: > 0 } || model.Error.Length > 0, "Running job");
             Check(model.CurrentJob?.Status == "running" && cancel.IsEnabled, "Progress/cancel bindings failed.");
+            Check(window.GetVisualDescendants().OfType<ProgressBar>().Single().Value > 0, "Progress was not bound to the bar.");
             Save(window, output, "04-running.png");
             PumpUntil(() => model.CurrentJob?.IsTerminal == true || model.Error.Length > 0, "Completed job");
             Check(model.CurrentJob?.Status == "completed" && model.Progress == 100, "GUI did not show completion: " + model.Error);
@@ -86,11 +87,15 @@ internal static class Program
             PumpUntil(() => model.CurrentJob?.IsTerminal == true || model.Error.Length > 0, "Cancelled job");
             Check(model.CurrentJob?.Status == "cancelled", "GUI cancellation did not reach the worker.");
             Save(window, output, "06-cancelled.png");
+            // Closing while a disconnect is already awaiting process shutdown
+            // must wait for that same shutdown, not exit the UI prematurely.
+            var shutdown = model.DisconnectAsync();
             window.Close();
             PumpUntil(() => !window.IsVisible, "Owned Core shutdown");
+            Check(shutdown.IsCompletedSuccessfully, "Window closed before its in-flight Core shutdown completed.");
             var runtime = Path.Combine(root, "data", "artifacts", ".runtime");
             Check(!Directory.Exists(runtime) || !Directory.EnumerateFileSystemEntries(runtime).Any(), "GUI close left a worker runtime.");
-            Console.WriteLine("PASS: actual XAML, settings/error, authenticated Core connection, job progress/completion/cancellation, shutdown and six rendered frames.");
+            Console.WriteLine("PASS: actual XAML, settings/error, authenticated Core connection, job progress/completion/cancellation, shutdown race and six rendered frames.");
             return 0;
         }
         catch (Exception error)
