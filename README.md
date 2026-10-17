@@ -7,19 +7,20 @@
 ## 現在どこまで使えるか
 
 現在は**開発途中**です。Rust CoreのJob APIとSong Data、Pythonの各解析Adapter、
-合成fixtureによる評価基盤はありますが、マイクを使うカラオケ再生・採点画面や
-一般ユーザー向けのモデル同梱・インストーラーは未完成です。
+合成fixtureによる評価基盤に加え、認証付きCore起動・設定・Job進捗のGUIシェルがあります。
+マイクを使うカラオケ再生・採点画面や、一般ユーザー向けのモデル同梱・インストーラーは未完成です。
 
 機能別に「実装あり」「未実装」「実録歌唱精度未評価」を分けた
 [現在の実装状況](docs/current_status.md) を参照してください。
-今すぐ動かす開発手順は [Development](docs/development.md) にあります。
+今すぐ動かす開発手順は [Development](docs/development.md)、画面の使い方は
+[Desktop client](docs/desktop_client.md) にあります。接続テストJobは楽曲解析ではありません。
 
 ## このリポジトリの構成
 
 ```text
 Open_karaoke/
 ├─ core/                     Rust Core
-│  ├─ src/                   Core実装
+│  ├─ src/                   Core実装・セッション認証
 │  └─ tests/                 Coreのテスト
 │
 ├─ python/                   Python Analysis Service
@@ -27,7 +28,10 @@ Open_karaoke/
 │  └─ tests/                 解析サービスのテスト
 │
 ├─ gui/                      C# / Avalonia GUI
+│  ├─ OpenKaraoke.Client/    Core接続・プロセス所有・ViewModel
+│  ├─ OpenKaraoke.Client.Tests/ HTTP/状態遷移・実Core/Pythonテスト
 │  ├─ OpenKaraoke.Gui/       GUI本体
+│  ├─ OpenKaraoke.Gui.Smoke/ 実XAML描画・操作テスト
 │  └─ OpenKaraoke.sln        Visual Studio solution
 │
 ├─ scripts/                  開発・CI補助スクリプト
@@ -91,6 +95,7 @@ Open_karaoke/
 表示とユーザー操作を担当します。
 
 GUIはRust CoreのAPIのみを利用し、Audio I/OやAI推論を直接担当しません。
+現在のシェルは [Desktop client](docs/desktop_client.md)、認証は [Desktop session](docs/desktop_session.md)。
 
 想定画面:
 
@@ -120,16 +125,19 @@ Windowsでのセットアップ・ビルド方法は [Development](docs/developm
 - [Implementation Plan](docs/implementation_plan.md) — 実装順序とIssue分割方針
 - [Development](docs/development.md) — 開発環境・ビルド・テスト
 
-### データ・API
+### データ・API・デスクトップ
 
 - [Song Data Format](docs/song_format.md) — 曲データのJSON形式、48kHz sample timeline
 - [Rust Core API](docs/core_api.md) — Core API / Job API
+- [Desktop session](docs/desktop_session.md) — 認証と起動元のプロセス所有
+- [Desktop client](docs/desktop_client.md) — 設定・接続・Job画面
+- [Desktop UI validation](docs/desktop_ui_validation.md) — 実XAML・Core結合と描画検証
 - [Python Analysis Service](docs/analysis_service.md) — Python側REST API
 
 ### AI / 楽曲解析
 
 - [Analysis Pipeline](docs/analysis_pipeline.md) — 楽曲解析全体
-- [AI Workflow](docs/ai_workflow.md) — AI解析処理の流れ
+- [AI Workflow](docs/ai_workflow.md) — AI開発の参照先・差分確認・検証手順
 - [Stem Separation](docs/stem_separation.md) — vocals / accompaniment分離
 - [Lyric Transcription](docs/lyric_transcription.md) — Whisperによる歌詞生成
 - [Lyric Alignment](docs/lyric_alignment.md) — 既存歌詞 / ASRと時間軸の整列
@@ -155,51 +163,23 @@ Windowsでのセットアップ・ビルド方法は [Development](docs/developm
 ## AI / Agentで開発する場合
 
 [AI_CONTEXT.md](AI_CONTEXT.md) を入口にしてください。
-
 対象Issueに必要なドキュメントと検証範囲だけを読み、不要なコンテキストを増やさない方針です。
-
 Agent固有のルールは [AGENTS.md](AGENTS.md) にあります。
 
 ## 開発の進め方
 
 実装タスクはGitHub Issuesで管理しています。
-
-基本的には、
-
-```text
-基盤
-  ↓
-解析サービス
-  ↓
-歌詞 / F0 / Boundary
-  ↓
-高精度譜面生成
-  ↓
-Rust Audio Engine
-  ↓
-リアルタイム採点
-  ↓
-Avalonia GUI
-  ↓
-統合評価
-```
-
-の順で進めます。
-
+基本的には、基盤 → 解析サービス → 歌詞/F0/Boundary → 譜面生成 → 音声/採点 → GUI統合 → 評価の順で進めます。
 各機能は、実装と同時にEvaluator / 自動テストを用意し、CIで精度・品質の回帰を検出します。
 
 ## ライセンス
 
 Open_karaoke本体は **Apache License 2.0** です。
-
 公式配布物に含めるライブラリ・モデル・重みは、商用利用および必要な再配布条件を確認したものだけを採用します。
-
 ユーザーが後から追加するMOD / Plugin / AIモデルは公式ライセンス審査の対象外です。
-
 詳細は [Licensing Policy](docs/licensing.md) を参照してください。
 
 ## コンテンツの権利
 
 Open_karaokeのApache-2.0ライセンスは、ユーザーが読み込む楽曲・録音物・歌詞・譜面等の利用権を付与するものではありません。
-
 利用するコンテンツと利用形態に応じて、必要な権利処理は別途必要です。

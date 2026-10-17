@@ -1,71 +1,84 @@
 # Rust Core API
 
-## 現在の公開エンドポイント
+## 起動と認証
 
-Rust Coreは既定で `http://127.0.0.1:32145` へbindします（`OPEN_KARAOKE_BIND` で変更可能。ただしloopback限定）。
-v1契約では `GET /health` に `"api_version": 1` を追加し、GUI・CLI・Evaluatorは
-`X-Open-Karaoke-Api-Version: 1` を付ける。既存クライアント移行のためヘッダー省略は現時点でv1とみなすが、
-**明示的に不一致のバージョンは HTTP 426** として拒否する。JobとSSEイベントの既存フィールドは変えない。
+Core実行ファイルはloopback専用。既定は `127.0.0.1:32145`、起動元は
+`OPEN_KARAOKE_BIND=127.0.0.1:0` でOS割り当てポートを選べる。
+
+**実行ファイルをネットワークへ公開する入口はセッション認証付きです。**
+起動元が暗号学的乱数32バイトを生成し、64文字の小文字hexと改行をCoreの
+リダイレクトしたstdinへ渡す。認証情報を引数・環境変数・URL・readyファイルへ置かない。
+stdinを保持する起動元がセッションを所有し、閉じるとCoreとPython workerを停止する。
+対話端末からの直接起動、不完全・不正なbootstrapは拒否する。
+詳しいプロトコルと脅威モデルは [Desktop session](desktop_session.md) を参照。
+
+`GET /health` だけは認証不要。それ以外は `Authorization: Bearer <token>` が必須。
+`X-Open-Karaoke-Api-Version: 1` を付ける。版ヘッダー省略は移行用にv1として扱うが、
+明示版不一致・重複は426。JobとSSEの既存フィールドは維持する。
+
+## 公開エンドポイント
 
 | Method | Path | 用途 |
 |---|---|---|
-| GET | `/health` | Rust Core自身の生存確認 |
-| GET | `/devices` | Windows WASAPIの48 kHz対応デバイス一覧（他OSは503） |
-| GET | `/analysis/health` | 監視中のPython workerのhealth |
+| GET | `/health` | Coreの生存確認。`api_version: 1`、秘密情報なし |
+| GET | `/session` | 認証済みの`instance_id`とAPI版の確認 |
+| GET | `/devices` | Windows WASAPIのデバイス一覧（他OSは503） |
+| GET | `/analysis/health` | 監視中Python workerのhealth |
 | GET | `/models` | workerに登録済みのAdapter一覧 |
-| POST | `/jobs` | Job作成（HTTP 202） |
+| POST | `/jobs` | Job作成（202） |
 | GET | `/jobs/{id}` | Job状態・成果物 |
 | POST | `/jobs/{id}/cancel` | Jobキャンセル要求 |
-| GET | `/jobs/{id}/events` | JobスナップショットのSSE配信 |
+| GET | `/jobs/{id}/events` | 最新JobスナップショットのSSE配信 |
 
-このAPIが **GUI・Evaluatorが利用する公開境界** です。Python workerの `POST /analysis/{role}` は認証された内部APIであり、GUIから直接使う前提ではありません。Core上に `POST /analysis/lyrics` 等のルートが存在するわけではありません。
+GUI・Evaluatorはこの境界のみ利用する。Python workerの `POST /analysis/{role}` は
+別の認証情報を持つ内部APIであり、GUIから直接接続しない。
 
-## v1の安全性・制限（Issue #41 部分実装）
+## 制限とエラー
 
-- `/health` 以外のルートではブラウザの `Origin` ヘッダーを含む要求を **403** で拒否する。CORS許可ヘッダーは出さない。ネイティブGUI・CLIには `Origin` を付けない。
-- JSONリクエスト本文の上限は **64 KiB**。超過時は **413**。大きな音声やモデルの実体をJob JSONに詰めず、管理対象artifactを参照する。
-- 同時に未完了として登録できるJobは **16件**（超過は **429**）。Job記録は最大 **512件**、上限を超える場合は最も古い終了済みJobを破棄する。保管中のJobのSSE購読とsnapshot取得は従来通り、破棄されたJobは **404**。処理済みの音声成果物はこのポリシーで削除しない。
-- SSEは再接続時、保持中Jobの最新snapshotを最初の `job` イベントで送る。Core再起動後のJob履歴復旧やEvent-IDリプレイは未実装であり、GUIは404/再接続に備える。
-- エラーは引き続き `{"error":"message"}` を返す。version/Origin/件数・サイズ不正にも HTTP の対応するステータスを使う。
+- 認証欠落・不正・重複したAuthorizationは401。`WWW-Authenticate: Bearer` を返す。
+- 認証対象ルートの `Origin` または `Sec-Fetch-Site` は403。CORSは許可しない。
+- 認証済み要求には数値loopbackの `Host` が必要。不正・重複は400。DNS名への再解決はしない。
+- JSON本文は64 KiBまで。超過413。音声の実体ではなく管理対象artifactを参照する。
+- 未完了Jobは最大16件。超過429。保持履歴は最大512件で、最も古い終了済みJobから破棄する。
+- 破棄済み・再起動前のJobは404。終了済みartifactを履歴の破棄に伴って削除することはない。
+- SSEは再接続時に保持中Jobの最新snapshotを送る。Event-IDリプレイと永続Job復元は未実装。
+- エラーは `{"error":"message"}`。レスポンスは `Cache-Control: no-store`。秘密値をエラーへ含めない。
 
-**残るセキュリティ上の制限:** `Origin` のない同一端末内の不正プロセスからはまだAPIを操作できる。
-Core/APIの**セッション認証は未実装**であり、この変更だけでIssue #41の受け入れ完了とはしない。
-CLI・Evaluator・GUIへの安全なトークン受け渡し、入力artifactの認可、job単位のアクセス制御、再起動時の状態同期を次段で実装する。
-インターネットへ公開せず、GUI/CLI統合時にはsession authの完了をゲートとする。
+このモデルは**1つの起動元と、その信頼されたGUI/テストクライアント**用。
+同じtokenを共有するクライアント間にJob所有者の区別はない。artifact rootの既存相対パス制限は
+維持するが、クライアント別ACL、SSE購読数の制限、永続化、別OSユーザー間の分離は後続の
+Issue #41 / #2。メモリやパイプを読める同一権限のマルウェアに対する隔離機構ではない。
 
 ## Jobの種類
 
-`kind` に `analysis.<role>` を渡すとCoreがPython workerへ処理を転送します。現在のroleは `mock`, `stems`, `lyrics`, `alignment`, `pitch`, `events`, `notes`, `song` です。`song` は既定Adapterがなく未実装です。
+`kind: analysis.<role>` はCoreからPythonへ転送する。現在のroleは
+`mock`, `stems`, `lyrics`, `alignment`, `pitch`, `events`, `notes`, `song`。
+`song` の既定Adapterは未実装。モデル・I/Oは [Analysis Service](analysis_service.md) を参照。
 
-モデルの登録状況、入力、出力は [Analysis Service](analysis_service.md) と [現在の実装状況](current_status.md) を参照してください。
-
-### Python Jobの例（追加モデル不要のmock）
+起動元がメモリ内に保持したtokenを使う要求例（値を履歴へ直接入力しない）:
 
 ```powershell
-$job = Invoke-RestMethod http://127.0.0.1:32145/jobs -Method Post -ContentType application/json -Body @'
+$headers = @{ Authorization = "Bearer $sessionToken"; 'X-Open-Karaoke-Api-Version' = '1' }
+$job = Invoke-RestMethod "$coreUrl/jobs" -Headers $headers -Method Post -ContentType application/json -Body @'
 {"kind":"analysis.mock","analysis":{"model_id":"mock-v1","options":{"steps":5,"delay_ms":10}}}
 '@
-Invoke-RestMethod "http://127.0.0.1:32145/jobs/$($job.id)"
+Invoke-RestMethod "$coreUrl/jobs/$($job.id)" -Headers $headers
 ```
 
-ASRや分離処理を呼び出す際は、入力ファイルをCoreのartifact root配下へ置き、`analysis.input_artifact` にその相対パスを渡します。通常の絶対パスや外部URLは受け付けません。
+ASR/分離の入力はCoreのartifact root配下へ置き、`analysis.input_artifact` に相対パスを渡す。
+通常の絶対パスや外部URLは受け付けない。内部framework smokeは
+`{"kind":"framework-smoke","steps":5,"fail_at_step":null}`。
+`steps` / `fail_at_step` は解析オプションではない。
 
-### Framework smoke Job（内部テスト用）
+## ライフサイクルと保存
 
-```json
-{"kind":"framework-smoke","steps":5,"fail_at_step":null}
-```
+Jobは `queued` → `running` → `completed` / `failed` / `cancelled`。
+進捗・stage・時刻・error・artifact参照を保持する。CoreとworkerのJob IDは別。
+worker停止による失敗を完了扱いせず、旧Jobを新workerへ自動再送しない。
 
-`steps`、`fail_at_step` はsmokeテスト用です。解析処理のオプションではありません。
+履歴はメモリ内のみ。生成物のartifact directoryと [SongStore](song_format.md) は別で、
+Job完了だけで楽曲ライブラリへ自動登録されない。
 
-## Jobライフサイクル
-
-状態は `queued` → `running` → `completed` / `failed` / `cancelled` です。Jobには `progress`、`stage`、時刻、`error`、`artifacts` が含まれます。
-
-CoreとPythonのJob IDは別です。CoreがPython子プロセスを監視し、プロセス停止で実行中Jobが失敗した場合、完了したことにせずerrorとして公開します。SSEは購読時に現在のスナップショットを送ります。
-
-## 保存と制限
-
-Job履歴は現在 **メモリ内のみ** で、Core再起動後には復元しません。生成物は別のartifact directoryへ保存され、Job上では相対参照を返します。これは [Song Data Format](song_format.md) の `SongStore` と別物であり、Job完了だけで楽曲ライブラリへ自動登録されるわけではありません。
-
-API契約とworkerセキュリティ・タイムアウトについては [Analysis Service](analysis_service.md) に、実装は `core/src/lib.rs`、`core/src/analysis_service.rs` にあります。
+実装: `core/src/main.rs` / `session.rs` がプロセス・認証境界、`core/src/lib.rs` がJobルーター、
+`analysis_service.rs` がworker監視。ライブラリの低水準 `app()` はin-process契約テスト用にも
+使うが、**これを直接listenして認証を省略しない**。製品は必ず`CoreSession::router`を経由する。

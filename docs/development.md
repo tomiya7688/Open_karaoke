@@ -15,9 +15,12 @@ Runtime/model packaging and the final dependency/license audit are still release
 
 ## Layout
 
-- `core/`: Rust core, Job API, Song Data, import primitives and Python process supervision
+- `core/`: Rust core, authenticated desktop session, Job API, Song Data and Python supervision
 - `python/`: offline analysis service with a replaceable model adapter interface
-- `gui/`: C# / Avalonia desktop shell
+- `gui/OpenKaraoke.Client/`: UI-independent .NET client, owned Core launcher and ViewModel
+- `gui/OpenKaraoke.Gui/`: Avalonia settings, connection and Job shell
+- `gui/OpenKaraoke.Client.Tests/`: HTTP/ViewModel contracts and actual Core/Python integration
+- `gui/OpenKaraoke.Gui.Smoke/`: test-only headless XAML rendering and GUI/Core workflow
 - `scripts/`: Windows developer and CI entry points
 
 ## Build and checks
@@ -35,28 +38,46 @@ Python lint/format/pytest, a real Rust-to-Python lifecycle/crash-recovery test, 
 build and .NET formatter verification. The cross-process test is explicitly invoked with
 `cargo test --test job_api -- --ignored`; it is not silently skipped in CI.
 
-CI runs the Rust/Python contracts on Linux and the complete check script on Windows. Its
-repository permissions are read-only. Dependency inventory is uploaded from Windows, and
-Python test results are uploaded from Linux. The inventory is an input to license review,
-not a completed license audit.
+The additional desktop contract runner is intentionally explicit about unit-only vs live mode:
+
+```powershell
+dotnet run --project gui/OpenKaraoke.Client.Tests --configuration Release -- --unit
+$core = (Resolve-Path target/debug/open-karaoke-core.exe).Path
+$python = (Get-Command python).Source
+dotnet run --project gui/OpenKaraoke.Client.Tests --configuration Release -- $core $python
+dotnet run --project gui/OpenKaraoke.Gui.Smoke --configuration Release -- artifacts/desktop-smoke $core $python
+```
+
+On Linux use `target/debug/open-karaoke-core` and the corresponding absolute Python path.
+The dedicated desktop workflow runs the real process tests and headless GUI workflow on both
+Windows and Linux. See [UI validation](desktop_ui_validation.md) for the evidence boundary.
+CI permissions are read-only. Dependency inventories are review inputs, not a completed audit.
 
 ## Run Core and GUI
+
+From the repository root:
 
 ```powershell
 python -m pip install -e './python[dev]'
 $env:OPEN_KARAOKE_PYTHON = (Get-Command python).Source
-cargo run -p open-karaoke-core
-# In another terminal:
+cargo build --locked -p open-karaoke-core
+$env:OPEN_KARAOKE_CORE = (Resolve-Path target/debug/open-karaoke-core.exe).Path
 dotnet run --project gui/OpenKaraoke.Gui/OpenKaraoke.Gui.csproj
 ```
 
-Core starts and supervises its private Python worker automatically. See
-[Analysis Service](analysis_service.md) for configuration and sample Job requests.
-The GUI is still a bootstrap shell; its Core API client is Issue #15.
-The worker now registers adapters for stems, lyrics, alignment, offline pitch,
-Vocal Events and score notes in addition to the mock. The `analysis.song` role is
-still unimplemented. Most real inference requires **optional model runtimes and
-verified weights**; adapter registration is not model installation. See
-[Current status](current_status.md) and [Analysis Service](analysis_service.md)
-for the actual roles, and each feature document for its optional dependencies.
-The GUI remains a bootstrap shell and is not yet a functioning karaoke player.
+For Linux, set the same non-secret executable paths using the shell's environment syntax.
+Alternatively enter the absolute paths in the GUI settings tab, then choose Coreに接続.
+The GUI launches and owns Core; Core supervises its private Python worker. **Do not start a
+second unauthenticated Core in another terminal.** Direct `cargo run` now requires the
+[session pipe bootstrap](desktop_session.md); it is no longer the desktop launch procedure.
+No token must be typed into a command line or persisted in environment/configuration.
+
+The initial GUI supports connection state and a clearly labelled **mock communication Job**
+with progress/cancellation/errors. It is not yet a functioning karaoke player. See
+[Desktop client](desktop_client.md) for usage and [Core API](core_api.md) for authentication.
+
+The worker registers stems, lyrics, alignment, offline pitch, Vocal Events and score notes
+in addition to mock. `analysis.song` remains unimplemented. Real inference usually requires
+optional model runtimes and verified weights; adapter registration is not model installation.
+See [Current status](current_status.md), [Analysis Service](analysis_service.md), and each
+feature's optional dependency instructions.
