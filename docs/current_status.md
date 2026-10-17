@@ -1,6 +1,6 @@
 # 現在の実装状況
 
-> 認証・GUIの更新確認: 2026-10-17 / PR #47、コード `f0c4ea0a56aad94ecdcb163b3496d4739a0e7216`
+> 全曲解析の更新: 2026-10-17 / PR #48（基点: main `a7c9f22632dd1063ce3f05c5090e2fb56965050d`）
 >
 > これはソースとテスト構成のスナップショット。最新の統合・CI結果は対象PRで確認する。
 > 解析Adapter等の既存項目は2026-10-14の監査を引き継ぎ、今回実曲精度を再評価したという意味ではない。
@@ -20,8 +20,8 @@
 | 歌詞整列・参照歌詞 | 日本語CTC Adapterあり / 実録評価未完 | `alignment.py`、[Lyric Alignment](lyric_alignment.md) |
 | オフラインF0 | YIN・NACFの切替/合議あり / 実録評価未完 | `pitch.py`、[Pitch Analysis](pitch_analysis.md) |
 | Vocal Event | 境界evidence/fusionあり / 未校正 | `vocal_events.py`、[Vocal Events](vocal_events.md) |
-| 採点用譜面生成 | 候補生成・時系列DP基礎あり / 実録評価未完 | `notes.py`、[Score Generation](score_generation.md) |
-| 楽曲全体の一括解析 | `song`ロールのみ、既定Adapterなし | `service.py`、Issue #36 |
+| 採点用譜面生成 | 候補生成・DP、観測窓の区間変換あり / 実録評価未完 | `notes.py`、[Score Generation](score_generation.md) |
+| 楽曲全体の一括解析 | 正規化済みWAV→6段解析→SongBundle/asset一覧の出力あり。原音正規化・本番SongStore登録は未接続 | `song.py`、[Full-song analysis](full_song_analysis.md)、Issue #36 |
 | Rust音声入出力 | 48kHz WASAPI shared、raw mic、bounded ring/WAV feederあり / 実機未検証 | [Audio engine](audio_engine.md)、Issue #12 |
 | Clock/latency契約 | 整数変換・epoch・drift/遅延補正の合成テストあり / 物理校正未完 | [Audio clock](audio_clock.md)、Issue #40 |
 | Mixer / DSP / リアルタイム採点 | 未実装 | [Scoring](scoring.md)、Issue #13/#14 |
@@ -29,23 +29,29 @@
 | カラオケ再生・歌詞・音程バー画面 | 未実装。接続テスト画面と区別 | Issue #16 |
 | ランタイム同梱・モデル追加UI | 未実装 | [Development](development.md)、[Model Plugins](model_plugins.md)、Issue #39 |
 
-`service.py`の既定Adapterは `mock`、`stems`、`lyrics`、`alignment`、`pitch`、`events`、`notes`。
-`song` は受け付けるroleでも既定Adapterがなく、`not_implemented` になる。
+`service.py`の既定Adapterは `mock`、`stems`、`lyrics`、`alignment`、`pitch`、`events`、`notes`、
+`song`。全曲解析は `song-pipeline-v1` が個別Adapterを同じworker内で実行する。
+モデル登録があっても、runtime・重みが未導入なら実解析は失敗する。
 
 **GUIの接続・mock Job成功と、原曲を読み込むだけで歌える製品の完成は別です。**
-次の縦断経路は解析成果物の統合・SongStore登録、再生・採点とそのGUI接続。
+解析成果物の出力と、SongStoreの音声込み登録も区別する。
+次の縦断経路は原音正規化・SongStore登録、再生・採点とそのGUI接続。
 
 ## 検証の区別
 
 既存CIはRust/Pythonの静的解析・テスト、Core–Python結合、Avaloniaビルドを行う。
-別途モデル/合成回帰workflowがある。新しいdesktop workflowはC#クライアント→実Core→実Pythonと、
+別途モデル/合成回帰workflowがある。desktop workflowはC#→実Core→実Pythonと、
 headless上の実XAML・操作イベント・描画を検証する。実行結果は各runで確認する。
+
+Full-song regressionはpipelineの失敗/キャンセル/共有時刻・hash・実下流アルゴリズムを検査する。
+Python結果→Rust SongStoreの往復テストは文書のみで、本番asset登録APIの証明ではない。
 
 - API/状態遷移/算術のテストと、実歌唱の精度評価を混同しない。
 - Headlessでの画像・操作イベントと、OSの実ウィンドウ・IME・物理入力の検証を区別する。
 - 物理音声、遅延、長時間稼働、配布物・ライセンスの受け入れ確認は別途必要。
 
-詳細: [Desktop UI validation](desktop_ui_validation.md)、[Testing / CI](testing.md)。
+詳細: [Full-song analysis](full_song_analysis.md)、[Desktop UI validation](desktop_ui_validation.md)、
+[Testing / CI](testing.md)。
 
 ## 次の入口
 

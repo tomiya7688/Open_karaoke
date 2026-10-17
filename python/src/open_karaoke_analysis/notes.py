@@ -15,7 +15,7 @@ from .note_candidates import HOP_SAMPLES, RATE, build_note_candidates
 from .note_optimizer import TemporalDynamicProgrammingOptimizer, estimate_key
 
 MODEL_ID = "score-note-optimizer-v1"
-MODEL_VERSION = "1.0.0"
+MODEL_VERSION = "1.0.1"
 
 
 class NotesOptions(BaseModel):
@@ -55,6 +55,7 @@ def _validate_pitch(document: dict) -> None:
     duration = document.get("duration_samples")
     digest = document.get("input_sha256")
     frames = document.get("frames")
+    window = document.get("window_samples", HOP_SAMPLES)
     if (
         isinstance(duration, bool)
         or not isinstance(duration, int)
@@ -63,10 +64,13 @@ def _validate_pitch(document: dict) -> None:
         or len(digest) < 8
         or not isinstance(frames, list)
         or not frames
+        or type(window) is not int
+        or window not in {HOP_SAMPLES, 1920}
     ):
         raise ValueError("Pitch artifact metadata is invalid")
+    if len(frames) != (duration + HOP_SAMPLES - 1) // HOP_SAMPLES:
+        raise ValueError("Pitch frame count does not cover the song")
 
-    previous_end = 0
     for index, frame in enumerate(frames):
         if not isinstance(frame, dict):
             raise ValueError("Pitch frames must be objects")
@@ -74,7 +78,8 @@ def _validate_pitch(document: dict) -> None:
         end = frame.get("end_sample")
         center = frame.get("center_sample")
         if (
-            frame.get("index") != index
+            type(frame.get("index")) is not int
+            or frame["index"] != index
             or isinstance(start, bool)
             or not isinstance(start, int)
             or isinstance(end, bool)
@@ -82,9 +87,8 @@ def _validate_pitch(document: dict) -> None:
             or isinstance(center, bool)
             or not isinstance(center, int)
             or start != index * HOP_SAMPLES
-            or not start < end <= duration
-            or not start <= center <= end
-            or (index and start < previous_end)
+            or end != min(start + window, duration)
+            or center != (start + end) // 2
         ):
             raise ValueError("Pitch frame timeline is invalid")
         midi = frame.get("midi")
@@ -94,7 +98,31 @@ def _validate_pitch(document: dict) -> None:
             frame.get("voiced_probability")
         ):
             raise ValueError("Pitch confidence values must be in 0..1")
-        previous_end = end
+
+
+def _pitch_note_cells(pitch: dict) -> list[dict]:
+    """Partition time at observation-center midpoints without editing source evidence.
+
+    The production detector publishes overlapping 1920-sample observations every
+    480 samples. Those windows are not note durations. Interior ownership edges
+    are integer midpoints between adjacent observation centers; edge cells extend
+    to song start/end. Legacy non-overlapping hop-cell fixtures stay unchanged.
+    """
+    frames = pitch["frames"]
+    if pitch.get("window_samples", HOP_SAMPLES) == HOP_SAMPLES:
+        return frames
+    boundaries = [
+        0,
+        *[
+            (previous["center_sample"] + current["center_sample"]) // 2
+            for previous, current in zip(frames, frames[1:], strict=False)
+        ],
+        pitch["duration_samples"],
+    ]
+    return [
+        {**frame, "start_sample": boundaries[index], "end_sample": boundaries[index + 1]}
+        for index, frame in enumerate(frames)
+    ]
 
 
 def _validate_events(document: dict, pitch: dict) -> None:
@@ -326,7 +354,7 @@ def generate_score_documents(
     repeated = _validate_repeated_sections(repeated_sections_document, pitch)
 
     candidates, boundary_decisions, candidate_summary = build_note_candidates(
-        pitch["frames"],
+        _pitch_note_cells(pitch),
         events["frames"],
         events["note_boundaries"],
         external,
@@ -384,6 +412,11 @@ def generate_score_documents(
         "sample_rate": RATE,
         "duration_samples": pitch["duration_samples"],
         "input_sha256": pitch["input_sha256"],
+        "pitch_frame_policy": (
+            "observation-center-cells-v1"
+            if pitch.get("window_samples", HOP_SAMPLES) == 1920
+            else "hop-cells-v1"
+        ),
         "source_models": {
             "pitch": pitch.get("model"),
             "vocal_events": events.get("model"),

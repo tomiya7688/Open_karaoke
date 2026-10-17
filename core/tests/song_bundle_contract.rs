@@ -9,8 +9,8 @@ use open_karaoke_core::song_data::{SongBundle, SongStore};
 fn python_pipeline_bundle_round_trips_through_song_store() {
     let root = tempfile::tempdir().unwrap();
     let fixture = root.path().join("fixture");
-    let script = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../python/tests/emit_song_bundle.py");
+    let script =
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../python/tests/emit_song_bundle.py");
     let python = std::env::var_os("OPEN_KARAOKE_PYTHON")
         .map_or_else(|| PathBuf::from("python"), PathBuf::from);
     let output = Command::new(python)
@@ -29,7 +29,10 @@ fn python_pipeline_bundle_round_trips_through_song_store() {
     assert_eq!(bundle.song.sample_rate, 48_000);
     assert_eq!(bundle.song.duration_samples, 9600);
     assert_eq!(bundle.song.analysis_version, 2);
-    assert_eq!(bundle.notes.notes[0].lyric_segment_id.as_deref(), Some("line-1"));
+    assert_eq!(
+        bundle.notes.notes[0].lyric_segment_id.as_deref(),
+        Some("line-1")
+    );
     assert_eq!(bundle.song.artifacts.len(), 6);
     let stored = root.path().join("song-metadata");
     SongStore::save(&stored, &bundle).unwrap();

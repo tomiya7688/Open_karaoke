@@ -6,7 +6,7 @@ Rust Core owns process startup, the public Job IDs, polling, cancellation, and f
 Python is an offline worker; it is never called from an audio callback. The service uses FastAPI,
 Pydantic and Uvicorn. Startup imports no ML runtime and downloads no model weights.
 
-Registered adapters on the reviewed `main` branch are listed below. Listing a model is not proof that its optional runtime or weights are already installed.
+Registered adapters are listed below. Listing a model is not proof that its optional runtime or weights are already installed.
 
 | Role | Default / available model | Implementation |
 |---|---|---|
@@ -17,20 +17,20 @@ Registered adapters on the reviewed `main` branch are listed below. Listing a mo
 | `pitch` | `f0-ensemble-v1` | [Pitch / F0](pitch_analysis.md) |
 | `events` | `vocal-event-fusion-v1` | [Vocal Events](vocal_events.md) |
 | `notes` | `score-note-optimizer-v1` | [Score generation](score_generation.md) |
-| `song` | No adapter registered | HTTP 501 / `not_implemented` |
+| `song` | `song-pipeline-v1` | [Full-song analysis](full_song_analysis.md): normalized WAV to bundle/asset export |
 
-Each implemented analysis role is a **separate Job**, not a complete import-to-karaoke workflow. Only the mock adapter runs without model or analysis-specific dependencies. The current implementation and outstanding product work are tracked in [Current status](current_status.md).
+Individual roles remain available as separate Jobs. `song` composes six adapters in one worker
+without enqueueing nested Jobs. Raw-input normalization, verified asset copies and atomic
+SongStore registration are not yet composed into this endpoint. This is not a complete
+import-to-karaoke product. See [Current status](current_status.md).
+Only mock runs without analysis-specific dependencies. Song does not bypass model installation.
 
 ## Start
 
 Development prerequisites: Rust stable, Python >=3.11, .NET 8 and PowerShell >=7.4.
-
-```powershell
-python -m pip install -e './python[dev]'
-$env:OPEN_KARAOKE_PYTHON = (Get-Command python).Source
-$env:OPEN_KARAOKE_DATA_DIR = "$env:LOCALAPPDATA/OpenKaraoke"
-cargo run -p open-karaoke-core
-```
+Use the authenticated desktop/CLI launcher described in [Development](development.md) and
+[Desktop session](desktop_session.md). Direct interactive `cargo run` is no longer the desktop
+launch procedure: Core requires its session credential through inherited stdin.
 
 `OPEN_KARAOKE_BIND` defaults to `127.0.0.1:32145`; non-loopback addresses are rejected.
 Core prefers `runtime/python/python.exe` beside its executable on Windows, then a developer
@@ -40,8 +40,9 @@ still release work; no end-user manual Python installation is prescribed by this
 The Python child binds `127.0.0.1` on an OS-assigned port before publishing a readiness file.
 Core checks child PID, instance UUID, protocol version 1 and authenticated health. Startup has
 an explicit 30-second deadline. Local HTTP uses a 3-second timeout, no proxy and no redirects.
-A fresh random bearer token is passed via the child environment, never the command line,
-readiness file or public health response. Python rejects browser Origin headers and requests
+A fresh private worker bearer token is passed via the child environment, never the command line,
+readiness file or public health response. This is distinct from the desktop-to-Core session
+credential, which is passed over a pipe. Python rejects browser Origin headers and requests
 larger than 64 KiB. Its private port is not a browser-facing web application.
 
 ## Public Core API
@@ -51,14 +52,9 @@ larger than 64 KiB. Its private port is not a browser-facing web application.
 - `GET /models`: registered model descriptors, forwarded by Core.
 - Existing `/jobs`, `/jobs/{id}`, `/jobs/{id}/cancel`, `/jobs/{id}/events` (SSE).
 
-Submit a fixture through **Core**, not directly to the Python port:
-
-```powershell
-$job = Invoke-RestMethod http://127.0.0.1:32145/jobs -Method Post -ContentType application/json -Body @'
-{"kind":"analysis.mock","analysis":{"model_id":"mock-v1","options":{"steps":5,"delay_ms":10}}}
-'@
-Invoke-RestMethod "http://127.0.0.1:32145/jobs/$($job.id)"
-```
+Use the authenticated request examples in [Core API](core_api.md) and
+[Full-song analysis](full_song_analysis.md). GUI and Evaluator must not connect directly to the
+Python port. All Core routes except public health require the launcher session token.
 
 The Core ID differs from the private Python ID. Progress, stage, artifacts and terminal state
 are mapped back to the Core job. Python errors keep a stable `code` and safe `message`; Core
@@ -68,11 +64,13 @@ framework-smoke jobs remain available. Core SSE sends an initial snapshot when s
 ## Private service contracts
 
 `GET /health`, `GET /models`, `POST /analysis/{role}`, `GET /jobs/{uuid}`,
-`POST /jobs/{uuid}/cancel`, `POST /shutdown`. All require the launch token.
+`POST /jobs/{uuid}/cancel`, `POST /shutdown`. All require the private worker launch token.
 
-Roles: `mock`, `stems`, `lyrics`, `alignment`, `pitch`, `events`, `notes`, `song`. `song` is reserved and has no default adapter.
+Roles: `mock`, `stems`, `lyrics`, `alignment`, `pitch`, `events`, `notes`, `song`.
 An analysis request contains optional `model_id`, optional `input_artifact`, and `options`.
-Unknown fields and invalid role-specific options fail validation. Structured HTTP errors:
+Song requires a title and a normalized source WAV; missing input fails rather than publishing
+an invented result. Unknown fields and invalid role-specific options fail validation.
+Structured HTTP errors:
 
 ```json
 {"error":{"code":"model_not_found","message":"Requested model is not registered","retryable":false}}
@@ -90,6 +88,9 @@ Each supplies `ModelInfo`, `validate_options` and synchronous `analyze(context, 
 The registry rejects duplicate IDs and mismatched roles. On-disk package discovery/selection
 is Issue #17, not silently mixed into this foundation.
 
+The default registry adds `SongAdapter(registry)` after individual adapters. Custom adapter
+lists stay explicit and are not automatically filled with production models or mock stages.
+
 Adapters call `context.checkpoint()` between inference chunks and report progress using
 `context.report()`. The cancellation event is thread-safe. Cancelling a task does not pretend
 to stop arbitrary native model code: uncooperative/hung code ultimately requires terminating
@@ -101,8 +102,8 @@ Core supplies one artifact root. Inputs are normalized relative paths below it; 
 traversal, absolute paths, Windows drives/ADS, backslashes and symlinks are rejected on all OSes.
 Results live below `jobs/<service-instance>/<private-job-id>/`. Adapters use `write_json` for
 atomic, deterministic JSON publication. Failed/cancelled job directories are cleaned before
-terminal completion is exposed. The Core receives relative references only; this issue does
-not mutate SongStore documents or add a library/import GUI.
+terminal completion is exposed. The Core receives relative references only. A completed song
+bundle export is not a SongStore registration; its destination fields describe future copies.
 
 Adapters are trusted executable code, not a sandbox. The artifact directory must be private
 to the OS account. Checks do not provide protection against a hostile same-user process
@@ -126,8 +127,9 @@ analysis job has a one-hour execution deadline; model-specific budgeting is futu
 
 ```powershell
 python -m pytest python/tests -q
-cargo test --workspace --all-targets
-cargo test --test job_api -- --ignored
+cargo test --locked --workspace --all-targets
+cargo test --locked --test job_api -- --ignored
+cargo test --locked --test song_bundle_contract -- --ignored
 ./scripts/check.ps1
 ```
 
@@ -136,6 +138,10 @@ Core health/models and mock jobs, checks cancellation and structured failure, ki
 owned child, verifies automatic recovery without replay, executes a new job and shuts down.
 Python tests cover authentication, structured validation, path rejection, adapter replacement,
 queue limits, deterministic artifacts, cleanup, subprocess startup and graceful shutdown.
+
+Full-song tests cover stage failure/cancellation, shared snapshot integrity, existing downstream
+algorithms on synthetic audio and Python/Rust document compatibility. They do not establish
+real-singing accuracy, atomic production registration or a finished karaoke player.
 
 ## Build corrections carried with this issue
 

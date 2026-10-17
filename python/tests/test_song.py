@@ -320,7 +320,10 @@ def test_unowned_or_missing_outputs_are_rejected(tmp_path, source):
     assert not list(tmp_path.rglob("song-result.json"))
 
 
-@pytest.mark.parametrize("rate,channels,subtype", [(44_100, 2, "FLOAT"), (48_000, 1, "FLOAT"), (48_000, 2, "PCM_16")])
+@pytest.mark.parametrize(
+    "rate,channels,subtype",
+    [(44_100, 2, "FLOAT"), (48_000, 1, "FLOAT"), (48_000, 2, "PCM_16")],
+)
 def test_noncanonical_audio_rejected(tmp_path, rate, channels, subtype):
     path = tmp_path / "noncanonical.wav"
     sf.write(path, np.zeros((100, channels)), rate, subtype=subtype)

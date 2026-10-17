@@ -53,7 +53,9 @@ Issue #41 / #2。メモリやパイプを読める同一権限のマルウェア
 
 `kind: analysis.<role>` はCoreからPythonへ転送する。現在のroleは
 `mock`, `stems`, `lyrics`, `alignment`, `pitch`, `events`, `notes`, `song`。
-`song` の既定Adapterは未実装。モデル・I/Oは [Analysis Service](analysis_service.md) を参照。
+`song-pipeline-v1` は正規化済みWAVから全解析を実行し、SongBundleとasset一覧を出力する。
+原ファイル正規化とSongStore本番登録APIはまだ未接続。要求例と制限は
+[Full-song analysis](full_song_analysis.md)、個別モデル・I/Oは [Analysis Service](analysis_service.md)。
 
 起動元がメモリ内に保持したtokenを使う要求例（値を履歴へ直接入力しない）:
 
@@ -77,7 +79,7 @@ Jobは `queued` → `running` → `completed` / `failed` / `cancelled`。
 worker停止による失敗を完了扱いせず、旧Jobを新workerへ自動再送しない。
 
 履歴はメモリ内のみ。生成物のartifact directoryと [SongStore](song_format.md) は別で、
-Job完了だけで楽曲ライブラリへ自動登録されない。
+全曲解析を含め、Job完了だけで楽曲ライブラリへ自動登録されない。
 
 実装: `core/src/main.rs` / `session.rs` がプロセス・認証境界、`core/src/lib.rs` がJobルーター、
 `analysis_service.rs` がworker監視。ライブラリの低水準 `app()` はin-process契約テスト用にも
