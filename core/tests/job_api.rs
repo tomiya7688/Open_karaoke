@@ -266,6 +266,29 @@ async fn missing_python_has_actionable_error() {
     assert!(result.err().unwrap().contains("analysis_spawn"));
 }
 
+async fn verify_song_input_errors(router: &Router) {
+    let invalid_song = create(router, json!({"kind":"analysis.song"})).await;
+    assert!(
+        terminal(router, invalid_song)
+            .await
+            .error
+            .unwrap()
+            .contains("invalid_options")
+    );
+    let missing_source = create(
+        router,
+        json!({"kind":"analysis.song", "analysis":{"options":{"title":"missing input"}}}),
+    )
+    .await;
+    assert!(
+        terminal(router, missing_source)
+            .await
+            .error
+            .unwrap()
+            .contains("input_required")
+    );
+}
+
 #[tokio::test]
 #[ignore = "Requires installed Python analysis package; explicitly executed in CI"]
 async fn python_startup_mock_cancel_crash_recovery_shutdown() {
@@ -311,14 +334,7 @@ async fn python_startup_mock_cancel_crash_recovery_shutdown() {
             .unwrap()
             .contains("mock_failure")
     );
-    let unsupported = create(&router, json!({"kind":"analysis.song"})).await;
-    assert!(
-        terminal(&router, unsupported)
-            .await
-            .error
-            .unwrap()
-            .contains("not_implemented")
-    );
+    verify_song_input_errors(&router).await;
     let crashed = create(
         &router,
         json!({"kind":"analysis.mock", "analysis":{"options":{"steps":100,"delay_ms":100}}}),
