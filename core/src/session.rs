@@ -137,11 +137,7 @@ fn rejected(status: StatusCode, message: &'static str) -> Response {
     response
 }
 
-async fn authorize(
-    State(session): State<CoreSession>,
-    request: Request,
-    next: Next,
-) -> Response {
+async fn authorize(State(session): State<CoreSession>, request: Request, next: Next) -> Response {
     let public_health = request.method() == Method::GET && request.uri().path() == "/health";
     if !public_health {
         let headers = request.headers();
@@ -149,13 +145,18 @@ async fn authorize(
             return rejected(StatusCode::FORBIDDEN, "Browser access is not permitted");
         }
         if !session.accepts(headers) {
-            return rejected(StatusCode::UNAUTHORIZED, "Core session authorization required");
+            return rejected(
+                StatusCode::UNAUTHORIZED,
+                "Core session authorization required",
+            );
         }
         if !local_host(headers) {
             return rejected(StatusCode::BAD_REQUEST, "Numeric loopback Host required");
         }
         let mut versions = headers.get_all(CORE_API_VERSION_HEADER).iter();
-        if versions.next().is_some_and(|value| value.as_bytes() != b"1")
+        if versions
+            .next()
+            .is_some_and(|value| value.as_bytes() != b"1")
             || versions.next().is_some()
         {
             return rejected(StatusCode::UPGRADE_REQUIRED, "Unsupported Core API version");
@@ -215,14 +216,25 @@ mod tests {
         ] {
             let response = router
                 .clone()
-                .oneshot(Request::builder().method(method).uri(path).body(Body::empty()).unwrap())
+                .oneshot(
+                    Request::builder()
+                        .method(method)
+                        .uri(path)
+                        .body(Body::empty())
+                        .unwrap(),
+                )
                 .await
                 .unwrap();
             assert_eq!(response.status(), StatusCode::UNAUTHORIZED, "{path}");
             assert_eq!(response.headers()[header::CACHE_CONTROL], "no-store");
         }
         let response = router
-            .oneshot(Request::builder().uri("/health").body(Body::empty()).unwrap())
+            .oneshot(
+                Request::builder()
+                    .uri("/health")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
             .await
             .unwrap();
         assert_eq!(response.status(), StatusCode::OK);
@@ -232,11 +244,27 @@ mod tests {
     async fn token_host_origin_and_version_negative_cases() {
         let router = session(TOKEN).router(AppState::new());
         for (name, value, status) in [
-            ("authorization", "Bearer wrong".to_owned(), StatusCode::UNAUTHORIZED),
+            (
+                "authorization",
+                "Bearer wrong".to_owned(),
+                StatusCode::UNAUTHORIZED,
+            ),
             ("origin", "null".to_owned(), StatusCode::FORBIDDEN),
-            ("sec-fetch-site", "same-origin".to_owned(), StatusCode::FORBIDDEN),
-            ("host", "attacker.invalid:32145".to_owned(), StatusCode::BAD_REQUEST),
-            (CORE_API_VERSION_HEADER, "2".to_owned(), StatusCode::UPGRADE_REQUIRED),
+            (
+                "sec-fetch-site",
+                "same-origin".to_owned(),
+                StatusCode::FORBIDDEN,
+            ),
+            (
+                "host",
+                "attacker.invalid:32145".to_owned(),
+                StatusCode::BAD_REQUEST,
+            ),
+            (
+                CORE_API_VERSION_HEADER,
+                "2".to_owned(),
+                StatusCode::UPGRADE_REQUIRED,
+            ),
         ] {
             let mut request = Request::builder()
                 .uri("/session")
@@ -259,13 +287,21 @@ mod tests {
             .header("authorization", format!("Bearer {TOKEN}"))
             .body(Body::empty())
             .unwrap();
-        duplicate.headers_mut().append("authorization", format!("Bearer {TOKEN}").parse().unwrap());
-        assert_eq!(router.clone().oneshot(duplicate).await.unwrap().status(), StatusCode::UNAUTHORIZED);
+        duplicate
+            .headers_mut()
+            .append("authorization", format!("Bearer {TOKEN}").parse().unwrap());
+        assert_eq!(
+            router.clone().oneshot(duplicate).await.unwrap().status(),
+            StatusCode::UNAUTHORIZED
+        );
         let query = Request::builder()
             .uri(format!("/session?token={TOKEN}"))
             .body(Body::empty())
             .unwrap();
-        assert_eq!(router.oneshot(query).await.unwrap().status(), StatusCode::UNAUTHORIZED);
+        assert_eq!(
+            router.oneshot(query).await.unwrap().status(),
+            StatusCode::UNAUTHORIZED
+        );
         let replacement = session(&"f".repeat(64)).router(AppState::new());
         let stale = Request::builder()
             .uri("/session")
@@ -273,7 +309,10 @@ mod tests {
             .header("authorization", format!("Bearer {TOKEN}"))
             .body(Body::empty())
             .unwrap();
-        assert_eq!(replacement.oneshot(stale).await.unwrap().status(), StatusCode::UNAUTHORIZED);
+        assert_eq!(
+            replacement.oneshot(stale).await.unwrap().status(),
+            StatusCode::UNAUTHORIZED
+        );
     }
 
     #[tokio::test]
@@ -281,7 +320,12 @@ mod tests {
         let router = session(TOKEN).router(AppState::new());
         for (method, path, body, expected) in [
             ("GET", "/session", "", StatusCode::OK),
-            ("POST", "/jobs", r#"{"kind":"test","steps":1}"#, StatusCode::ACCEPTED),
+            (
+                "POST",
+                "/jobs",
+                r#"{"kind":"test","steps":1}"#,
+                StatusCode::ACCEPTED,
+            ),
         ] {
             let response = router
                 .clone()

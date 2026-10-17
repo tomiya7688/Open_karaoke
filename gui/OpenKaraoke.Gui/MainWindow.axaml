@@ -2,11 +2,56 @@
     x:Class="OpenKaraoke.Gui.MainWindow"
     xmlns="https://github.com/avaloniaui"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-    Title="Open Karaoke"
-    Width="960"
-    Height="600">
-  <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="12">
-    <TextBlock FontSize="32" Text="Open Karaoke" />
-    <TextBlock Text="Avalonia GUI bootstrap OK" />
-  </StackPanel>
+    xmlns:client="clr-namespace:OpenKaraoke.Client;assembly=OpenKaraoke.Client"
+    x:DataType="client:ShellViewModel"
+    Title="Open Karaoke — 開発版"
+    Width="1024" Height="720" MinWidth="780" MinHeight="580">
+  <Grid RowDefinitions="Auto,*,Auto" Margin="28" RowSpacing="20">
+    <StackPanel Spacing="10">
+      <TextBlock FontSize="28" FontWeight="SemiBold" Text="Open Karaoke" />
+      <StackPanel Orientation="Horizontal" Spacing="12">
+        <Button Content="Coreに接続" IsEnabled="{Binding CanConnect}" Click="ConnectClick" />
+        <Button Content="切断・Coreを終了" IsEnabled="{Binding CanDisconnect}" Click="DisconnectClick" />
+        <TextBlock VerticalAlignment="Center" Text="{Binding ConnectionStatus}" />
+      </StackPanel>
+      <TextBlock Text="{Binding Models}" />
+    </StackPanel>
+    <TabControl Grid.Row="1">
+      <TabItem Header="解析・Job">
+        <ScrollViewer>
+          <StackPanel Margin="0,20,0,0" Spacing="14">
+            <TextBlock FontSize="20" Text="Core接続とJobの確認" />
+            <TextBlock TextWrapping="Wrap" Text="この画面のテストJobは通信・進捗・キャンセルの確認用です。楽曲の解析やカラオケ再生ではありません。全曲解析・再生・採点画面は別Issueで実装します。" />
+            <StackPanel Orientation="Horizontal" Spacing="12">
+              <Button Content="接続テストJobを開始" IsEnabled="{Binding CanRun}" Click="RunClick" />
+              <Button Content="キャンセル" IsEnabled="{Binding CanCancel}" Click="CancelClick" />
+            </StackPanel>
+            <TextBlock Text="{Binding JobStatus}" />
+            <ProgressBar Minimum="0" Maximum="100" Value="{Binding Progress}" Height="18" />
+            <TextBlock Text="Job ID" FontWeight="SemiBold" />
+            <SelectableTextBlock Text="{Binding JobId}" />
+            <TextBlock Text="セッションID（認証情報ではありません）" FontWeight="SemiBold" />
+            <SelectableTextBlock Text="{Binding SessionId}" />
+          </StackPanel>
+        </ScrollViewer>
+      </TabItem>
+      <TabItem Header="設定">
+        <ScrollViewer>
+          <StackPanel Margin="0,20,0,0" Spacing="10" IsEnabled="{Binding CanConnect}">
+            <TextBlock Text="Core実行ファイルの絶対パス" />
+            <TextBox Text="{Binding CoreExecutable, Mode=TwoWay}" />
+            <TextBlock Text="Python実行ファイルの絶対パス（同梱版または既定を使う場合は空欄）" TextWrapping="Wrap" />
+            <TextBox Text="{Binding PythonExecutable, Mode=TwoWay}" />
+            <TextBlock Text="データ保存先の絶対パス" />
+            <TextBox Text="{Binding DataDirectory, Mode=TwoWay}" />
+            <TextBlock TextWrapping="Wrap" Text="設定はこの起動中だけ保持します。開発環境では先にCoreをビルドし、Python解析パッケージをインストールしてください。一般ユーザー向けランタイム同梱は未実装です。" />
+          </StackPanel>
+        </ScrollViewer>
+      </TabItem>
+    </TabControl>
+    <StackPanel Grid.Row="2" Spacing="8">
+      <TextBlock Text="{Binding Error}" TextWrapping="Wrap" MaxHeight="100" />
+      <TextBlock Text="接続はローカル端末内のみ。終了時に、この画面から起動したCoreを停止します。" FontSize="12" TextWrapping="Wrap" />
+    </StackPanel>
+  </Grid>
 </Window>
