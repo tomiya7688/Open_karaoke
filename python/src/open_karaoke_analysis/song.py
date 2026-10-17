@@ -299,8 +299,7 @@ class SongAdapter:
                     "model": selected[stage].info.model_dump(mode="json"),
                     "options": prepared[stage],
                     "artifacts": [
-                        "provenance/" + name[len(context.output_prefix) + 1 :]
-                        for name in produced
+                        "provenance/" + name[len(context.output_prefix) + 1 :] for name in produced
                     ],
                     "worker_artifacts": produced,
                 }

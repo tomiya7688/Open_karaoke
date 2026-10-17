@@ -126,7 +126,7 @@ def context(tmp_path, source, report=None):
 
 
 def result(tmp_path, artifacts):
-    return json.loads((tmp_path / artifacts[-1]).read_text())
+    return json.loads((tmp_path / artifacts[-1]).read_text(encoding="utf-8"))
 
 
 def test_pipeline_order_provenance_reference_and_immutable_input(tmp_path, source):

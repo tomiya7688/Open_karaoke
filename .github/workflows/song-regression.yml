@@ -36,7 +36,7 @@ jobs:
       - name: Install existing analysis test dependencies
         run: python -m pip install -e './python[dev]'
       - name: Pipeline, failure, cancellation and real downstream algorithms
-        run: python -m pytest python/tests/test_song.py python/tests/test_service.py -q --junitxml=artifacts/song-tests.xml
+        run: python -m pytest python/tests/test_song.py python/tests/test_service.py python/tests/test_note_window_contract.py -q --junitxml=artifacts/song-tests.xml
       - name: Python result to Rust SongStore document contract
         run: cargo test --locked --test song_bundle_contract -- --ignored
       - name: Python formatting with read-only diff diagnostics

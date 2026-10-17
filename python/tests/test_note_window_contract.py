@@ -6,6 +6,7 @@ import pytest
 
 from open_karaoke_analysis.notes import (
     _pitch_note_cells,
+    _validate_events,
     _validate_pitch,
     generate_score_documents,
 )
@@ -38,28 +39,33 @@ def _documents(duration, window=1920):
         "input_sha256": "f" * 64,
         "frames": frames,
     }
-    events = {
-        **pitch,
-        "frames": [
+    event_frames = []
+    for frame in frames:
+        start = frame["start_sample"]
+        end = min(start + 480, duration)
+        event_frames.append(
             {
-                **frame,
+                "index": frame["index"],
+                "start_sample": start,
+                "end_sample": end,
+                "center_sample": (start + end) // 2,
                 "note_boundary_probability": 0.0,
                 "lyric_boundary_probability": 0.0,
                 "silence_probability": 0.0,
                 "breath_probability": 0.0,
             }
-            for frame in frames
-        ],
-        "note_boundaries": [],
-    }
+        )
+    # Actual Event metadata declares its acoustic window, not its output cell width.
+    events = {**pitch, "window_samples": 1920, "frames": event_frames, "note_boundaries": []}
     return pitch, events
 
 
 @pytest.mark.parametrize("duration", [1, 479, 480, 481, 1919, 1920, 1921, 9600, 9601])
 def test_window_ownership_is_a_partition_and_preserves_observation_centers(duration):
-    pitch, _ = _documents(duration)
+    pitch, events = _documents(duration)
     before = deepcopy(pitch)
     _validate_pitch(pitch)
+    _validate_events(events, pitch)
     cells = _pitch_note_cells(pitch)
     assert pitch == before
     assert cells[0]["start_sample"] == 0
@@ -116,3 +122,27 @@ def test_declared_windows_and_full_frame_grid_are_validated(fault):
         pitch["frames"][0]["index"] = False
     with pytest.raises(ValueError):
         _validate_pitch(pitch)
+
+
+@pytest.mark.parametrize("fault", ["start", "end", "center", "index", "count", "hash"])
+def test_event_grid_validation_is_not_weakened_for_overlapping_pitch(fault):
+    pitch, events = _documents(9600)
+    if fault in {"start", "end", "center"}:
+        events["frames"][0][f"{fault}_sample"] += 1
+    elif fault == "index":
+        events["frames"][0]["index"] = False
+    elif fault == "count":
+        events["frames"].pop()
+    else:
+        events["input_sha256"] = "0" * 64
+    with pytest.raises(ValueError):
+        _validate_events(events, pitch)
+
+
+def test_event_output_cells_cannot_be_replaced_by_pitch_observation_windows():
+    pitch, events = _documents(9600)
+    for observation, event in zip(pitch["frames"], events["frames"], strict=True):
+        event["end_sample"] = observation["end_sample"]
+        event["center_sample"] = observation["center_sample"]
+    with pytest.raises(ValueError):
+        _validate_events(events, pitch)

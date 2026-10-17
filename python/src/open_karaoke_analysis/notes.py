@@ -141,15 +141,23 @@ def _validate_events(document: dict, pitch: dict) -> None:
     ):
         raise ValueError("Vocal Event artifact timeline is invalid")
 
-    for index, (event, pitch_frame) in enumerate(zip(frames, pitch_frames, strict=True)):
-        if not isinstance(event, dict) or event.get("index") != index:
-            raise ValueError("Vocal Event frames must be indexed objects")
+    # Event output intervals are hop cells, even when its acoustic analysis window
+    # is 1920 samples. Compare shared starts/identity, not Pitch observation ends.
+    for index, event in enumerate(frames):
         if (
-            event.get("start_sample") != pitch_frame["start_sample"]
-            or event.get("end_sample") != pitch_frame["end_sample"]
-            or event.get("center_sample") != pitch_frame["center_sample"]
+            not isinstance(event, dict)
+            or type(event.get("index")) is not int
+            or event["index"] != index
         ):
-            raise ValueError("Pitch and Vocal Event frame grids do not match")
+            raise ValueError("Vocal Event frames must be indexed objects")
+        start = index * HOP_SAMPLES
+        end = min(start + HOP_SAMPLES, pitch["duration_samples"])
+        expected = {"start_sample": start, "end_sample": end, "center_sample": (start + end) // 2}
+        if any(
+            type(event.get(key)) is not int or event[key] != value
+            for key, value in expected.items()
+        ):
+            raise ValueError("Vocal Event frames must use the canonical hop-cell timeline")
         for field in (
             "note_boundary_probability",
             "lyric_boundary_probability",
