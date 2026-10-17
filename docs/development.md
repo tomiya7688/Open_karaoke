@@ -76,8 +76,10 @@ The initial GUI supports connection state and a clearly labelled **mock communic
 with progress/cancellation/errors. It is not yet a functioning karaoke player. See
 [Desktop client](desktop_client.md) for usage and [Core API](core_api.md) for authentication.
 
-The worker registers stems, lyrics, alignment, offline pitch, Vocal Events and score notes
-in addition to mock. `analysis.song` remains unimplemented. Real inference usually requires
-optional model runtimes and verified weights; adapter registration is not model installation.
-See [Current status](current_status.md), [Analysis Service](analysis_service.md), and each
-feature's optional dependency instructions.
+The worker registers stems, lyrics, alignment, offline pitch, Vocal Events, score notes and
+`song-pipeline-v1` in addition to mock. [Full-song analysis](full_song_analysis.md) accepts an
+already normalized WAV and exports a SongBundle and asset descriptors. Raw-file normalization
+and atomic, audio-inclusive SongStore registration are not yet connected to this Job or GUI.
+Real inference usually requires optional model runtimes and verified weights; adapter
+registration is not model installation. See [Current status](current_status.md),
+[Analysis Service](analysis_service.md), and each feature's optional dependency instructions.

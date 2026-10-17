@@ -83,9 +83,14 @@ Job用領域へ元WAVと任意の参考歌詞のスナップショットを保�
 非重複区間と取り違えて拒否していたことを検出した。譜面生成1.0.1は宣言された窓長、全frame数、
 start/end/centerの式を検査し、元のPitch/Event観測は変更しない。
 
-音符生成の内部だけ、隣接観測centerの整数中点を境界に区間を分割する。
+Vocal Eventの出力frameは480-sampleの非重複区間であり、metadataのwindow_samplesは音響分析用の窓。
+PitchとEventは同じ入力hash・duration・rate・hop・frame開始位置を共有するが、end/centerの意味は異なる。
+Eventは独自のhop区間の式で検証し、Pitch観測窓のend/centerとの一致を要求しない。
+
+音符生成の内部だけ、隣接Pitch観測centerの整数中点を境界に区間を分割する。
 最初と最後は曲の0/durationに接する。各centerはその区間内にあり、隙間・重複・時間の二重計上がない。
-旧480-sample非重複fixtureはそのまま使う。`pitch_frame_policy`で方式を記録する。
+旧480-sample非重複fixtureはそのまま使い、その宣言窓長を実データに合わせて480へ修正した。
+fixtureの音程・区間・正解ラベル・metric式・gateは変更しない。`pitch_frame_policy`で方式を記録する。
 この変換は時間表現の整合であり、歌詞/音符境界の実歌唱精度を証明しない。
 
 ## 検証と次の実装

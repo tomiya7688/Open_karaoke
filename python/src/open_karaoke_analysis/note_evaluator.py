@@ -217,7 +217,8 @@ def _case_documents(case: dict) -> tuple[dict, dict]:
         "analysis_version": 1,
         "model": {"id": "fixture-f0", "version": "1"},
         "sample_rate": RATE,
-        "window_samples": 1_920,
+        # These hand-authored observations span one hop, not a real detector window.
+        "window_samples": HOP_SAMPLES,
         "hop_samples": HOP_SAMPLES,
         "duration_samples": duration,
         "input_sha256": digest,
