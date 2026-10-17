@@ -50,6 +50,7 @@ def test_health_and_models(client):
     assert models[0]["role"] == "mock"
     assert any(model["role"] == "events" for model in models)
     assert any(model["role"] == "notes" for model in models)
+    assert any(model["id"] == "song-pipeline-v1" and model["role"] == "song" for model in models)
     assert TOKEN not in json.dumps(health)
 
 
@@ -108,10 +109,15 @@ def test_failure_and_unknown_id(client):
         assert response.json()["error"]["code"] == "job_not_found"
 
 
-def test_unimplemented_roles_never_fake_success(client):
+def test_song_requires_title_and_input_without_fake_success(client):
     response = client.post("/analysis/song", json={})
-    assert response.status_code == 501
-    assert response.json()["error"]["code"] == "not_implemented"
+    assert response.status_code == 400
+    assert response.json()["error"]["code"] == "invalid_options"
+    response = client.post("/analysis/song", json={"options": {"title": "missing source"}})
+    assert response.status_code == 202
+    job = terminal(client, response.json()["id"])
+    assert job["status"] == "failed" and job["artifacts"] == []
+    assert job["error"]["code"] == "input_required"
 
 
 @pytest.mark.parametrize(

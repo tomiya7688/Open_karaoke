@@ -311,13 +311,25 @@ async fn python_startup_mock_cancel_crash_recovery_shutdown() {
             .unwrap()
             .contains("mock_failure")
     );
-    let unsupported = create(&router, json!({"kind":"analysis.song"})).await;
+    let invalid_song = create(&router, json!({"kind":"analysis.song"})).await;
     assert!(
-        terminal(&router, unsupported)
+        terminal(&router, invalid_song)
             .await
             .error
             .unwrap()
-            .contains("not_implemented")
+            .contains("invalid_options")
+    );
+    let missing_source = create(
+        &router,
+        json!({"kind":"analysis.song", "analysis":{"options":{"title":"missing input"}}}),
+    )
+    .await;
+    assert!(
+        terminal(&router, missing_source)
+            .await
+            .error
+            .unwrap()
+            .contains("input_required")
     );
     let crashed = create(
         &router,

@@ -30,6 +30,7 @@ from .contracts import PROTOCOL_VERSION, AnalysisRequest, ErrorDetail, Job, Role
 from .lyrics import LyricsAdapter
 from .notes import NotesAdapter
 from .pitch import PitchAdapter
+from .song import SongAdapter
 from .stems import StemsAdapter
 from .vocal_events import VocalEventAdapter
 
@@ -190,6 +191,8 @@ def create_app(
         if adapters is None
         else adapters
     )
+    if adapters is None:
+        registry.adapters[SongAdapter.info.id] = SongAdapter(registry)
     instance_id = uuid4()
 
     @asynccontextmanager
