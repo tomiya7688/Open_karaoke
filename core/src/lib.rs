@@ -10,7 +10,15 @@ pub mod song_api;
 pub mod song_data;
 pub mod song_library;
 
-use std::{collections::HashMap, convert::Infallible, sync::Arc, time::Duration};
+use std::{
+    collections::HashMap,
+    convert::Infallible,
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    },
+    time::Duration,
+};
 
 use analysis_service::{AnalysisClient, AnalysisRequest, RemoteJob};
 use axum::{
@@ -42,6 +50,7 @@ pub struct AppState {
     jobs: Arc<RwLock<HashMap<Uuid, JobRecord>>>,
     analysis: AnalysisClient,
     song_library: Option<song_library::SongLibrary>,
+    stopping: Arc<AtomicBool>,
 }
 
 struct JobRecord {
@@ -125,6 +134,30 @@ impl AppState {
         self
     }
 
+    /// Stop admission and request cancellation before runtime teardown.
+    /// Active imports that already claimed publication finish without accepting cancellation.
+    pub async fn begin_shutdown(&self) {
+        self.stopping.store(true, Ordering::Release);
+        let mut jobs = self.jobs.write().await;
+        for record in jobs.values_mut() {
+            if !record.snapshot.status.terminal()
+                && record
+                    .import_control
+                    .as_ref()
+                    .is_none_or(|control| control.cancel())
+            {
+                record.cancelled = true;
+            }
+        }
+    }
+
+    fn ensure_running(&self) -> Result<(), ApiError> {
+        if self.stopping.load(Ordering::Acquire) {
+            return Err(ApiError::unavailable("Core is shutting down".to_owned()));
+        }
+        Ok(())
+    }
+
     async fn snapshot(&self, id: Uuid) -> Option<Job> {
         self.jobs
             .read()
@@ -187,7 +220,7 @@ pub fn app(state: AppState) -> Router {
 }
 
 /// In-process version/Origin guard. The executable additionally wraps every
-/// route with its pipe-bootstrapped CoreSession authentication boundary.
+/// route with its pipe-bootstrapped `CoreSession` authentication boundary.
 async fn api_guard(request: Request, next: Next) -> Result<Response, ApiError> {
     if request.headers().contains_key(header::ORIGIN) {
         return Err(ApiError(
@@ -254,6 +287,7 @@ async fn create_job(
             "Invalid job kind or step range".to_owned(),
         ));
     }
+    state.ensure_running()?;
     let import_work = prepare_import(&state, &request).await?;
     if let Some(role) = request.kind.strip_prefix("analysis.") {
         if !matches!(
@@ -287,6 +321,23 @@ async fn create_job(
     };
     let (events, _) = broadcast::channel(64);
     let mut jobs = state.jobs.write().await;
+    state.ensure_running()?;
+    admit_job(&mut jobs)?;
+    jobs.insert(
+        id,
+        JobRecord {
+            snapshot: job.clone(),
+            cancelled: false,
+            import_control: import_work.as_ref().map(|work| Arc::clone(&work.control)),
+            events,
+        },
+    );
+    drop(jobs);
+    tokio::spawn(run_job(state, id, request, import_work));
+    Ok((StatusCode::ACCEPTED, Json(job)))
+}
+
+fn admit_job(jobs: &mut HashMap<Uuid, JobRecord>) -> Result<(), ApiError> {
     // Admission is atomic with insertion, so concurrent requests cannot
     // bypass the active-job budget.
     if jobs
@@ -317,34 +368,37 @@ async fn create_job(
             ));
         }
     }
-    jobs.insert(
-        id,
-        JobRecord {
-            snapshot: job.clone(),
-            cancelled: false,
-            import_control: import_work.as_ref().map(|work| Arc::clone(&work.control)),
-            events,
-        },
-    );
-    drop(jobs);
-    tokio::spawn(run_job(state, id, request, import_work));
-    Ok((StatusCode::ACCEPTED, Json(job)))
+    Ok(())
 }
 
-async fn prepare_import(state: &AppState, request: &CreateJobRequest) -> Result<Option<song_api::ImportWork>, ApiError> {
+async fn prepare_import(
+    state: &AppState,
+    request: &CreateJobRequest,
+) -> Result<Option<song_api::ImportWork>, ApiError> {
     if request.kind == "song.import" {
-        let input = request.song_import.as_ref().ok_or_else(|| ApiError(
-            StatusCode::BAD_REQUEST, "song_import.analysis_job_id is required".to_owned(),
-        ))?;
+        let input = request.song_import.as_ref().ok_or_else(|| {
+            ApiError(
+                StatusCode::BAD_REQUEST,
+                "song_import.analysis_job_id is required".to_owned(),
+            )
+        })?;
         return song_api::prepare(state, input).await.map(Some);
     }
     if request.song_import.is_some() {
-        return Err(ApiError(StatusCode::BAD_REQUEST, "song_import requires kind song.import".to_owned()));
+        return Err(ApiError(
+            StatusCode::BAD_REQUEST,
+            "song_import requires kind song.import".to_owned(),
+        ));
     }
     Ok(None)
 }
 
-async fn run_job(state: AppState, id: Uuid, request: CreateJobRequest, import: Option<song_api::ImportWork>) {
+async fn run_job(
+    state: AppState,
+    id: Uuid,
+    request: CreateJobRequest,
+    import: Option<song_api::ImportWork>,
+) {
     if state.cancelled(id).await {
         state.finish(id, JobStatus::Cancelled, None).await;
         return;
@@ -468,7 +522,10 @@ async fn cancel_job(
     let mut jobs = state.jobs.write().await;
     let record = jobs.get_mut(&id).ok_or_else(ApiError::not_found)?;
     if !record.snapshot.status.terminal()
-        && record.import_control.as_ref().is_none_or(|control| control.cancel())
+        && record
+            .import_control
+            .as_ref()
+            .is_none_or(|control| control.cancel())
     {
         record.cancelled = true;
     }

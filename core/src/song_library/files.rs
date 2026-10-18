@@ -7,10 +7,12 @@ use std::{
 use serde::{Serialize, de::DeserializeOwned};
 use sha2::{Digest, Sha256};
 
-use crate::song_data::{LyricsDocument, NotesDocument, SongBundle};
 use super::{Asset, ImportControl, ImportError, MAX_JSON};
+use crate::song_data::{LyricsDocument, NotesDocument, SongBundle};
 
-pub(super) fn digest(bytes: &[u8]) -> String { format!("{:x}", Sha256::digest(bytes)) }
+pub(super) fn digest(bytes: &[u8]) -> String {
+    format!("{:x}", Sha256::digest(bytes))
+}
 
 fn no_link(metadata: &Metadata) -> Result<(), ImportError> {
     if metadata.file_type().is_symlink() {
@@ -27,9 +29,18 @@ fn no_link(metadata: &Metadata) -> Result<(), ImportError> {
 }
 
 pub(super) fn make_root(path: &Path) -> Result<PathBuf, ImportError> {
-    let path = if path.is_absolute() { path.to_owned() } else { std::env::current_dir()?.join(path) };
-    if path.components().any(|part| matches!(part, Component::ParentDir)) {
-        return Err(ImportError::Invalid("root paths must not contain parent traversal"));
+    let path = if path.is_absolute() {
+        path.to_owned()
+    } else {
+        std::env::current_dir()?.join(path)
+    };
+    if path
+        .components()
+        .any(|part| matches!(part, Component::ParentDir))
+    {
+        return Err(ImportError::Invalid(
+            "root paths must not contain parent traversal",
+        ));
     }
     check_ancestors(&path)?;
     fs::create_dir_all(&path)?;
@@ -41,7 +52,7 @@ fn check_ancestors(path: &Path) -> Result<(), ImportError> {
     for part in path.ancestors() {
         match fs::symlink_metadata(part) {
             Ok(metadata) => no_link(&metadata)?,
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {},
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
             Err(error) => return Err(error.into()),
         }
     }
@@ -59,7 +70,9 @@ pub(super) fn check_directory(path: &Path) -> Result<(), ImportError> {
 pub(super) fn regular_file(path: &Path) -> Result<Metadata, ImportError> {
     let metadata = fs::symlink_metadata(path)?;
     no_link(&metadata)?;
-    if !metadata.is_file() { return Err(ImportError::Invalid("only regular files are allowed")); }
+    if !metadata.is_file() {
+        return Err(ImportError::Invalid("only regular files are allowed"));
+    }
     Ok(metadata)
 }
 
@@ -68,15 +81,29 @@ pub(super) fn relative(value: &str) -> Result<(), ImportError> {
         return Err(ImportError::Invalid("invalid managed relative path"));
     }
     for part in value.split('/') {
-        if part.is_empty() || part.len() > 128 || part == "." || part == ".."
+        if part.is_empty()
+            || part.len() > 128
+            || part == "."
+            || part == ".."
             || part.ends_with('.')
-            || !part.bytes().all(|byte| byte.is_ascii_alphanumeric() || b"._-".contains(&byte))
-        { return Err(ImportError::Invalid("noncanonical managed path")); }
-        let stem = part.split('.').next().unwrap_or_default().to_ascii_uppercase();
+            || !part
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || b"._-".contains(&byte))
+        {
+            return Err(ImportError::Invalid("noncanonical managed path"));
+        }
+        let stem = part
+            .split('.')
+            .next()
+            .unwrap_or_default()
+            .to_ascii_uppercase();
         if ["CON", "PRN", "AUX", "NUL"].contains(&stem.as_str())
-            || (stem.len() == 4 && (stem.starts_with("COM") || stem.starts_with("LPT"))
+            || (stem.len() == 4
+                && (stem.starts_with("COM") || stem.starts_with("LPT"))
                 && matches!(stem.as_bytes()[3], b'1'..=b'9'))
-        { return Err(ImportError::Invalid("reserved Windows path")); }
+        {
+            return Err(ImportError::Invalid("reserved Windows path"));
+        }
     }
     Ok(())
 }
@@ -89,7 +116,7 @@ pub(super) fn under(root: &Path, value: &str) -> Result<PathBuf, ImportError> {
         path.push(part);
         match fs::symlink_metadata(&path) {
             Ok(metadata) => no_link(&metadata)?,
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {},
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
             Err(error) => return Err(error.into()),
         }
     }
@@ -97,10 +124,14 @@ pub(super) fn under(root: &Path, value: &str) -> Result<PathBuf, ImportError> {
 }
 
 pub(super) fn bounded_bytes(path: &Path, max: u64) -> Result<Vec<u8>, ImportError> {
-    if regular_file(path)?.len() > max { return Err(ImportError::TooLarge); }
+    if regular_file(path)?.len() > max {
+        return Err(ImportError::TooLarge);
+    }
     let mut bytes = Vec::new();
     File::open(path)?.take(max + 1).read_to_end(&mut bytes)?;
-    if u64::try_from(bytes.len()).unwrap_or(u64::MAX) > max { return Err(ImportError::TooLarge); }
+    if u64::try_from(bytes.len()).unwrap_or(u64::MAX) > max {
+        return Err(ImportError::TooLarge);
+    }
     Ok(bytes)
 }
 
@@ -117,11 +148,16 @@ pub(super) fn write_new_json(path: &Path, value: &impl Serialize) -> Result<(), 
 }
 
 pub(super) fn copy_verified(
-    input: &Path, output: &Path, asset: &Asset, control: &ImportControl,
+    input: &Path,
+    output: &Path,
+    asset: &Asset,
+    control: &ImportControl,
     report: impl FnMut(u64),
 ) -> Result<(), ImportError> {
     control.checkpoint()?;
-    if let Some(parent) = output.parent() { fs::create_dir_all(parent)?; }
+    if let Some(parent) = output.parent() {
+        fs::create_dir_all(parent)?;
+    }
     let mut file = File::create_new(output)?;
     stream_checked(input, &mut file, asset, control, report)?;
     file.sync_all()?;
@@ -129,13 +165,19 @@ pub(super) fn copy_verified(
 }
 
 pub(super) fn check_hash(
-    input: &Path, asset: &Asset, control: &ImportControl, report: impl FnMut(u64),
+    input: &Path,
+    asset: &Asset,
+    control: &ImportControl,
+    report: impl FnMut(u64),
 ) -> Result<(), ImportError> {
     stream_checked(input, &mut std::io::sink(), asset, control, report)
 }
 
 fn stream_checked(
-    input: &Path, output: &mut impl Write, asset: &Asset, control: &ImportControl,
+    input: &Path,
+    output: &mut impl Write,
+    asset: &Asset,
+    control: &ImportControl,
     mut report: impl FnMut(u64),
 ) -> Result<(), ImportError> {
     control.checkpoint()?;
@@ -144,15 +186,19 @@ fn stream_checked(
     }
     let mut reader = File::open(input)?.take(asset.bytes + 1);
     let mut hash = Sha256::new();
-    let mut buffer = [0_u8; 65_536];
+    let mut buffer = vec![0_u8; 65_536];
     let mut count = 0_u64;
     loop {
         control.checkpoint()?;
         let size = reader.read(&mut buffer)?;
-        if size == 0 { break; }
+        if size == 0 {
+            break;
+        }
         let amount = u64::try_from(size).map_err(|_| ImportError::TooLarge)?;
         count += amount;
-        if count > asset.bytes { return Err(ImportError::Invalid("asset grew while copying")); }
+        if count > asset.bytes {
+            return Err(ImportError::Invalid("asset grew while copying"));
+        }
         hash.update(&buffer[..size]);
         output.write_all(&buffer[..size])?;
         report(amount);
@@ -165,20 +211,35 @@ fn stream_checked(
 }
 
 pub(super) fn verify_content(
-    root: &Path, bundle: &SongBundle, control: &ImportControl,
+    root: &Path,
+    bundle: &SongBundle,
+    control: &ImportControl,
 ) -> Result<(), ImportError> {
-    for name in [&bundle.song.files.original, &bundle.song.files.vocals, &bundle.song.files.accompaniment] {
+    for name in [
+        &bundle.song.files.original,
+        &bundle.song.files.vocals,
+        &bundle.song.files.accompaniment,
+    ] {
         verify_wave(&under(root, name)?, bundle.song.duration_samples, control)?;
     }
-    let lyrics: LyricsDocument = bounded_json(&under(root, "provenance/stages/alignment/lyrics.json")?, MAX_JSON)?;
-    let notes: NotesDocument = bounded_json(&under(root, "provenance/stages/notes/notes.json")?, MAX_JSON)?;
+    let lyrics: LyricsDocument = bounded_json(
+        &under(root, "provenance/stages/alignment/lyrics.json")?,
+        MAX_JSON,
+    )?;
+    let notes: NotesDocument = bounded_json(
+        &under(root, "provenance/stages/notes/notes.json")?,
+        MAX_JSON,
+    )?;
     if lyrics != bundle.lyrics || notes != bundle.notes {
-        return Err(ImportError::Invalid("canonical documents differ from their verified stage outputs"));
+        return Err(ImportError::Invalid(
+            "canonical documents differ from their verified stage outputs",
+        ));
     }
     let reference = under(root, "provenance/source/reference.txt")?;
     if reference.try_exists()? {
         let bytes = bounded_bytes(&reference, 65_536)?;
-        std::str::from_utf8(&bytes).map_err(|_| ImportError::Invalid("reference lyrics are not UTF-8"))?;
+        std::str::from_utf8(&bytes)
+            .map_err(|_| ImportError::Invalid("reference lyrics are not UTF-8"))?;
     }
     control.checkpoint()
 }
@@ -189,20 +250,23 @@ fn verify_wave(path: &Path, expected: u64, control: &ImportControl) -> Result<()
     let metadata = crate::audio_wav::parse_wav(&mut file)
         .map_err(|_| ImportError::Invalid("expected 48 kHz stereo float WAV"))?;
     if metadata.duration_samples != expected {
-        return Err(ImportError::Invalid("WAV sample count differs from song timeline"));
+        return Err(ImportError::Invalid(
+            "WAV sample count differs from song timeline",
+        ));
     }
     file.seek(SeekFrom::Start(metadata.data_offset))?;
     let mut remaining = expected * 8;
-    let mut buffer = [0_u8; 65_536];
+    let mut buffer = vec![0_u8; 65_536];
     while remaining > 0 {
         control.checkpoint()?;
         let count = usize::try_from(remaining.min(65_536)).map_err(|_| ImportError::TooLarge)?;
         file.read_exact(&mut buffer[..count])?;
-        for bytes in buffer[..count].chunks_exact(4) {
-            let sample = f32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]);
-            if !sample.is_finite() { return Err(ImportError::Invalid("WAV contains NaN or infinity")); }
+        for bytes in buffer[..count].as_chunks::<4>().0 {
+            let sample = f32::from_le_bytes(*bytes);
+            if !sample.is_finite() {
+                return Err(ImportError::Invalid("WAV contains NaN or infinity"));
+            }
         }
         remaining -= u64::try_from(count).map_err(|_| ImportError::TooLarge)?;
     }
     Ok(())
-}

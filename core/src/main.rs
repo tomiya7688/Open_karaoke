@@ -74,9 +74,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     })
     .await
     .map_err(std::io::Error::other)?;
-    let router = session.router(AppState::with_analysis(service.client()).with_song_library(library));
+    let state = AppState::with_analysis(service.client()).with_song_library(library);
+    let router = session.router(state.clone());
     if let Err(error) = publish_ready(port, instance_id) {
         // A launcher that exited during startup must not leave its worker behind.
+        state.begin_shutdown().await;
         service.shutdown().await;
         return Err(error.into());
     }
@@ -85,6 +87,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         result = tokio::signal::ctrl_c() => result,
         _ = owner_lifetime => Ok(()),
     };
+    state.begin_shutdown().await;
     service.shutdown().await;
     result?;
     Ok(())

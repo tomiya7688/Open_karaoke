@@ -1,4 +1,4 @@
-//! Verified, audio-inclusive SongStore publication. All methods perform filesystem
+//! Verified, audio-inclusive `SongStore` publication. All methods perform filesystem
 //! work and belong on blocking workers, never on the realtime audio thread.
 
 mod files;
@@ -8,14 +8,20 @@ use std::{
     fs::{self, File, TryLockError},
     io,
     path::{Path, PathBuf},
-    sync::{Arc, atomic::{AtomicU8, Ordering}},
+    sync::{
+        Arc,
+        atomic::{AtomicU8, Ordering},
+    },
 };
 
 use serde::{Deserialize, Serialize};
 use tokio::sync::Semaphore;
 use uuid::Uuid;
 
-use crate::{Job, song_data::{SongBundle, SongStore}};
+use crate::{
+    Job,
+    song_data::{SongBundle, SongStore},
+};
 use files::{bounded_json, check_directory, digest, under};
 use validation::{Export, source_result, validate_bundle};
 
@@ -24,7 +30,10 @@ const MAX_ASSET: u64 = 30 * 60 * 48_000 * 8 + 1_048_576;
 const MAX_TOTAL: u64 = 8 * 1024 * 1024 * 1024;
 const MAX_ASSETS: usize = 256;
 const DOCUMENTS: [&str; 4] = [
-    "song.json", "analysis/lyrics.json", "analysis/notes.json", "analysis/evidence.json",
+    "song.json",
+    "analysis/lyrics.json",
+    "analysis/notes.json",
+    "analysis/evidence.json",
 ];
 
 #[derive(Debug)]
@@ -45,8 +54,12 @@ impl std::fmt::Display for ImportError {
             Self::Invalid(reason) => write!(out, "song_import_invalid: {reason}"),
             Self::TooLarge => out.write_str("song_import_limit: size or catalog limit exceeded"),
             Self::NotFound => out.write_str("song_not_found: published song is absent"),
-            Self::Conflict => out.write_str("song_import_conflict: existing song differs; never overwritten"),
-            Self::Busy => out.write_str("song_library_busy: another operation holds the library budget"),
+            Self::Conflict => {
+                out.write_str("song_import_conflict: existing song differs; never overwritten")
+            }
+            Self::Busy => {
+                out.write_str("song_library_busy: another operation holds the library budget")
+            }
             Self::Cancelled => out.write_str("song_import_cancelled"),
             Self::Io(_) => out.write_str("song_import_io: filesystem operation failed"),
             Self::Json(_) => out.write_str("song_import_json: invalid or unsupported document"),
@@ -55,10 +68,14 @@ impl std::fmt::Display for ImportError {
 }
 impl std::error::Error for ImportError {}
 impl From<io::Error> for ImportError {
-    fn from(error: io::Error) -> Self { Self::Io(error) }
+    fn from(error: io::Error) -> Self {
+        Self::Io(error)
+    }
 }
 impl From<serde_json::Error> for ImportError {
-    fn from(error: serde_json::Error) -> Self { Self::Json(error) }
+    fn from(error: serde_json::Error) -> Self {
+        Self::Json(error)
+    }
 }
 
 /// Cancellation and publication have one atomic ordering point. Once finalization
@@ -68,21 +85,30 @@ pub struct ImportControl(AtomicU8);
 impl ImportControl {
     #[must_use]
     pub fn cancel(&self) -> bool {
-        matches!(self.0.compare_exchange(0, 1, Ordering::AcqRel, Ordering::Acquire), Ok(_) | Err(1))
+        matches!(
+            self.0
+                .compare_exchange(0, 1, Ordering::AcqRel, Ordering::Acquire),
+            Ok(_) | Err(1)
+        )
     }
     /// # Errors
-    /// Returns Cancelled if cancellation won before finalization.
+    /// Returns `ImportError::Cancelled` if cancellation won before finalization.
     pub fn checkpoint(&self) -> Result<(), ImportError> {
-        if self.0.load(Ordering::Acquire) == 1 { Err(ImportError::Cancelled) } else { Ok(()) }
+        if self.0.load(Ordering::Acquire) == 1 {
+            Err(ImportError::Cancelled)
+        } else {
+            Ok(())
+        }
     }
     fn finalize(&self) -> Result<(), ImportError> {
-        self.0.compare_exchange(0, 2, Ordering::AcqRel, Ordering::Acquire)
+        self.0
+            .compare_exchange(0, 2, Ordering::AcqRel, Ordering::Acquire)
             .map(|_| ())
             .map_err(|_| ImportError::Cancelled)
     }
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ImportedSong {
     pub song_id: Uuid,
     pub reused: bool,
@@ -135,11 +161,16 @@ impl SongLibrary {
     /// Open disjoint, administrator-configured artifact and song directories.
     /// # Errors
     /// Rejects symlinks/reparse points, overlapping roots and filesystem failures.
-    pub fn open(artifact_root: impl AsRef<Path>, root: impl AsRef<Path>) -> Result<Self, ImportError> {
+    pub fn open(
+        artifact_root: impl AsRef<Path>,
+        root: impl AsRef<Path>,
+    ) -> Result<Self, ImportError> {
         let artifact_root = files::make_root(artifact_root.as_ref())?;
         let root = files::make_root(root.as_ref())?;
         if artifact_root.starts_with(&root) || root.starts_with(&artifact_root) {
-            return Err(ImportError::Invalid("library and artifact roots must be disjoint"));
+            return Err(ImportError::Invalid(
+                "library and artifact roots must be disjoint",
+            ));
         }
         Ok(Self {
             artifact_root: Arc::new(artifact_root),
@@ -169,9 +200,19 @@ impl SongLibrary {
         let song_id = export.validate(source, &result_artifact)?;
         let final_path = under(&self.root, &song_id.to_string())?;
         if final_path.try_exists()? {
-            self.verify_reuse(source, &export, &result_sha256, song_id, control, &mut report)?;
+            self.verify_reuse(
+                source,
+                &export,
+                &result_sha256,
+                song_id,
+                control,
+                &mut report,
+            )?;
             control.finalize()?;
-            return Ok(ImportedSong { song_id, reused: true });
+            return Ok(ImportedSong {
+                song_id,
+                reused: true,
+            });
         }
         report(0, "song_import.staging");
         let staging = Staging::new(&self.root)?;
@@ -203,16 +244,21 @@ impl SongLibrary {
             assets: export.assets,
         };
         files::write_new_json(&staging.path.join("import-receipt.json"), &receipt)?;
-        if self.load_at(&staging.path, song_id)?.0 != export.bundle {
+        if Self::load_at(&staging.path, song_id)?.0 != export.bundle {
             return Err(ImportError::Invalid("stored metadata did not round-trip"));
         }
         report(9900, "song_import.publishing");
         control.finalize()?;
         // The OS file lock serializes trusted Core processes. The destination is
         // immutable: retries never replace it, even if it is damaged or empty.
-        if final_path.try_exists()? { return Err(ImportError::Conflict); }
+        if final_path.try_exists()? {
+            return Err(ImportError::Conflict);
+        }
         fs::rename(&staging.path, final_path)?;
-        Ok(ImportedSong { song_id, reused: false })
+        Ok(ImportedSong {
+            song_id,
+            reused: false,
+        })
     }
 
     /// Read a published bundle, not a private staging directory.
@@ -222,46 +268,72 @@ impl SongLibrary {
     pub fn load(&self, id: Uuid) -> Result<SongBundle, ImportError> {
         check_directory(&self.root)?;
         let path = under(&self.root, &id.to_string())?;
-        if !path.try_exists()? { return Err(ImportError::NotFound); }
-        Ok(self.load_at(&path, id)?.0)
+        if !path.try_exists()? {
+            return Err(ImportError::NotFound);
+        }
+        Ok(Self::load_at(&path, id)?.0)
     }
 
     /// Sorted cursor pagination. Damaged entries are reported, never silently hidden.
     /// # Errors
     /// Rejects invalid limits, excessive catalog size and filesystem errors.
     pub fn list(&self, after: Option<Uuid>, limit: usize) -> Result<SongPage, ImportError> {
-        if !(1..=100).contains(&limit) { return Err(ImportError::Invalid("limit must be 1..100")); }
+        if !(1..=100).contains(&limit) {
+            return Err(ImportError::Invalid("limit must be 1..100"));
+        }
         check_directory(&self.root)?;
         let mut ids = Vec::new();
         for (count, entry) in fs::read_dir(&*self.root)?.enumerate() {
-            if count >= 10_000 { return Err(ImportError::TooLarge); }
+            if count >= 10_000 {
+                return Err(ImportError::TooLarge);
+            }
             let name = entry?.file_name();
-            let Some(name) = name.to_str() else { continue; };
+            let Some(name) = name.to_str() else {
+                continue;
+            };
             if let Ok(id) = Uuid::parse_str(name)
-                && id.to_string() == name && after.is_none_or(|after| id > after)
-            { ids.push(id); }
+                && id.to_string() == name
+                && after.is_none_or(|after| id > after)
+            {
+                ids.push(id);
+            }
         }
         ids.sort_unstable();
         let next_after = (ids.len() > limit).then(|| ids[limit - 1]);
-        let songs = ids.into_iter().take(limit).map(|song_id| {
-            match self.load(song_id) {
+        let songs = ids
+            .into_iter()
+            .take(limit)
+            .map(|song_id| match self.load(song_id) {
                 Ok(bundle) => SongListItem {
-                    song_id, title: Some(bundle.song.title), artist: bundle.song.artist,
-                    duration_samples: Some(bundle.song.duration_samples), error: None,
+                    song_id,
+                    title: Some(bundle.song.title),
+                    artist: bundle.song.artist,
+                    duration_samples: Some(bundle.song.duration_samples),
+                    error: None,
                 },
                 Err(error) => SongListItem {
-                    song_id, title: None, artist: None, duration_samples: None,
+                    song_id,
+                    title: None,
+                    artist: None,
+                    duration_samples: None,
                     error: Some(error.to_string()),
                 },
-            }
-        }).collect();
+            })
+            .collect();
         Ok(SongPage { songs, next_after })
     }
 
     fn writer_lock(&self) -> Result<File, ImportError> {
         let path = under(&self.root, ".writer.lock")?;
-        if path.try_exists()? { files::regular_file(&path)?; }
-        let file = File::options().read(true).write(true).create(true).truncate(false).open(path)?;
+        if path.try_exists()? {
+            files::regular_file(&path)?;
+        }
+        let file = File::options()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(false)
+            .open(path)?;
         match file.try_lock() {
             Ok(()) => Ok(file),
             Err(TryLockError::WouldBlock) => Err(ImportError::Busy),
@@ -269,7 +341,7 @@ impl SongLibrary {
         }
     }
 
-    fn load_at(&self, path: &Path, id: Uuid) -> Result<(SongBundle, Receipt), ImportError> {
+    fn load_at(path: &Path, id: Uuid) -> Result<(SongBundle, Receipt), ImportError> {
         check_directory(path)?;
         let receipt: Receipt = bounded_json(&under(path, "import-receipt.json")?, MAX_JSON)?;
         let bundle = SongBundle {
@@ -279,12 +351,22 @@ impl SongLibrary {
             evidence: bounded_json(&under(path, DOCUMENTS[3])?, MAX_JSON)?,
         };
         validate_bundle(&bundle, id)?;
-        if receipt.format_version != 1 || receipt.song_id != id
+        if receipt.format_version != 1
+            || receipt.song_id != id
             || receipt.assets.len() > MAX_ASSETS
             || digest(&serde_json::to_vec(&bundle)?) != receipt.bundle_sha256
-        { return Err(ImportError::Invalid("published receipt/metadata mismatch")); }
-        for name in [&bundle.song.files.original, &bundle.song.files.vocals, &bundle.song.files.accompaniment] {
-            let asset = receipt.assets.iter().find(|asset| &asset.destination == name)
+        {
+            return Err(ImportError::Invalid("published receipt/metadata mismatch"));
+        }
+        for name in [
+            &bundle.song.files.original,
+            &bundle.song.files.vocals,
+            &bundle.song.files.accompaniment,
+        ] {
+            let asset = receipt
+                .assets
+                .iter()
+                .find(|asset| &asset.destination == name)
                 .ok_or(ImportError::Invalid("published audio receipt missing"))?;
             if files::regular_file(&under(path, name)?)?.len() != asset.bytes {
                 return Err(ImportError::Invalid("published audio missing or truncated"));
@@ -294,32 +376,50 @@ impl SongLibrary {
     }
 
     fn verify_reuse(
-        &self, source: &Job, export: &Export, hash: &str, id: Uuid,
-        control: &ImportControl, report: &mut impl FnMut(u16, &'static str),
+        &self,
+        source: &Job,
+        export: &Export,
+        hash: &str,
+        id: Uuid,
+        control: &ImportControl,
+        report: &mut impl FnMut(u16, &'static str),
     ) -> Result<(), ImportError> {
         let path = under(&self.root, &id.to_string())?;
-        let (bundle, receipt) = self.load_at(&path, id).map_err(|_| ImportError::Conflict)?;
-        if receipt.analysis_job_id != source.id || receipt.result_sha256 != hash
-            || receipt.assets != export.assets || bundle != export.bundle
-        { return Err(ImportError::Conflict); }
+        let (bundle, receipt) = Self::load_at(&path, id).map_err(|_| ImportError::Conflict)?;
+        if receipt.analysis_job_id != source.id
+            || receipt.result_sha256 != hash
+            || receipt.assets != export.assets
+            || bundle != export.bundle
+        {
+            return Err(ImportError::Conflict);
+        }
         report(0, "song_import.verifying_existing");
         let total = export.assets.iter().map(|asset| asset.bytes).sum::<u64>();
         let mut read = 0;
         for asset in &export.assets {
-            files::check_hash(&under(&path, &asset.destination)?, asset, control, |count| {
-                read += count;
-                report(progress(read, total), "song_import.verifying_existing");
-            })?;
+            files::check_hash(
+                &under(&path, &asset.destination)?,
+                asset,
+                control,
+                |count| {
+                    read += count;
+                    report(progress(read, total), "song_import.verifying_existing");
+                },
+            )?;
         }
         files::verify_content(&path, &bundle, control)
     }
 }
 
 fn progress(done: u64, total: u64) -> u16 {
-    u16::try_from(done.saturating_mul(9000) / total.max(1)).unwrap_or(9000).min(9000)
+    u16::try_from(done.saturating_mul(9000) / total.max(1))
+        .unwrap_or(9000)
+        .min(9000)
 }
 
-struct Staging { path: PathBuf }
+struct Staging {
+    path: PathBuf,
+}
 impl Staging {
     fn new(root: &Path) -> Result<Self, ImportError> {
         let path = root.join(format!(".staging-{}", Uuid::new_v4()));
@@ -333,6 +433,8 @@ impl Drop for Staging {
         // rename makes it absent. Crash leftovers stay hidden for explicit GC.
         if let Err(error) = fs::remove_dir_all(&self.path)
             && error.kind() != io::ErrorKind::NotFound
-        { eprintln!("song_import_cleanup_failed: private staging may remain"); }
+        {
+            eprintln!("song_import_cleanup_failed: private staging may remain");
+        }
     }
 }
