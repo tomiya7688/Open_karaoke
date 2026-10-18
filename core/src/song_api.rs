@@ -115,7 +115,7 @@ pub(crate) async fn run(state: &AppState, id: Uuid, work: ImportWork) {
         Ok(Err(error)) => {
             state
                 .finish(id, JobStatus::Failed, Some(error.to_string()))
-                .await
+                .await;
         }
         Err(_) => {
             state
@@ -124,7 +124,7 @@ pub(crate) async fn run(state: &AppState, id: Uuid, work: ImportWork) {
                     JobStatus::Failed,
                     Some("song_import_worker_failed".to_owned()),
                 )
-                .await
+                .await;
         }
     }
 }

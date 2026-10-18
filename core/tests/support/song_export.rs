@@ -1,8 +1,8 @@
 //! Synthetic exports for storage/API tests, not a singing-accuracy dataset.
 
-use std::{fs, path::Path};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
+use std::{fs, path::Path};
 use uuid::Uuid;
 
 fn wave() -> Vec<u8> {
@@ -29,18 +29,26 @@ fn wave() -> Vec<u8> {
 fn bundle(id: Uuid, hash: &str) -> Value {
     let mut artifacts = serde_json::Map::new();
     for (kind, dependencies) in [
-        ("original", vec![]), ("vocals", vec!["original"]),
-        ("accompaniment", vec!["original"]), ("lyrics", vec!["vocals"]),
-        ("notes", vec!["vocals", "lyrics"]), ("evidence", vec!["lyrics", "notes"]),
+        ("original", vec![]),
+        ("vocals", vec!["original"]),
+        ("accompaniment", vec!["original"]),
+        ("lyrics", vec!["vocals"]),
+        ("notes", vec!["vocals", "lyrics"]),
+        ("evidence", vec!["lyrics", "notes"]),
     ] {
-        artifacts.insert(kind.to_owned(), json!({
-            "generation":1,"valid":true,"depends_on":dependencies,"analysis_version":1,
-        }));
+        artifacts.insert(
+            kind.to_owned(),
+            json!({
+                "generation":1,"valid":true,"depends_on":dependencies,"analysis_version":1,
+            }),
+        );
     }
-    let stages = ["stems", "lyrics", "alignment", "pitch", "events", "notes"].map(|role| json!({
-        "role":role,"model":{"id":format!("fixture-{role}"),"version":"test-only","role":role},
-        "options":{},"artifacts":[],
-    }));
+    let stages = ["stems", "lyrics", "alignment", "pitch", "events", "notes"].map(|role| {
+        json!({
+            "role":role,"model":{"id":format!("fixture-{role}"),"version":"test-only","role":role},
+            "options":{},"artifacts":[],
+        })
+    });
     json!({
         "song": {
             "format_version":1,"analysis_version":1,"song_id":id,
@@ -84,13 +92,18 @@ pub fn build(root: &Path) -> (Value, Value) {
     ];
     for (name, document) in [
         ("stages/stems/stems.json", &metadata),
-        ("stages/lyrics/asr_raw.json", &metadata), ("stages/lyrics/lyrics.json", &bundle["lyrics"]),
+        ("stages/lyrics/asr_raw.json", &metadata),
+        ("stages/lyrics/lyrics.json", &bundle["lyrics"]),
         ("stages/alignment/alignment.json", &metadata),
         ("stages/alignment/alignment_evidence.json", &metadata),
         ("stages/alignment/lyrics.json", &bundle["lyrics"]),
-        ("stages/pitch/pitch.json", &metadata), ("stages/events/vocal_events.json", &metadata),
-        ("stages/notes/note_evidence.json", &metadata), ("stages/notes/notes.json", &bundle["notes"]),
-    ] { files.push((name, serde_json::to_vec(document).unwrap())); }
+        ("stages/pitch/pitch.json", &metadata),
+        ("stages/events/vocal_events.json", &metadata),
+        ("stages/notes/note_evidence.json", &metadata),
+        ("stages/notes/notes.json", &bundle["notes"]),
+    ] {
+        files.push((name, serde_json::to_vec(document).unwrap()));
+    }
     let mut assets = Vec::new();
     let mut published = Vec::new();
     for (suffix, data) in files {
@@ -109,7 +122,11 @@ pub fn build(root: &Path) -> (Value, Value) {
         ("stages/stems/vocals.wav", "audio/vocals.wav"),
         ("stages/stems/accompaniment.wav", "audio/accompaniment.wav"),
     ] {
-        let mut asset = assets.iter().find(|asset| asset["source"] == format!("{prefix}/{source}")).unwrap().clone();
+        let mut asset = assets
+            .iter()
+            .find(|asset| asset["source"] == format!("{prefix}/{source}"))
+            .unwrap()
+            .clone();
         asset["destination"] = destination.into();
         assets.push(asset);
     }
@@ -125,6 +142,12 @@ pub fn build(root: &Path) -> (Value, Value) {
 }
 
 pub fn write_result(root: &Path, job: &Value, export: &Value) {
-    let result = job["artifacts"].as_array().unwrap().last().unwrap().as_str().unwrap();
+    let result = job["artifacts"]
+        .as_array()
+        .unwrap()
+        .last()
+        .unwrap()
+        .as_str()
+        .unwrap();
     fs::write(root.join(result), serde_json::to_vec(export).unwrap()).unwrap();
 }

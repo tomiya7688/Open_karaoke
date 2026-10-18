@@ -232,7 +232,10 @@ impl SongLibrary {
         SongStore::save(&staging.path, &export.bundle)
             .map_err(|_| ImportError::Invalid("SongStore serialization failed"))?;
         for document in DOCUMENTS {
-            File::open(under(&staging.path, document)?)?.sync_all()?;
+            File::options()
+                .write(true)
+                .open(under(&staging.path, document)?)?
+                .sync_all()?;
         }
         let receipt = Receipt {
             format_version: 1,
