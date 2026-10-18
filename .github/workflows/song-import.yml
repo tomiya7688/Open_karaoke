@@ -1,0 +1,68 @@
+name: SongStore import regression
+
+on:
+  push:
+    branches: [main]
+    paths: ['core/**', 'Cargo.*', 'python/tests/**', '.github/workflows/song-import.yml']
+  pull_request:
+    paths: ['core/**', 'Cargo.*', 'python/tests/**', '.github/workflows/song-import.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: song-import-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  import-contracts:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install existing fixture dependencies
+        run: python -m pip install -e './python[dev]'
+      - name: Compile and test all Rust targets
+        run: cargo test --workspace --all-targets
+      - name: Rust Clippy
+        if: always()
+        run: cargo clippy --workspace --all-targets -- -D warnings
+      - name: Check dependency lock
+        if: always()
+        run: git diff --exit-code -- Cargo.lock
+      - name: Check Rust formatting
+        if: always()
+        run: cargo fmt --all -- --check
+      - name: Preserve read-only failure diagnostics
+        if: failure()
+        shell: python
+        run: |
+          import pathlib, shutil, subprocess
+          root = pathlib.Path('artifacts/song-import-diagnostics')
+          root.mkdir(parents=True, exist_ok=True)
+          subprocess.run(['cargo', 'fmt', '--all'], check=True)
+          subprocess.run(['git', 'diff', '--output=' + str(root / 'working-tree.diff')], check=True)
+          shutil.copyfile('Cargo.lock', root / 'Cargo.lock')
+          for path in pathlib.Path('core').rglob('*.rs'):
+              target = root / path
+              target.parent.mkdir(parents=True, exist_ok=True)
+              shutil.copyfile(path, target)
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: song-import-diagnostics-${{ matrix.os }}
+          path: artifacts/song-import-diagnostics
+          if-no-files-found: error

@@ -28,10 +28,10 @@ fn invalid(message: &'static str) -> io::Error {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct WavMetadata {
     pub duration_samples: u64,
-    data_offset: u64,
+    pub(crate) data_offset: u64,
 }
 
-fn parse_wav(file: &mut File) -> io::Result<WavMetadata> {
+pub(crate) fn parse_wav(file: &mut File) -> io::Result<WavMetadata> {
     let mut header = [0_u8; 12];
     file.read_exact(&mut header)?;
     if &header[..4] != b"RIFF" || &header[8..] != b"WAVE" {
@@ -127,6 +127,7 @@ impl WavFeeder {
         let sent = Arc::new(AtomicU64::new(0));
         let finished = Arc::new(AtomicBool::new(false));
         let failed = Arc::new(AtomicBool::new(false));
+        let duration_samples = metadata.duration_samples;
         let stopping = Arc::clone(&stop);
         let sending = Arc::clone(&sent);
         let done = Arc::clone(&finished);
@@ -196,7 +197,7 @@ impl WavFeeder {
             sent,
             finished,
             failed,
-            duration_samples: metadata.duration_samples,
+            duration_samples,
             thread: Some(handle),
         })
     }

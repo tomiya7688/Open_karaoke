@@ -6,7 +6,9 @@ pub mod audio_device;
 pub mod audio_engine;
 pub mod audio_import;
 pub mod audio_wav;
+pub mod song_api;
 pub mod song_data;
+pub mod song_library;
 
 use std::{collections::HashMap, convert::Infallible, sync::Arc, time::Duration};
 
@@ -39,11 +41,13 @@ const MAX_RETAINED_JOBS: usize = 512;
 pub struct AppState {
     jobs: Arc<RwLock<HashMap<Uuid, JobRecord>>>,
     analysis: AnalysisClient,
+    song_library: Option<song_library::SongLibrary>,
 }
 
 struct JobRecord {
     snapshot: Job,
     cancelled: bool,
+    import_control: Option<Arc<song_library::ImportControl>>,
     events: broadcast::Sender<JobEvent>,
 }
 
@@ -75,6 +79,9 @@ pub struct Job {
     pub finished_at: Option<DateTime<Utc>>,
     pub error: Option<String>,
     pub artifacts: Vec<String>,
+    /// Library identity is separate from worker-relative artifact paths.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub imported_song: Option<song_library::ImportedSong>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -91,6 +98,7 @@ pub struct CreateJobRequest {
     pub fail_at_step: Option<u16>,
     #[serde(default)]
     pub analysis: AnalysisRequest,
+    pub song_import: Option<song_api::SongImportRequest>,
 }
 
 fn default_steps() -> u16 {
@@ -109,6 +117,12 @@ impl AppState {
             analysis,
             ..Self::default()
         }
+    }
+
+    #[must_use]
+    pub fn with_song_library(mut self, library: song_library::SongLibrary) -> Self {
+        self.song_library = Some(library);
+        self
     }
 
     async fn snapshot(&self, id: Uuid) -> Option<Job> {
@@ -165,15 +179,15 @@ pub fn app(state: AppState) -> Router {
         .route("/jobs/{id}", get(get_job))
         .route("/jobs/{id}/cancel", post(cancel_job))
         .route("/jobs/{id}/events", get(job_events))
+        .merge(song_api::routes())
         .route_layer(middleware::from_fn(api_guard))
         .route("/health", get(health))
         .layer(DefaultBodyLimit::max(MAX_CORE_REQUEST_BYTES))
         .with_state(state)
 }
 
-/// Reject browser-origin access to the device, model and job APIs.
-/// This is a first step; a future session credential is still required to
-/// protect against unauthorised non-browser processes on the same machine.
+/// In-process version/Origin guard. The executable additionally wraps every
+/// route with its pipe-bootstrapped CoreSession authentication boundary.
 async fn api_guard(request: Request, next: Next) -> Result<Response, ApiError> {
     if request.headers().contains_key(header::ORIGIN) {
         return Err(ApiError(
@@ -240,6 +254,7 @@ async fn create_job(
             "Invalid job kind or step range".to_owned(),
         ));
     }
+    let import_work = prepare_import(&state, &request).await?;
     if let Some(role) = request.kind.strip_prefix("analysis.") {
         if !matches!(
             role,
@@ -268,6 +283,7 @@ async fn create_job(
         finished_at: None,
         error: None,
         artifacts: Vec::new(),
+        imported_song: None,
     };
     let (events, _) = broadcast::channel(64);
     let mut jobs = state.jobs.write().await;
@@ -306,15 +322,29 @@ async fn create_job(
         JobRecord {
             snapshot: job.clone(),
             cancelled: false,
+            import_control: import_work.as_ref().map(|work| Arc::clone(&work.control)),
             events,
         },
     );
     drop(jobs);
-    tokio::spawn(run_job(state, id, request));
+    tokio::spawn(run_job(state, id, request, import_work));
     Ok((StatusCode::ACCEPTED, Json(job)))
 }
 
-async fn run_job(state: AppState, id: Uuid, request: CreateJobRequest) {
+async fn prepare_import(state: &AppState, request: &CreateJobRequest) -> Result<Option<song_api::ImportWork>, ApiError> {
+    if request.kind == "song.import" {
+        let input = request.song_import.as_ref().ok_or_else(|| ApiError(
+            StatusCode::BAD_REQUEST, "song_import.analysis_job_id is required".to_owned(),
+        ))?;
+        return song_api::prepare(state, input).await.map(Some);
+    }
+    if request.song_import.is_some() {
+        return Err(ApiError(StatusCode::BAD_REQUEST, "song_import requires kind song.import".to_owned()));
+    }
+    Ok(None)
+}
+
+async fn run_job(state: AppState, id: Uuid, request: CreateJobRequest, import: Option<song_api::ImportWork>) {
     if state.cancelled(id).await {
         state.finish(id, JobStatus::Cancelled, None).await;
         return;
@@ -326,6 +356,10 @@ async fn run_job(state: AppState, id: Uuid, request: CreateJobRequest) {
             job.started_at = Some(Utc::now());
         })
         .await;
+    if let Some(work) = import {
+        song_api::run(&state, id, work).await;
+        return;
+    }
     if let Some(role) = request.kind.strip_prefix("analysis.") {
         if let Err(error) = run_analysis(&state, id, role, &request.analysis).await {
             state.finish(id, JobStatus::Failed, Some(error)).await;
@@ -433,7 +467,9 @@ async fn cancel_job(
 ) -> Result<Json<Job>, ApiError> {
     let mut jobs = state.jobs.write().await;
     let record = jobs.get_mut(&id).ok_or_else(ApiError::not_found)?;
-    if !record.snapshot.status.terminal() {
+    if !record.snapshot.status.terminal()
+        && record.import_control.as_ref().is_none_or(|control| control.cancel())
+    {
         record.cancelled = true;
     }
     Ok(Json(record.snapshot.clone()))

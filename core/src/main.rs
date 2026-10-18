@@ -10,6 +10,7 @@ use std::{
 use open_karaoke_core::{
     AppState, CORE_API_VERSION,
     analysis_service::{AnalysisConfig, AnalysisService},
+    song_library::SongLibrary,
 };
 use session::CoreSession;
 use tokio::{net::TcpListener, sync::oneshot};
@@ -65,6 +66,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             std::env::var_os("HOME").map(|p| PathBuf::from(p).join(".local/share/OpenKaraoke"))
         })
         .ok_or("Set OPEN_KARAOKE_DATA_DIR to a writable application data directory")?;
+    let library = SongLibrary::open(data.join("artifacts"), data.join("songs"))?;
     let service = AnalysisService::start(AnalysisConfig {
         python,
         artifact_root: data.join("artifacts"),
@@ -72,7 +74,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     })
     .await
     .map_err(std::io::Error::other)?;
-    let router = session.router(AppState::with_analysis(service.client()));
+    let router = session.router(AppState::with_analysis(service.client()).with_song_library(library));
     if let Err(error) = publish_ready(port, instance_id) {
         // A launcher that exited during startup must not leave its worker behind.
         service.shutdown().await;
