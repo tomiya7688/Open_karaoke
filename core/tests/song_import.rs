@@ -434,7 +434,10 @@ fn real_python_pipeline_export_is_registered_with_audio_and_reloaded() {
     let bundle = test.library.load(imported.song_id).unwrap();
     assert_eq!(bundle.song.title, "合成・全曲登録");
     assert_eq!(bundle.song.duration_samples, 9600);
-    assert!(!bundle.notes.notes.is_empty());
+    assert_ne!(
+        bundle.notes.notes,
+        [] as [open_karaoke_core::song_data::Note; 0]
+    );
     let directory = test.songs.join(imported.song_id.to_string());
     for name in ["original_48k.wav", "vocals.wav", "accompaniment.wav"] {
         assert!(directory.join("audio").join(name).is_file());
