@@ -35,7 +35,8 @@ git diff --stat BASE...HEAD
 git diff --name-status BASE...HEAD
 ```
 
-これは取得・比較だけで、checkout/pull/reset/rebaseはしない。fetch失敗やshallow historyによる比較失敗は
+この確認自体は取得・比較だけで、reset/rebaseはしない。作業開始時の`git pull --ff-only`とブランチ作成は
+[共同作業ルール](collaboration.md#1-作業開始)に従う。fetch失敗やshallow historyによる比較失敗は
 「差分なし」にせずUnverified。必要なref/historyだけ取得する。無条件の全履歴取得やforce pushはしない。
 remote側だけに変更があれば、そのcommit summaryとファイル一覧から確認する。編集直前・push前にhead SHAを再確認し、競合を上書きしない。
 
