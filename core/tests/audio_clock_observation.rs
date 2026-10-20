@@ -352,3 +352,31 @@ fn clean_observation_does_not_invent_anchors() {
         );
     }
 }
+
+/// {
+///   責務: [`clock_invalidation_is_applied_to_capture_messages`: `Processのepoch通知がPCM` consumerへ届くことを検査する]
+///   処理: [1: 旧epoch captureをqueueへ入れる, 2: clockとAudioIoを新epochへ進める, 3: 旧frameを除き新frameだけ受け取る]
+///   引数: []
+///   戻り値: []
+/// }
+#[test]
+fn clock_invalidation_is_applied_to_capture_messages() {
+    let audio = AudioIo::new(32).unwrap();
+    let mut session = ClockSession::new();
+    session.observe_audio(audio.counters()).unwrap();
+    audio.capture_mock(&[0.1], 1);
+    audio.set_playing(true);
+    let invalidation = session.observe_audio(audio.counters()).unwrap().unwrap();
+    audio.set_clock_epoch(invalidation.epoch).unwrap();
+    audio.capture_mock(&[0.6], 1);
+
+    let mut received = [open_karaoke_core::audio_engine::TimestampedMicrophoneSample {
+        epoch: invalidation.epoch,
+        stream_sample: 0,
+        sample: 0.0,
+    }; 1];
+    assert_eq!(audio.read_microphone_timestamped(&mut received), 1);
+    assert_eq!(received[0].epoch, invalidation.epoch);
+    assert_eq!(received[0].stream_sample, 1);
+    assert!((received[0].sample - 0.6).abs() < 1e-6);
+}

@@ -1,17 +1,17 @@
 //! Explicit, opt-in WASAPI hardware smoke test. No automatic device access in CI.
 
-use std::{error::Error, io, thread, time::Duration};
+use std::{error::Error, io, path::PathBuf, thread, time::Duration};
 
 use open_karaoke_core::{
     audio_clock::ClockSession,
     audio_device::{AudioDeviceStreams, WasapiMode, enumerate_devices},
-    audio_engine::DEFAULT_BUFFER_FRAMES,
+    audio_engine::{DEFAULT_BUFFER_FRAMES, TimestampedMicrophoneSample},
     audio_wav::WavFeeder,
 };
 
 /// {
 ///   責務: [main: 明示起動した WASAPI の再生と raw capture を診断する]
-///   処理: [1: デバイスと WAV を準備する, 2: 制御側で clock の不連続を観測する, 3: stream を停止する]
+///   処理: [1: デバイスと WAV を準備する, 2: 制御側で clock の不連続を観測し feeder を新epochから再開する, 3: stream を停止する]
 ///   引数: [CLI: 正規化済み WAV のパス]
 ///   戻り値: [`Result`: setup または clock 処理の失敗]
 /// }
@@ -19,6 +19,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let path = std::env::args_os()
         .nth(1)
         .ok_or("Usage: cargo run --example wasapi_smoke -- <normalized-48k-stereo-f32.wav>")?;
+    let path = PathBuf::from(path);
     let devices = enumerate_devices().map_err(io::Error::other)?;
     for device in devices {
         println!(
@@ -38,7 +39,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let io = device.audio();
     let mut clock = ClockSession::new();
     clock.observe_audio(io.counters())?;
-    let mut feeder = WavFeeder::start(io.clone(), path)?;
+    let mut feeder = WavFeeder::start_at(io.clone(), clock.epoch(), 0, &path)?;
 
     // Prebuffer on the disk thread before enabling the physical stream.
     while feeder.status().enqueued_samples < 4096 && !feeder.status().finished {
@@ -56,22 +57,35 @@ fn main() -> Result<(), Box<dyn Error>> {
         eprintln!("No default microphone: testing playback only");
     }
     device.play().map_err(io::Error::other)?;
-    clock.observe_audio(io.counters())?;
     let mut last_report = 0_u64;
+    let mut microphone = vec![
+        TimestampedMicrophoneSample {
+            epoch: io.clock_epoch(),
+            stream_sample: 0,
+            sample: 0.0,
+        };
+        960
+    ];
     loop {
         thread::sleep(Duration::from_millis(10));
-        let status = feeder.status();
         let counters = io.counters();
         if let Some(change) = clock.observe_audio(counters)? {
+            io.set_clock_epoch(change.epoch)?;
+            let restart_sample = io
+                .playback_timestamp()
+                .map_or(0, |timestamp| timestamp.song_sample.saturating_add(1));
+            feeder.stop();
+            feeder = WavFeeder::start_at(io.clone(), change.epoch, restart_sample, &path)?;
             eprintln!(
-                "Clock invalidated: epoch={}, reason={:?}; fresh anchors required",
+                "Clock invalidated: epoch={}, reason={:?}; PCM feeder restarted at song sample {}",
                 change.epoch.sequence(),
-                change.reason
+                change.reason,
+                restart_sample
             );
         }
+        let status = feeder.status();
         // This example drains raw PCM without performing any scoring or effects.
-        let mut microphone = [0.0_f32; 960];
-        let _ = io.read_microphone(&mut microphone);
+        let _ = io.read_microphone_timestamped(&mut microphone);
         if counters.output_device_error || counters.input_device_error || status.failed {
             eprintln!("Detected audio-device or disk-feeder error");
             break;

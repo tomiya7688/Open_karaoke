@@ -17,6 +17,16 @@ const MAX_ABS_DRIFT_PPM: i32 = 2_000;
 pub struct ClockEpoch(u64);
 
 impl ClockEpoch {
+    /// {
+    ///   責務: [`from_sequence`: audio境界の保存値からclock型を復元する]
+    ///   処理: [1: 内部sequenceをclock epochとして包む]
+    ///   引数: [sequence: 保存済み世代番号]
+    ///   戻り値: [`ClockEpoch`: 復元した世代]
+    /// }
+    pub(crate) const fn from_sequence(sequence: u64) -> Self {
+        Self(sequence)
+    }
+
     #[must_use]
     pub const fn sequence(self) -> u64 {
         self.0
