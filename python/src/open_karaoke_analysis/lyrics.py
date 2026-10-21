@@ -162,7 +162,9 @@ class LyricsAdapter:
         )
 
     def validate_options(self, options: dict[str, Any]) -> dict[str, Any]:
-        return validate_adapter_options(LyricOptions, options, "Invalid lyric transcription options")
+        return validate_adapter_options(
+            LyricOptions, options, "Invalid lyric transcription options"
+        )
 
     def analyze(self, context: AnalysisContext, options: dict[str, Any]) -> list[str]:
         context.checkpoint()
