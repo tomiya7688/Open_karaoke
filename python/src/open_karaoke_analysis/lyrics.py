@@ -10,9 +10,9 @@ from decimal import ROUND_HALF_UP, Decimal
 from pathlib import Path
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, Field
 
-from .adapters import AnalysisContext, resolve_artifact
+from .adapters import AnalysisContext, resolve_artifact, validate_adapter_options
 from .contracts import ModelInfo, Role, ServiceError
 from .whisper_backend import WHISPER_VERSION, WhisperBackend
 
@@ -162,10 +162,7 @@ class LyricsAdapter:
         )
 
     def validate_options(self, options: dict[str, Any]) -> dict[str, Any]:
-        try:
-            return LyricOptions.model_validate(options).model_dump()
-        except ValidationError as error:
-            raise ServiceError("invalid_options", "Invalid lyric transcription options") from error
+        return validate_adapter_options(LyricOptions, options, "Invalid lyric transcription options")
 
     def analyze(self, context: AnalysisContext, options: dict[str, Any]) -> list[str]:
         context.checkpoint()
