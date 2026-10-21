@@ -34,7 +34,7 @@ use axum::{
 };
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use tokio::sync::{RwLock, broadcast};
+use tokio::sync::{RwLock, Semaphore, broadcast};
 use tokio_stream::{Stream, StreamExt, wrappers::BroadcastStream};
 use uuid::Uuid;
 
@@ -44,13 +44,27 @@ pub const CORE_API_VERSION_HEADER: &str = "x-open-karaoke-api-version";
 const MAX_CORE_REQUEST_BYTES: usize = 64 * 1024;
 const MAX_ACTIVE_JOBS: usize = 16;
 const MAX_RETAINED_JOBS: usize = 512;
+const MAX_SSE_CONNECTIONS: usize = 32;
 
-#[derive(Clone, Default)]
+#[derive(Clone)]
 pub struct AppState {
     jobs: Arc<RwLock<HashMap<Uuid, JobRecord>>>,
     analysis: AnalysisClient,
     song_library: Option<song_library::SongLibrary>,
     stopping: Arc<AtomicBool>,
+    sse_budget: Arc<Semaphore>,
+}
+
+impl Default for AppState {
+    fn default() -> Self {
+        Self {
+            jobs: Arc::new(RwLock::new(HashMap::new())),
+            analysis: AnalysisClient::default(),
+            song_library: None,
+            stopping: Arc::new(AtomicBool::new(false)),
+            sse_budget: Arc::new(Semaphore::new(MAX_SSE_CONNECTIONS)),
+        }
+    }
 }
 
 struct JobRecord {
@@ -542,9 +556,18 @@ async fn job_events(
         let record = jobs.get(&id).ok_or_else(ApiError::not_found)?;
         (record.snapshot.clone(), record.events.subscribe())
     };
+    let permit = Arc::clone(&state.sse_budget)
+        .try_acquire_owned()
+        .map_err(|_| {
+            ApiError(
+                StatusCode::TOO_MANY_REQUESTS,
+                "Too many SSE connections".to_owned(),
+            )
+        })?;
     let initial = tokio_stream::once(JobEvent { job: snapshot });
     let updates = BroadcastStream::new(receiver).filter_map(Result::ok);
-    let stream = initial.chain(updates).map(|event| {
+    let stream = initial.chain(updates).map(move |event| {
+        let _permit = &permit;
         // Job contains only finite progress and ordinary strings/timestamps.
         Ok(Event::default()
             .event("job")
