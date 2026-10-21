@@ -39,6 +39,17 @@ Issueのopen/closedと実装コードの存在が一致しないケースは
 | [#14 Realtime scoring](https://github.com/tomiya7688/Open_karaoke/issues/14) | #12・#40・譜面契約の後。音程とタイミング、遅延補正を確認 |
 | [#15 Avalonia Core client](https://github.com/tomiya7688/Open_karaoke/issues/15) | #41のAPI契約に基づき並行実装。将来GUI変更も可能にする |
 
+### #40の実装単位（P0は空けておく）
+
+| 単位 | 優先度 | 依存 | 完了条件・対象 |
+|---|---|---|---|
+| #40.1 整数clock mapping契約 | P1 | Song Dataの48 kHz時刻 | #45でmerge済み。独立domain、epoch、未知/推定/実測の遅延区別 |
+| #40.2 logical counterの不連続観測 | P1 | #40.1、#12 counter | `audio_clock.rs`で両anchor無効化、同一snapshotの重複処理防止、WASAPI診断例へ接続。`audio_clock_observation.rs`で制御遷移・欠落・error・resetを回帰検証 |
+| #40.3 PCMのepochとtimestamp接続 | P1 | #40.2 | capture/output timestamp、旧epoch queue破棄、seek/device変更境界を採点workerへ伝える |
+| #40.4 実機校正・drift評価 | P1 | #40.3、Windows実機 | [clock契約](audio_clock.md#regression-and-hardware-evaluation)の物理loopback、p95、30分driftと再接続試験 |
+
+#40.2のcounter観測だけで、PCMのepoch分離や実機の校正が完了したとは扱わない。
+
 ### P2 — 通常優先：1.0.0の主要機能と品質・配布
 
 | Issue | 理由・実装タイミング |

@@ -370,7 +370,8 @@ mod tests {
         assert_eq!(io.enqueue_stereo(&frames).unwrap(), 3);
         let mut paused = [1.0_f32; 6];
         io.render_mock(&mut paused, 2);
-        assert_eq!(paused, [0.0; 6]);
+        // Paused output must contain exact PCM silence.
+        assert_eq!(paused.map(f32::to_bits), [0.0_f32; 6].map(f32::to_bits));
         assert_eq!(io.counters().playback_sample_position, 0);
 
         io.set_playing(true);

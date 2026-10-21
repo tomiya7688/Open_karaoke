@@ -229,7 +229,7 @@ impl Drop for WavFeeder {
 
 #[cfg(test)]
 mod tests {
-    use std::{fs, thread, time::Duration};
+    use std::fs;
 
     use super::{WavFeeder, invalid};
     use crate::audio_engine::AudioIo;
@@ -257,26 +257,32 @@ mod tests {
         bytes
     }
 
+    /// {
+    ///   責務: [`feeder_decodes_48k_stereo_float_without_callback_file_io`: WAV の非同期読込と PCM を検査する]
+    ///   処理: [1: queue 容量内の fixture を作る, 2: worker 完了を待つ, 3: 再生値と時刻を確認する]
+    ///   引数: []
+    ///   戻り値: []
+    /// }
     #[test]
     fn feeder_decodes_48k_stereo_float_without_callback_file_io() {
         let temporary = tempfile::tempdir().unwrap();
         let path = temporary.path().join("accompaniment.wav");
         fs::write(&path, fixture(&[[0.25, -0.25], [0.5, -0.5]])).unwrap();
         let io = AudioIo::new(32).unwrap();
-        let feeder = WavFeeder::start(io.clone(), &path).unwrap();
-        for _ in 0..100 {
-            if feeder.status().finished {
-                break;
-            }
-            thread::sleep(Duration::from_millis(1));
-        }
+        let mut feeder = WavFeeder::start(io.clone(), &path).unwrap();
+        // Both fixture frames fit in the ring, so completion needs no consumer.
+        feeder.thread.take().unwrap().join().unwrap();
         assert!(feeder.status().finished);
         assert!(!feeder.status().failed);
         assert_eq!(feeder.status().enqueued_samples, 2);
         io.set_playing(true);
         let mut output = [0.0; 4];
         io.render_mock(&mut output, 2);
-        assert_eq!(output, [0.25, -0.25, 0.5, -0.5]);
+        // These binary fractions must survive PCM decoding exactly.
+        assert_eq!(
+            output.map(f32::to_bits),
+            [0.25_f32, -0.25, 0.5, -0.5].map(f32::to_bits)
+        );
         assert_eq!(io.counters().playback_sample_position, 2);
     }
 
