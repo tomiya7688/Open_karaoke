@@ -4,8 +4,9 @@
 
 This is the **first contract and hardware-independent baseline**, not a completed CPAL or
 WASAPI implementation. The Rust reference mapping lives in `core/src/audio_clock.rs`;
-regressions are in `core/tests/audio_clock.rs`. Its arithmetic has no audio device
-dependencies, allocations, locks, external clock reads, or Python/model calls.
+regressions are in `core/tests/audio_clock.rs` and `core/tests/audio_clock_observation.rs`.
+Its arithmetic has no audio device dependencies, allocations, locks, external clock reads,
+or Python/model calls.
 
 The audio engine (#12), real-time scoring (#14), GUI (#16), and Windows device tests still
 need to connect their actual timestamps and calibration UI to this contract. A successful
@@ -124,6 +125,30 @@ A Core timestamp event eventually exposed to GUI should carry at least
 `epoch`, `song_sample`, source domain, calibration quality, and diagnostics
 for stale/uncalibrated data. #41 defines secure/versioned API publication.
 
+### Observing logical audio counters (unit #40.2)
+
+`ClockSession::observe_audio(AudioCounters)` runs on the control thread and invalidates
+both anchors when it observes a play/pause transition, a new input/output device error,
+a capture-overrun increase, or cumulative counters moving backwards. One snapshot advances
+one epoch, with device error taking diagnostic precedence over counter reset, capture gap,
+and playback transition. A persistent error flag or a repeated snapshot does not advance
+the epoch again. Output underrun silence keeps the logical output timeline continuous,
+so an underrun increase alone does not invalidate it.
+
+Call it at each control transition and before using mappings with newly read audio data.
+These counter reads are not a simultaneous hardware timestamp and never create an anchor
+or measured calibration. Seek, device replacement with identical counters, buffer/rate
+renegotiation, and transitions that occur between polls still require `begin_new_epoch()`
+at the control boundary. That explicit operation also clears the observation baseline,
+so historical capture-overrun counts in the next snapshot do not cause a second epoch
+change while no new anchors have been bound. An active device error still invalidates
+the session; counter observation never authorizes rebinding to a failed device.
+
+The opt-in WASAPI example demonstrates observation before/after playback control and on
+each diagnostic poll. This unit provides invalidation notifications; epoch metadata and
+discarding old PCM already in the queues are still consumer/transport integration work.
+It does not make the existing raw microphone reads safe for cross-epoch scoring by itself.
+
 ## Intended realtime callback design
 
 The mapper is pure integer arithmetic; it does no memory allocation, locking,
@@ -141,7 +166,7 @@ GUI emission operate on separate workers without blocking the callback.
 Run the deterministic unit/contract tests:
 
 ```powershell
-cargo test --locked -p open-karaoke-core --test audio_clock
+cargo test --locked -p open-karaoke-core --test audio_clock --test audio_clock_observation
 ```
 
 The standalone evaluator also writes deterministic JSON metrics:
@@ -154,13 +179,18 @@ The Linux CI uploads `artifacts/audio-clock-regression.json` as part of the
 test-report artifact. `max_absolute_error_samples = 0` is a **synthetic contract
 gate only**; `hardware_latency_verified` remains `false`.
 
-This test is included in the existing Rust `--all-targets` CI. It covers:
+These tests are included in the existing Rust `--all-targets` CI. They cover:
 
 - unknown vs measured latency metadata, signed corrections and pre-roll
 - ±100 ppm simulated drift across a 10-second window
 - output vs capture independent domains
 - seek/reset epoch invalidation and stale-frame rejection
 - invalid drift, double-binding, overflow
+- logical counter observation through `AudioIo` mocks: play/pause/resume, sticky device
+  errors, capture overrun, counter rollback, explicit epoch baseline reset, and concurrent
+  discontinuity causes producing a single invalidation
+- output underrun silence preserving continuous logical time and unknown calibration;
+  clean observations never inventing anchors
 
 The following **physical** checks are required before Issue #40 is fully accepted
 and prior to 1.0.0; they are not automated by the current code:
