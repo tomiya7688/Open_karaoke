@@ -13,10 +13,12 @@ pub mod song_library;
 use std::{
     collections::HashMap,
     convert::Infallible,
+    pin::Pin,
     sync::{
         Arc,
         atomic::{AtomicBool, Ordering},
     },
+    task::{Context, Poll},
     time::Duration,
 };
 
@@ -34,8 +36,8 @@ use axum::{
 };
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use tokio::sync::{RwLock, Semaphore, broadcast};
-use tokio_stream::{Stream, StreamExt, wrappers::BroadcastStream};
+use tokio::sync::{OwnedSemaphorePermit, RwLock, Semaphore, broadcast};
+use tokio_stream::{Stream, wrappers::BroadcastStream};
 use uuid::Uuid;
 
 /// Protocol version for the native GUI and test client contract.
@@ -72,6 +74,40 @@ struct JobRecord {
     cancelled: bool,
     import_control: Option<Arc<song_library::ImportControl>>,
     events: broadcast::Sender<JobEvent>,
+}
+
+struct JobEventStream {
+    initial: Option<JobEvent>,
+    updates: BroadcastStream<JobEvent>,
+    closed: bool,
+    _permit: OwnedSemaphorePermit,
+}
+
+impl Stream for JobEventStream {
+    type Item = Result<Event, Infallible>;
+
+    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        let stream = self.get_mut();
+        if stream.closed {
+            return Poll::Ready(None);
+        }
+        let event = if let Some(initial) = stream.initial.take() {
+            initial
+        } else {
+            match Pin::new(&mut stream.updates).poll_next(cx) {
+                Poll::Ready(Some(Ok(update))) => update,
+                Poll::Ready(Some(Err(_)) | None) => {
+                    stream.closed = true;
+                    return Poll::Ready(None);
+                }
+                Poll::Pending => return Poll::Pending,
+            }
+        };
+        stream.closed = event.job.status.terminal();
+        Poll::Ready(Some(Ok(Event::default()
+            .event("job")
+            .data(serde_json::to_string(&event).unwrap_or_default()))))
+    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
@@ -564,15 +600,12 @@ async fn job_events(
                 "Too many SSE connections".to_owned(),
             )
         })?;
-    let initial = tokio_stream::once(JobEvent { job: snapshot });
-    let updates = BroadcastStream::new(receiver).filter_map(Result::ok);
-    let stream = initial.chain(updates).map(move |event| {
-        let _permit = &permit;
-        // Job contains only finite progress and ordinary strings/timestamps.
-        Ok(Event::default()
-            .event("job")
-            .data(serde_json::to_string(&event).unwrap_or_default()))
-    });
+    let stream = JobEventStream {
+        initial: Some(JobEvent { job: snapshot }),
+        updates: BroadcastStream::new(receiver),
+        closed: false,
+        _permit: permit,
+    };
     Ok(Sse::new(stream).keep_alive(KeepAlive::default()))
 }
 

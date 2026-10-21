@@ -77,13 +77,14 @@ ASR/分離の入力はCore artifact root配下へ置き、`analysis.input_artifa
 - 認証対象ルートのOriginまたはSec-Fetch-Siteは403。CORSは許可しない。
 - 認証済み要求には数値loopbackのHostが必要。不正・重複は400。
 - JSON本文は64KiBまで（超過413）。未完了Job16件、保持履歴512件（受付超過429）。
-- `/jobs/{id}/events` の同時SSE接続は全Job合計32件まで（超過429）。接続を閉じると枠を返す。
+- `/jobs/{id}/events` の同時SSE接続は全Job合計32件まで（超過429）。切断または終端Jobイベント送信後に接続を閉じて枠を返す。
 - 曲登録のコピー・検査上限と4枠のI/O budgetは [SongStore import](song_import.md) に定義する。
 - Jobはqueued→running→completed / failed / cancelled。登録確定開始後のcancel要求は受理しない。
 - Core終了時は新規Job受付を503で停止し、未確定の登録へキャンセルを要求する。
 - エラーは `{"error":"message"}`、レスポンスはCache-Control: no-store。秘密値をエラーへ含めない。
 
 Job履歴はメモリ内のみ。破棄済み・再起動前Jobは404で、SSEのEvent-IDリプレイも未実装。
+SSEの受信が遅れて更新を取りこぼした場合は接続を閉じる。クライアントは再接続し、最新snapshotから状態を復元する。
 一方、登録済み曲はディスクにあり、新Coreから `/songs` で読める。
 解析成果物、Job履歴、登録済みSongStoreはそれぞれ別の寿命を持つ。
 同じtokenを使うクライアントは同じ信頼セッション。クライアント別ACL、HTTP接続総数制限、
