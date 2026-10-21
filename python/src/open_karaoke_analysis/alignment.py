@@ -6,9 +6,9 @@ import tempfile
 from pathlib import Path
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, Field
 
-from .adapters import AnalysisContext, resolve_artifact
+from .adapters import AnalysisContext, resolve_artifact, validate_adapter_options
 from .alignment_backend import REVISION, JapaneseCtcBackend
 from .alignment_text import (
     MAX_DURATION,
@@ -153,10 +153,7 @@ class AlignmentAdapter:
         self.backend_factory = backend_factory or JapaneseCtcBackend
 
     def validate_options(self, options: dict[str, Any]) -> dict[str, Any]:
-        try:
-            return AlignmentOptions.model_validate(options).model_dump()
-        except ValidationError as error:
-            raise ServiceError("invalid_options", "Invalid lyric alignment options") from error
+        return validate_adapter_options(AlignmentOptions, options, "Invalid lyric alignment options")
 
     def analyze(self, context: AnalysisContext, options: dict[str, Any]) -> list[str]:
         context.checkpoint()
