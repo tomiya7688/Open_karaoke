@@ -142,6 +142,30 @@ fn rejected(status: StatusCode, message: &'static str) -> Response {
     response
 }
 
+fn normalize_error_response(response: Response) -> Response {
+    let status = response.status();
+    if !(status.is_client_error() || status.is_server_error())
+        || response
+            .headers()
+            .get(header::CONTENT_TYPE)
+            .is_some_and(|value| value.as_bytes().starts_with(b"application/json"))
+    {
+        return response;
+    }
+    let allow = response.headers().get(header::ALLOW).cloned();
+    let message = match status {
+        StatusCode::NOT_FOUND => "Core route not found",
+        StatusCode::METHOD_NOT_ALLOWED => "Core method not allowed",
+        StatusCode::PAYLOAD_TOO_LARGE => "Core request body too large",
+        _ => "Core request rejected",
+    };
+    let mut normalized = rejected(status, message);
+    if let Some(allow) = allow {
+        normalized.headers_mut().insert(header::ALLOW, allow);
+    }
+    normalized
+}
+
 async fn authorize(State(session): State<CoreSession>, request: Request, next: Next) -> Response {
     let public_health = request.method() == Method::GET && request.uri().path() == "/health";
     if !public_health {
@@ -170,8 +194,9 @@ async fn authorize(State(session): State<CoreSession>, request: Request, next: N
     let Ok(permit) = Arc::clone(&session.request_budget).try_acquire_owned() else {
         return rejected(StatusCode::TOO_MANY_REQUESTS, "Too many Core requests");
     };
-    let mut response = next.run(request).await;
+    let response = next.run(request).await;
     drop(permit);
+    let mut response = normalize_error_response(response);
     response
         .headers_mut()
         .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));

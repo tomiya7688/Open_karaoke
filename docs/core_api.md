@@ -83,6 +83,7 @@ ASR/分離の入力はCore artifact root配下へ置き、`analysis.input_artifa
 - Jobはqueued→running→completed / failed / cancelled。登録確定開始後のcancel要求は受理しない。
 - Core終了時は新規Job受付を503で停止し、未確定の登録へキャンセルを要求する。
 - エラーは `{"error":"message"}`、レスポンスはCache-Control: no-store。秘密値をエラーへ含めない。
+- 製品Coreはframework由来の404・405・不正なURL/本文のエラーもJSONへ揃える。405の`Allow`ヘッダーは保持する。
 
 Job履歴はメモリ内のみ。破棄済み・再起動前Jobは404で、SSEのEvent-IDリプレイも未実装。
 SSEの受信が遅れて更新を取りこぼした場合は接続を閉じる。クライアントは再接続し、最新snapshotから状態を復元する。
