@@ -83,7 +83,6 @@ class ModelAdapter(Protocol):
     def analyze(self, context: AnalysisContext, options: dict[str, Any]) -> list[str]: ...
 
 
-
 def validate_adapter_options(
     schema: type[BaseModel], options: dict[str, Any], message: str
 ) -> dict[str, Any]:
