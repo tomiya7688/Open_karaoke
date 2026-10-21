@@ -14,13 +14,17 @@ use axum::{
 };
 use open_karaoke_core::{AppState, CORE_API_VERSION, CORE_API_VERSION_HEADER, app};
 use serde_json::json;
+use tokio::sync::Semaphore;
 use uuid::Uuid;
+
+const MAX_ACTIVE_HANDLERS: usize = 64;
 
 /// Intentionally not Debug/Serialize: the session secret must not enter logs.
 #[derive(Clone)]
 pub(crate) struct CoreSession {
     token: Arc<[u8; 64]>,
     instance_id: Uuid,
+    request_budget: Arc<Semaphore>,
 }
 
 impl CoreSession {
@@ -50,6 +54,7 @@ impl CoreSession {
         Ok(Self {
             token: Arc::new(token),
             instance_id: Uuid::new_v4(),
+            request_budget: Arc::new(Semaphore::new(MAX_ACTIVE_HANDLERS)),
         })
     }
 
@@ -162,7 +167,11 @@ async fn authorize(State(session): State<CoreSession>, request: Request, next: N
             return rejected(StatusCode::UPGRADE_REQUIRED, "Unsupported Core API version");
         }
     }
+    let Ok(permit) = Arc::clone(&session.request_budget).try_acquire_owned() else {
+        return rejected(StatusCode::TOO_MANY_REQUESTS, "Too many Core requests");
+    };
     let mut response = next.run(request).await;
+    drop(permit);
     response
         .headers_mut()
         .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
