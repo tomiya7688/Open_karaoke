@@ -50,6 +50,14 @@ Issueのopen/closedと実装コードの存在が一致しないケースは
 
 #40.2のcounter観測だけで、PCMのepoch分離や実機の校正が完了したとは扱わない。
 
+### #42の実装単位（P0は空けておく）
+
+| 単位 | 優先度 | 依存 | 完了条件・対象 |
+|---|---|---|---|
+| #42.1 非公開dataset manifest | P1 | #42の権利・分割方針 | [manifest契約](dataset_evaluation.md)とローカル検査CLIでhash・provenance参照・development/holdout漏洩を検査する |
+
+#42.1は実データの権利確認・収集・注釈品質、および#18のmetric報告を完了扱いにしない。
+
 ### P2 — 通常優先：1.0.0の主要機能と品質・配布
 
 | Issue | 理由・実装タイミング |
