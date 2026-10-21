@@ -294,13 +294,21 @@ impl AudioIo {
     /// # Errors
     /// Returns `StaleEpoch` if this message would move the shared audio epoch backwards.
     pub fn set_clock_epoch(&self, epoch: ClockEpoch) -> Result<(), AudioError> {
-        self.shared
-            .clock_epoch
-            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |current| {
-                (epoch.sequence() >= current).then_some(epoch.sequence())
-            })
-            .map(|_| ())
-            .map_err(|_| AudioError::StaleEpoch)
+        let mut current = self.shared.clock_epoch.load(Ordering::Acquire);
+        loop {
+            if epoch.sequence() < current {
+                return Err(AudioError::StaleEpoch);
+            }
+            match self.shared.clock_epoch.compare_exchange_weak(
+                current,
+                epoch.sequence(),
+                Ordering::AcqRel,
+                Ordering::Acquire,
+            ) {
+                Ok(_) => return Ok(()),
+                Err(observed) => current = observed,
+            }
+        }
     }
 
     /// {
@@ -891,6 +899,7 @@ mod tests {
         );
         let new_epoch = ClockEpoch::from_sequence(old_epoch.sequence() + 1);
         io.set_clock_epoch(new_epoch).unwrap();
+        assert_eq!(io.set_clock_epoch(new_epoch), Ok(()));
         assert_eq!(io.set_clock_epoch(old_epoch), Err(AudioError::StaleEpoch));
         assert_eq!(io.playback_timestamp().unwrap().epoch, old_epoch);
         assert_eq!(
