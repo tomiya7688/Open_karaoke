@@ -4,9 +4,9 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from .adapters import AnalysisContext
+from .adapters import AnalysisContext, validate_adapter_options
 from .contracts import ModelInfo, Role, ServiceError
 from .vocal_event_features import (
     HOP_SAMPLES,
@@ -85,10 +85,7 @@ class VocalEventAdapter:
     )
 
     def validate_options(self, options: dict[str, Any]) -> dict[str, Any]:
-        try:
-            return VocalEventOptions.model_validate(options).model_dump()
-        except ValidationError as error:
-            raise ServiceError("invalid_options", "Invalid Vocal Event options") from error
+        return validate_adapter_options(VocalEventOptions, options, "Invalid Vocal Event options")
 
     def analyze(self, context: AnalysisContext, options: dict[str, Any]) -> list[str]:
         options = self.validate_options(options)
