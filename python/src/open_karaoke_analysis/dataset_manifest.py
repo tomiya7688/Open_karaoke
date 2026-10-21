@@ -4,6 +4,23 @@ import json
 from pathlib import Path, PurePosixPath
 
 
+def _unique_object(pairs: list[tuple[str, object]]) -> dict:
+    result = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError(f"Duplicate JSON field: {key}")
+        result[key] = value
+    return result
+
+
+def _invalid_constant(value: str) -> None:
+    raise ValueError(f"Non-finite JSON value: {value}")
+
+
+def _load_json(data: bytes) -> object:
+    return json.loads(data, object_pairs_hook=_unique_object, parse_constant=_invalid_constant)
+
+
 def _object(value: object, keys: set[str], label: str) -> dict:
     if not isinstance(value, dict) or set(value) != keys:
         raise ValueError(f"{label} must contain exactly: {', '.join(sorted(keys))}")
@@ -16,7 +33,7 @@ def _text(value: object, label: str) -> str:
     return value
 
 
-def _digest(root: Path, file: object, label: str) -> str:
+def _verified_file(root: Path, file: object, label: str) -> tuple[Path, str]:
     entry = _object(file, {"path", "sha256"}, label)
     raw_path = _text(entry["path"], f"{label}.path")
     relative = PurePosixPath(raw_path)
@@ -39,7 +56,51 @@ def _digest(root: Path, file: object, label: str) -> str:
             digest.update(chunk)
     if digest.hexdigest() != expected:
         raise ValueError(f"{label} SHA-256 mismatch")
-    return expected
+    return path, expected
+
+
+def _annotation_envelope(
+    path: Path, annotation_hash: str, sample_id: str, audio_hash: str, label: str
+) -> None:
+    with path.open("rb") as source:
+        data = source.read(4_194_305)
+    if len(data) > 4_194_304:
+        raise ValueError(f"{label} exceeds 4 MiB")
+    if hashlib.sha256(data).hexdigest() != annotation_hash:
+        raise ValueError(f"{label} changed after SHA-256 verification")
+    envelope = _object(
+        _load_json(data),
+        {
+            "version",
+            "sample_id",
+            "audio_sha256",
+            "sample_rate",
+            "duration_samples",
+            "kind",
+            "payload",
+        },
+        label,
+    )
+    if type(envelope["version"]) is not int or envelope["version"] != 1:
+        raise ValueError(f"{label}.version must be 1")
+    if envelope["sample_id"] != sample_id or envelope["audio_sha256"] != audio_hash:
+        raise ValueError(f"{label} does not match its manifest sample and audio")
+    if type(envelope["sample_rate"]) is not int or envelope["sample_rate"] != 48_000:
+        raise ValueError(f"{label}.sample_rate must be 48000")
+    duration = envelope["duration_samples"]
+    if type(duration) is not int or not 0 < duration <= 48_000 * 60 * 60 * 4:
+        raise ValueError(f"{label}.duration_samples must be 1..691200000")
+    if not isinstance(envelope["kind"], str) or envelope["kind"] not in {
+        "lyrics",
+        "alignment",
+        "pitch",
+        "events",
+        "notes",
+        "stems",
+    }:
+        raise ValueError(f"{label}.kind is unsupported")
+    if not isinstance(envelope["payload"], dict) or not envelope["payload"]:
+        raise ValueError(f"{label}.payload must be a nonempty object")
 
 
 def validate_manifest(path: Path) -> dict:
@@ -47,7 +108,7 @@ def validate_manifest(path: Path) -> dict:
         data = source.read(4_194_305)
     if len(data) > 4_194_304:
         raise ValueError("Dataset manifest exceeds 4 MiB")
-    manifest = _object(json.loads(data), {"version", "samples"}, "manifest")
+    manifest = _object(_load_json(data), {"version", "samples"}, "manifest")
     if type(manifest["version"]) is not int or manifest["version"] != 1:
         raise ValueError("Unsupported dataset manifest version")
     samples = manifest["samples"]
@@ -86,13 +147,24 @@ def validate_manifest(path: Path) -> dict:
         if group in groups and groups[group] != split:
             raise ValueError("A source group appears in both development and holdout")
         groups[group] = split
-        audio_hash = _digest(root, sample["audio"], f"{label}.audio")
-        _digest(root, sample["annotation"], f"{label}.annotation")
+        _, audio_hash = _verified_file(root, sample["audio"], f"{label}.audio")
+        annotation_path, annotation_hash = _verified_file(
+            root, sample["annotation"], f"{label}.annotation"
+        )
+        _annotation_envelope(
+            annotation_path, annotation_hash, identifier, audio_hash, f"{label}.annotation"
+        )
         if audio_hash in audio_hashes and audio_hashes[audio_hash] != split:
             raise ValueError("Identical audio appears in both development and holdout")
         audio_hashes[audio_hash] = split
         counts[split] += 1
-    return {"version": 1, "samples": len(samples), "splits": counts, "hashes_verified": True}
+    return {
+        "version": 1,
+        "samples": len(samples),
+        "splits": counts,
+        "hashes_verified": True,
+        "annotation_envelopes_verified": True,
+    }
 
 
 def main() -> None:
@@ -101,7 +173,7 @@ def main() -> None:
     args = parser.parse_args()
     try:
         report = validate_manifest(args.manifest)
-    except (OSError, UnicodeError, ValueError) as error:
+    except (OSError, UnicodeError, ValueError, RecursionError) as error:
         parser.error(str(error))
     print(json.dumps(report, ensure_ascii=False))
 
