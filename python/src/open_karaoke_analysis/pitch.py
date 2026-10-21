@@ -9,9 +9,9 @@ import tempfile
 from pathlib import Path
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from .adapters import AnalysisContext, resolve_artifact
+from .adapters import AnalysisContext, resolve_artifact, validate_adapter_options
 from .contracts import ModelInfo, Role, ServiceError
 
 RATE = 48_000
@@ -67,10 +67,7 @@ class PitchAdapter:
     )
 
     def validate_options(self, options: dict[str, Any]) -> dict[str, Any]:
-        try:
-            return PitchOptions.model_validate(options).model_dump()
-        except ValidationError as error:
-            raise ServiceError("invalid_options", "Invalid pitch-analysis options") from error
+        return validate_adapter_options(PitchOptions, options, "Invalid pitch-analysis options")
 
     def analyze(self, context: AnalysisContext, options: dict[str, Any]) -> list[str]:
         if context.input_path is None:
