@@ -83,6 +83,17 @@ class ModelAdapter(Protocol):
     def analyze(self, context: AnalysisContext, options: dict[str, Any]) -> list[str]: ...
 
 
+
+def validate_adapter_options(
+    schema: type[BaseModel], options: dict[str, Any], message: str
+) -> dict[str, Any]:
+    """Use one strict Pydantic-to-service error boundary for all model adapters."""
+    try:
+        return schema.model_validate(options).model_dump()
+    except ValidationError as error:
+        raise ServiceError("invalid_options", message) from error
+
+
 class MockOptions(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
     steps: int = Field(default=5, ge=1, le=100)
@@ -96,10 +107,7 @@ class MockAdapter:
     info = ModelInfo(id="mock-v1", version="1.0.0", role=Role.MOCK, capabilities=["fixture"])
 
     def validate_options(self, options: dict[str, Any]) -> dict[str, Any]:
-        try:
-            return MockOptions.model_validate(options).model_dump()
-        except ValidationError as error:
-            raise ServiceError("invalid_options", "Invalid mock options") from error
+        return validate_adapter_options(MockOptions, options, "Invalid mock options")
 
     def analyze(self, context: AnalysisContext, options: dict[str, Any]) -> list[str]:
         for step in range(1, options["steps"] + 1):
