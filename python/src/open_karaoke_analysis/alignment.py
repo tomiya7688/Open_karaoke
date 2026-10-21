@@ -153,7 +153,9 @@ class AlignmentAdapter:
         self.backend_factory = backend_factory or JapaneseCtcBackend
 
     def validate_options(self, options: dict[str, Any]) -> dict[str, Any]:
-        return validate_adapter_options(AlignmentOptions, options, "Invalid lyric alignment options")
+        return validate_adapter_options(
+            AlignmentOptions, options, "Invalid lyric alignment options"
+        )
 
     def analyze(self, context: AnalysisContext, options: dict[str, Any]) -> list[str]:
         context.checkpoint()
