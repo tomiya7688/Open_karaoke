@@ -45,7 +45,7 @@ Issueのopen/closedと実装コードの存在が一致しないケースは
 |---|---|---|---|
 | #40.1 整数clock mapping契約 | P1 | Song Dataの48 kHz時刻 | #45でmerge済み。独立domain、epoch、未知/推定/実測の遅延区別 |
 | #40.2 logical counterの不連続観測 | P1 | #40.1、#12 counter | `audio_clock.rs`で両anchor無効化、同一snapshotの重複処理防止、WASAPI診断例へ接続。`audio_clock_observation.rs`で制御遷移・欠落・error・resetを回帰検証 |
-| #40.3 PCMのepochとtimestamp接続 | P1 | #40.2 | capture/output timestamp、旧epoch queue破棄、seek/device変更境界を採点workerへ伝える |
+| #40.3 PCMのepochとtimestamp接続 | P1 | #40.2 | capture frameにepochと48 kHz位置を付与。出力PCMにepochとsong位置を付け、古いframeを再生・採点しない。seek/device変更時のfeeder再配置と実機挙動は別途確認 |
 | #40.4 実機校正・drift評価 | P1 | #40.3、Windows実機 | [clock契約](audio_clock.md#regression-and-hardware-evaluation)の物理loopback、p95、30分driftと再接続試験 |
 
 #40.2のcounter観測だけで、PCMのepoch分離や実機の校正が完了したとは扱わない。

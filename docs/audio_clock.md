@@ -144,10 +144,36 @@ so historical capture-overrun counts in the next snapshot do not cause a second 
 change while no new anchors have been bound. An active device error still invalidates
 the session; counter observation never authorizes rebinding to a failed device.
 
-The opt-in WASAPI example demonstrates observation before/after playback control and on
-each diagnostic poll. This unit provides invalidation notifications; epoch metadata and
-discarding old PCM already in the queues are still consumer/transport integration work.
-It does not make the existing raw microphone reads safe for cross-epoch scoring by itself.
+The opt-in WASAPI example applies invalidations to `AudioIo` and restarts its WAV feeder at
+the last presented song sample. The logical counter reads remain observations rather than
+simultaneous hardware timestamps or physical latency measurements.
+
+### Epoch-tagged PCM boundary (unit #40.3)
+
+`AudioIo::set_clock_epoch` is the process-side message that applies a `ClockSession` epoch
+to capture callbacks and realtime output reads. Update it with the epoch returned from
+`begin_new_epoch()` or `ClockInvalidation`; a lower epoch is rejected. Playback producers
+use `enqueue_stereo_at(epoch, song_sample, frames)`, and the output callback's presentation
+snapshot carries both that source position and its logical output position. Capture
+consumers use `read_microphone_timestamped` and receive
+`TimestampedMicrophoneSample { epoch, stream_sample, sample }`. The sample
+position counts dropped capture frames, making discontinuities visible to the scoring
+worker. Both paths carry raw PCM before monitoring effects.
+
+The realtime output callback discards at most one stale queued frame per requested output
+frame, writing silence for each discarded slot. This bounds callback work by its device
+buffer size. The capture consumer discards stale queued frames outside the callback. Queue
+occupancy can include stale slots until those readers drain them. A playback presentation
+snapshot remains tagged with its original epoch until new PCM is output; consumers must
+reject it when it does not match the current epoch. The owner must stop the old WAV feeder
+and call `WavFeeder::start_at` with the current song position; the feeder seeks to that frame in
+the source WAV. This API does not provide automatic transport policy or guarantee physical
+speaker timing.
+
+The original `enqueue_stereo`, `read_microphone`, and `WavFeeder::start` calls remain for
+existing playback/capture clients. `enqueue_stereo` has no song position, so playback
+timestamps for those frames are unavailable. Scoring and synchronized transport must use
+the timestamped messages; the legacy microphone reader still discards old-epoch PCM.
 
 ## Intended realtime callback design
 

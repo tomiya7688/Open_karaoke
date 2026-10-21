@@ -23,8 +23,8 @@
 | 採点用譜面生成 | 候補生成・DP・観測窓区間変換あり / 実録評価未完 | `notes.py`、[Score Generation](score_generation.md) |
 | 楽曲全体の一括解析 | 正規化済みWAV→6段解析→SongBundle/asset一覧 | `song.py`、[Full-song analysis](full_song_analysis.md)、#36 |
 | 音声込み曲登録・一覧 | 完了済み解析Jobから検査・一括公開、再登録確認、永続化、一覧/詳細APIあり | `song_api.rs` / `song_library/`、[SongStore import](song_import.md)、#36 |
-| Rust音声入出力 | 48kHz WASAPI shared・raw mic・bounded ring/WAV feederあり / 実機未検証 | [Audio engine](audio_engine.md)、#12 |
-| Clock/latency契約 | 整数変換・epoch・drift/遅延補正の合成テストあり / 物理校正未完 | [Audio clock](audio_clock.md)、#40 |
+| Rust音声入出力 | 48kHz WASAPI shared・raw mic・bounded ring/WAV feederあり。PCMにepochとsample位置を付与 / 実機未検証 | [Audio engine](audio_engine.md)、#12 |
+| Clock/latency契約 | 整数変換・不連続観測・旧epoch PCM除外・drift/遅延補正の合成テストあり / 物理校正未完 | [Audio clock](audio_clock.md)、#40 |
 | Mixer / DSP / リアルタイム採点 | 未実装 | [Scoring](scoring.md)、#13/#14 |
 | Avalonia GUI | 認証付き起動・設定・接続・mock Job進捗/キャンセル/error | [Desktop client](desktop_client.md)、#15 |
 | GUIの原曲取込・曲一覧操作 | 未接続。Core登録APIと画面の完成を区別 | #36/#15 |
