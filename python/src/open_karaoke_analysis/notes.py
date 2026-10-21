@@ -7,9 +7,9 @@ import math
 from pathlib import Path
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, Field
 
-from .adapters import AnalysisContext, resolve_artifact
+from .adapters import AnalysisContext, resolve_artifact, validate_adapter_options
 from .contracts import ModelInfo, Role, ServiceError
 from .note_candidates import HOP_SAMPLES, RATE, build_note_candidates
 from .note_optimizer import TemporalDynamicProgrammingOptimizer, estimate_key
@@ -510,10 +510,7 @@ class NotesAdapter:
     )
 
     def validate_options(self, options: dict[str, Any]) -> dict[str, Any]:
-        try:
-            return NotesOptions.model_validate(options).model_dump()
-        except ValidationError as error:
-            raise ServiceError("invalid_options", "Invalid score-generation options") from error
+        return validate_adapter_options(NotesOptions, options, "Invalid score-generation options")
 
     def analyze(self, context: AnalysisContext, options: dict[str, Any]) -> list[str]:
         options = self.validate_options(options)
