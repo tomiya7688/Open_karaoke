@@ -19,7 +19,15 @@ use uuid::Uuid;
 
 const MAX_ACTIVE_HANDLERS: usize = 64;
 
-/// Intentionally not Debug/Serialize: the session secret must not enter logs.
+/// {
+///   責務: [`CoreSession`: Coreセッションのtokenと識別子、同時処理枠を所有する]
+///   フィールド: [
+///     `token`: セッション秘密(64byte),
+///     `instance_id`: Core起動ごとの識別子,
+///     `request_budget`: 同時に処理できる要求数の枠
+///   ]
+///   補足: [秘密がログへ出ないよう、意図的にDebug/Serializeを実装しない]
+/// }
 #[derive(Clone)]
 pub(crate) struct CoreSession {
     token: Arc<[u8; 64]>,
@@ -142,6 +150,17 @@ fn rejected(status: StatusCode, message: &'static str) -> Response {
     response
 }
 
+/// {
+///   責務: [`authorize`: 認証・Host・Origin・versionの検証と同時処理枠の確保を行うmiddleware]
+///   処理: [
+///     1: `/health` 以外でブラウザ由来・token・Host・versionを検証する,
+///     2: 同時処理枠を確保できなければ429を返す,
+///     3: 後続handlerを実行し、応答生成後に枠を返す,
+///     4: 応答へ `Cache-Control: no-store` を付ける
+///   ]
+///   引数: [`session`: 検証と処理枠を持つセッション, `request`: 受信要求, `next`: 後続handler]
+///   戻り値: [検証失敗・上限超過・handler結果のいずれかの応答]
+/// }
 async fn authorize(State(session): State<CoreSession>, request: Request, next: Next) -> Response {
     let public_health = request.method() == Method::GET && request.uri().path() == "/health";
     if !public_health {
@@ -322,6 +341,44 @@ mod tests {
             replacement.oneshot(stale).await.unwrap().status(),
             StatusCode::UNAUTHORIZED
         );
+    }
+
+    /// {
+    ///   責務: [`request_budget_rejects_overflow_and_recovers`: 同時処理の上限と枠の返却を確認する]
+    ///   処理: [
+    ///     1: 処理枠を全て占有した状態で認証済み要求が429になることを確認する,
+    ///     2: 429にもCache-Control: no-storeが付くことを確認する,
+    ///     3: 枠を1つ返すと要求が受理され、応答後に枠が戻ることを確認する
+    ///   ]
+    ///   引数: []
+    ///   戻り値: []
+    /// }
+    #[tokio::test]
+    async fn request_budget_rejects_overflow_and_recovers() {
+        let session = session(TOKEN);
+        let budget = Arc::clone(&session.request_budget);
+        let router = session.router(AppState::new());
+        let request = || {
+            Request::builder()
+                .uri("/session")
+                .header("host", "127.0.0.1:32145")
+                .header("authorization", format!("Bearer {TOKEN}"))
+                .body(Body::empty())
+                .unwrap()
+        };
+
+        let held = budget
+            .clone()
+            .try_acquire_many_owned(u32::try_from(MAX_ACTIVE_HANDLERS).unwrap())
+            .unwrap();
+        let rejected = router.clone().oneshot(request()).await.unwrap();
+        assert_eq!(rejected.status(), StatusCode::TOO_MANY_REQUESTS);
+        assert_eq!(rejected.headers()[header::CACHE_CONTROL], "no-store");
+
+        drop(held);
+        let accepted = router.oneshot(request()).await.unwrap();
+        assert_eq!(accepted.status(), StatusCode::OK);
+        assert_eq!(budget.available_permits(), MAX_ACTIVE_HANDLERS);
     }
 
     #[tokio::test]
