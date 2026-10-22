@@ -59,6 +59,31 @@ def _verified_file(root: Path, file: object, label: str) -> tuple[Path, str]:
     return path, expected
 
 
+def _lyrics_payload(payload: dict, duration: int, label: str) -> None:
+    payload = _object(payload, {"reference_segments"}, label)
+    segments = payload["reference_segments"]
+    if not isinstance(segments, list) or len(segments) > 10_000:
+        raise ValueError(f"{label}.reference_segments must be an array of at most 10000 items")
+    ids = set()
+    previous_start = -1
+    for index, segment in enumerate(segments):
+        item_label = f"{label}.reference_segments[{index}]"
+        segment = _object(segment, {"id", "text", "start_sample", "end_sample"}, item_label)
+        identifier = _text(segment["id"], f"{item_label}.id")
+        if identifier in ids:
+            raise ValueError(f"{label} has duplicate lyric segment ids")
+        ids.add(identifier)
+        lyric = segment["text"]
+        if not isinstance(lyric, str) or not lyric.strip() or len(lyric) > 20_000:
+            raise ValueError(f"{item_label}.text must be nonempty and at most 20000 characters")
+        start, end = segment["start_sample"], segment["end_sample"]
+        if type(start) is not int or type(end) is not int or not 0 <= start < end <= duration:
+            raise ValueError(f"{item_label} must fit in the 48 kHz sample duration")
+        if start < previous_start:
+            raise ValueError(f"{label}.reference_segments must be ordered by start_sample")
+        previous_start = start
+
+
 def _annotation_envelope(
     path: Path, annotation_hash: str, sample_id: str, audio_hash: str, label: str
 ) -> None:
@@ -101,6 +126,8 @@ def _annotation_envelope(
         raise ValueError(f"{label}.kind is unsupported")
     if not isinstance(envelope["payload"], dict) or not envelope["payload"]:
         raise ValueError(f"{label}.payload must be a nonempty object")
+    if envelope["kind"] == "lyrics":
+        _lyrics_payload(envelope["payload"], duration, f"{label}.payload")
 
 
 def validate_manifest(path: Path) -> dict:

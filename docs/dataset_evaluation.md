@@ -49,10 +49,12 @@ manifest と注釈の JSON は重複キーおよび `NaN`・`Infinity` を拒否
   "sample_rate": 48000,
   "duration_samples": 96000,
   "kind": "lyrics",
-  "payload": {"reference_segments": [{"text": "例", "start_sample": 0, "end_sample": 48000}]}
+  "payload": {"reference_segments": [{"id": "line-1", "text": "例", "start_sample": 0, "end_sample": 48000}]}
 }
 ```
 
-この段階では `payload` の種別ごとの構造、区間の上下限、注釈精度を判定しません。`duration_samples` が音声の実フレーム数と一致するかも未検証です。これらは後続の種別別検査で扱います。
+`kind: lyrics` の `payload` は `reference_segments` 配列を持ちます。各区間の `id` は一意、`text` は空白だけを除く1〜20000文字、`start_sample` と `end_sample` は整数で `0 <= start_sample < end_sample <= duration_samples` とします。配列は開始時刻順で、同時刻開始・区間の重なりは許容します。歌詞のない録音では空配列を使えます。歌詞参照の人手による正確さや文字正規化はこの検査の対象外です。
+
+他の `kind` の `payload` 構造と区間境界、注釈精度は未検証です。`duration_samples` が音声の実フレーム数と一致するかも未検証です。これらは後続の種別別検査で扱います。
 
 ローカルで `python -m open_karaoke_analysis.dataset_manifest datasets/manifest.json` を実行します。成功時は件数と hash 検査結果だけを表示します。公開 CI では private dataset を取得せず、検査結果や実データを公開 artifact にアップロードしません。モデルの版・実行条件・CER 等の測定結果との結合は #18 と #42 の後続単位です。

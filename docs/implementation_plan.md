@@ -56,6 +56,7 @@ Issueのopen/closedと実装コードの存在が一致しないケースは
 |---|---|---|---|
 | #42.1 非公開dataset manifest | P1 | #42の権利・分割方針 | [manifest契約](dataset_evaluation.md)とローカル検査CLIでhash・provenance参照・development/holdout漏洩を検査する |
 | #42.2 注釈の共通ヘッダー | P1 | #42.1 | 注釈をsample ID・音源hash・48 kHz時刻軸へ結び付け、版・長さ・種別を検査する |
+| #42.3 歌詞参照区間 | P1 | #42.2 | 歌詞注釈のID・文字列・48 kHz区間境界・開始時刻順を検査し、空参照を許容する |
 
 #42.1は実データの権利確認・収集・注釈品質、および#18のmetric報告を完了扱いにしない。
 
