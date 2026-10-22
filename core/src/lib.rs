@@ -58,6 +58,12 @@ pub struct AppState {
 }
 
 impl Default for AppState {
+    /// {
+    ///   責務: [`default`: 既定のCore状態を作る]
+    ///   処理: [1: 空のJob表を作る, 2: SSE接続予算を `MAX_SSE_CONNECTIONS` で初期化する]
+    ///   引数: []
+    ///   戻り値: [Job・解析client・SSE予算を持つAppState]
+    /// }
     fn default() -> Self {
         Self {
             jobs: Arc::new(RwLock::new(HashMap::new())),
@@ -76,6 +82,15 @@ struct JobRecord {
     events: broadcast::Sender<JobEvent>,
 }
 
+/// {
+///   責務: [`JobEventStream`: 1接続分のJob SSEを供給し、終端で閉じて接続枠を返す]
+///   フィールド: [
+///     initial: 接続時に最初に送るsnapshot,
+///     updates: 以降の更新を受けるbroadcast,
+///     closed: 終端または取りこぼしで閉じた状態,
+///     _permit: 保持中だけ接続枠を占有するpermit
+///   ]
+/// }
 struct JobEventStream {
     initial: Option<JobEvent>,
     updates: BroadcastStream<JobEvent>,
@@ -86,6 +101,17 @@ struct JobEventStream {
 impl Stream for JobEventStream {
     type Item = Result<Event, Infallible>;
 
+    /// {
+    ///   責務: [`poll_next`: 次のJob eventをSSE形式で返す]
+    ///   処理: [
+    ///     1: 閉じていれば終了する,
+    ///     2: 初回はsnapshot、以降はbroadcastの更新を取り出す,
+    ///     3: 取りこぼしまたは送信元終了なら閉じる,
+    ///     4: 終端状態のeventを送ったら以降を閉じる
+    ///   ]
+    ///   引数: [cx: 非同期の起床context]
+    ///   戻り値: [SSE event、待機、または終了]
+    /// }
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let stream = self.get_mut();
         if stream.closed {
