@@ -4,6 +4,18 @@
 > [現在の実装状況](current_status.md) を参照してください。CoreにAPI基盤はありますが、
 > CPAL音声エンジン、リアルタイム採点、GUIのCore連携が完成したという意味ではありません。
 
+## 設計原則
+
+堅牢性を優先し、コンポーネント境界で契約、入力、状態遷移、失敗を明示する。変更は責務を保てる小さな単位に分け、境界の振る舞いをテスト可能にする。具体的な必須・推奨事項とレビュー項目は[コーディングルール](coding_rules.md)に定める。
+
+オブジェクト設計はSmalltalk型のmessage-orientedな考え方を指針とする。オブジェクトは外部へ小さく明確な操作（message）を公開し、自身の状態と不変条件を管理する。interface継承やアクセス制御は契約や安全性を高める場合に使ってよい。特定の構文やパターンを機械的に適用しない。
+
+[Message Oriented Design](https://github.com/tomiya7688/Message-Orientated-Design)は作成途中の設計資料であるため、このプロジェクトでは上記の指針を先に適用し、未完成の詳細規則への完全準拠を要求しない。ここでのmessageはオブジェクト間の明示的な操作契約を指し、メッセージブローカーや非同期キューの導入を意味しない。
+
+責務は論理的に`UI` / `Process` / `Data`へ分け、層を飛び越えた直接依存を避ける。この三分類を実行プロセスやパッケージへ機械的に一対一対応させない。詳細は[コーディングルール](coding_rules.md)を参照する。
+
+[UPD Commander Base Design](https://github.com/tomiya7688/upd-commander-base-design)のUI / Process / Data分離を参照するが、Commander / Messengerのクラス構造や呼出し手順は採用要件にしない。各境界は既存のAPI、型付きデータ契約、必要なインターフェースで表現する。
+
 ## 対象OS
 
 初期対象は Windows とする。
