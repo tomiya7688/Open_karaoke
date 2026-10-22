@@ -33,6 +33,28 @@ def _text(value: object, label: str) -> str:
     return value
 
 
+def _strata(value: object, label: str) -> dict:
+    strata = _object(value, {"language", "vocal_source", "audio_condition", "phenomena"}, label)
+    choices = {
+        "language": {"ja", "en", "other", "mixed", "none"},
+        "vocal_source": {"human", "synthetic"},
+        "audio_condition": {"clean", "degraded"},
+    }
+    for field, allowed in choices.items():
+        if not isinstance(strata[field], str) or strata[field] not in allowed:
+            raise ValueError(f"{label}.{field} is unsupported")
+    phenomena = strata["phenomena"]
+    allowed_phenomena = {"long_vowel", "legato", "repetition"}
+    if (
+        not isinstance(phenomena, list)
+        or len(phenomena) > len(allowed_phenomena)
+        or any(not isinstance(item, str) or item not in allowed_phenomena for item in phenomena)
+        or len(phenomena) != len(set(phenomena))
+    ):
+        raise ValueError(f"{label}.phenomena contains unsupported or duplicate values")
+    return strata
+
+
 def _verified_file(root: Path, file: object, label: str) -> tuple[Path, str]:
     entry = _object(file, {"path", "sha256"}, label)
     raw_path = _text(entry["path"], f"{label}.path")
@@ -147,6 +169,15 @@ def validate_manifest(path: Path) -> dict:
     groups = {}
     audio_hashes = {}
     counts = {"development": 0, "holdout": 0}
+    strata_counts = {
+        split: {
+            "language": {},
+            "vocal_source": {},
+            "audio_condition": {},
+            "phenomena": {},
+        }
+        for split in counts
+    }
     for index, sample in enumerate(samples):
         label = f"samples[{index}]"
         sample = _object(
@@ -157,6 +188,7 @@ def validate_manifest(path: Path) -> dict:
                 "source_group",
                 "provenance",
                 "rights_reference",
+                "strata",
                 "audio",
                 "annotation",
             },
@@ -172,6 +204,7 @@ def validate_manifest(path: Path) -> dict:
         group = _text(sample["source_group"], f"{label}.source_group")
         _text(sample["provenance"], f"{label}.provenance")
         _text(sample["rights_reference"], f"{label}.rights_reference")
+        strata = _strata(sample["strata"], f"{label}.strata")
         if group in groups and groups[group] != split:
             raise ValueError("A source group appears in both development and holdout")
         groups[group] = split
@@ -179,18 +212,31 @@ def validate_manifest(path: Path) -> dict:
         annotation_path, annotation_hash = _verified_file(
             root, sample["annotation"], f"{label}.annotation"
         )
-        _annotation_envelope(
+        envelope = _annotation_envelope(
             annotation_path, annotation_hash, identifier, audio_hash, f"{label}.annotation"
         )
+        if (
+            strata["language"] == "none"
+            and envelope["kind"] == "lyrics"
+            and envelope["payload"]["reference_segments"]
+        ):
+            raise ValueError(f"{label}.strata.language cannot be none with reference lyrics")
         if audio_hash in audio_hashes and audio_hashes[audio_hash] != split:
             raise ValueError("Identical audio appears in both development and holdout")
         audio_hashes[audio_hash] = split
         counts[split] += 1
+        split_strata = strata_counts[split]
+        for field in ("language", "vocal_source", "audio_condition"):
+            value = strata[field]
+            split_strata[field][value] = split_strata[field].get(value, 0) + 1
+        for value in strata["phenomena"] or ["none"]:
+            split_strata["phenomena"][value] = split_strata["phenomena"].get(value, 0) + 1
     return {
         "version": 1,
         "manifest_sha256": hashlib.sha256(data).hexdigest(),
         "samples": len(samples),
         "splits": counts,
+        "strata_counts": strata_counts,
         "hashes_verified": True,
         "annotation_envelopes_verified": True,
     }

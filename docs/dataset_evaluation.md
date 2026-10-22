@@ -13,6 +13,7 @@ UTF-8 JSON の最上位は `version: 1` と `samples`（1〜10000件）です。
 | `source_group` | 同じ曲・歌唱者・録音セッションなど、分割をまたがせない元データの単位 |
 | `provenance` | 収録元と作成経緯を追跡できるローカルの参照 |
 | `rights_reference` | 録音・実演・歌詞・注釈の利用範囲と同意を確認できるローカルの記録への参照 |
+| `strata` | 言語、歌声の由来、音質、歌唱現象を示す層別メタデータ |
 | `audio`, `annotation` | manifest のディレクトリからの相対 `path` とファイル全体の小文字16進 `sha256` |
 
 `path` は `/` 区切りで、親ディレクトリ移動・絶対パス・manifest ディレクトリ外へのシンボリックリンクを拒否します。同じ `source_group` または同一音源 hash を development と holdout に分けることも拒否します。
@@ -27,12 +28,20 @@ UTF-8 JSON の最上位は `version: 1` と `samples`（1〜10000件）です。
       "source_group": "local-session-001",
       "provenance": "private capture log reference",
       "rights_reference": "private consent and license record reference",
+      "strata": {
+        "language": "ja",
+        "vocal_source": "human",
+        "audio_condition": "clean",
+        "phenomena": ["long_vowel"]
+      },
       "audio": {"path": "audio/take-001.wav", "sha256": "<64 lowercase hex characters>"},
       "annotation": {"path": "annotations/take-001.json", "sha256": "<64 lowercase hex characters>"}
     }
   ]
 }
 ```
+
+`strata.language` は `ja`、`en`、`other`、`mixed`、`none`、`vocal_source` は `human` または `synthetic`、`audio_condition` は `clean` または `degraded` です。`phenomena` は `long_vowel`、`legato`、`repetition` から重複なく選び、該当しなければ空配列にします。`language: none` と空でない歌詞参照は併用できません。検査 CLI は development/holdout ごとに各層の sample 件数を表示します。複数の現象を持つ sample は各現象に1件ずつ数えられ、現象なしは `none` に数えられます。層別値は人手の分類であり、音声から自動判定しません。
 
 ## 注釈の共通ヘッダー
 
