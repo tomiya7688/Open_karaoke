@@ -1,9 +1,12 @@
 """CER/WER evaluator. Japanese CER is primary; WER uses whitespace, not morphology."""
 
 import argparse
+import hashlib
 import json
 import unicodedata
 from pathlib import Path
+
+from .evaluation_summary import lyric_summary
 
 
 def normalize(text: str) -> str:
@@ -100,6 +103,12 @@ def main() -> None:
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--exact", action="store_true", help="Do not normalize Unicode/punctuation")
     parser.add_argument("--max-cer", type=float)
+    parser.add_argument("--summary-output", type=Path)
+    parser.add_argument("--dataset-id")
+    parser.add_argument("--dataset-version")
+    parser.add_argument("--model-name")
+    parser.add_argument("--model-version")
+    parser.add_argument("--evaluation-kind", choices=("synthetic", "real_singing"))
     args = parser.parse_args()
     try:
         with args.pairs.open("rb") as source:
@@ -110,11 +119,41 @@ def main() -> None:
         if not isinstance(pairs, list) or any(not isinstance(p, dict) for p in pairs):
             raise ValueError("Expected a JSON array of evaluation pairs")
         report = evaluate(pairs, normalized=not args.exact, max_cer=args.max_cer)
+        summary = None
+        if args.summary_output is not None:
+            if args.summary_output.resolve() in (args.output.resolve(), args.pairs.resolve()):
+                raise ValueError("Summary path must differ from input and detailed output")
+            summary = lyric_summary(
+                report,
+                dataset_id=args.dataset_id,
+                dataset_version=args.dataset_version,
+                dataset_sha256=hashlib.sha256(data).hexdigest(),
+                model_name=args.model_name,
+                model_version=args.model_version,
+                evaluation_kind=args.evaluation_kind,
+            )
+        elif any(
+            value is not None
+            for value in (
+                args.dataset_id,
+                args.dataset_version,
+                args.model_name,
+                args.model_version,
+                args.evaluation_kind,
+            )
+        ):
+            raise ValueError("Evaluation metadata requires --summary-output")
         args.output.parent.mkdir(parents=True, exist_ok=True)
         args.output.write_text(
             json.dumps(report, ensure_ascii=False, indent=2, allow_nan=False) + "\n",
             encoding="utf-8",
         )
+        if summary is not None:
+            args.summary_output.parent.mkdir(parents=True, exist_ok=True)
+            args.summary_output.write_text(
+                json.dumps(summary, ensure_ascii=False, indent=2, allow_nan=False) + "\n",
+                encoding="utf-8",
+            )
     except (OSError, UnicodeError, ValueError) as error:
         parser.error(str(error))
     if report["passed"] is False:

@@ -70,6 +70,10 @@ Linux用のcontract checksや実モデルworkflowは対応するGitHub Actions�
 現在、個別EvaluatorのJSONはそれぞれの仕様で定義されており、**全Evaluatorで同一JSON schemaが強制されているわけではない**。
 共通フォーマットとベースライン比較の統合は [Issue #18](https://github.com/tomiya7688/Open_karaoke/issues/18) の対象。
 
+#18.1では歌詞 Evaluator に任意の集計サマリー出力を追加する。既存の `--output` は従来どおり詳細 JSON を保存する。サマリーを出す場合は `--summary-output` と、`--dataset-id`、`--dataset-version`、`--model-name`、`--model-version`、`--evaluation-kind synthetic|real_singing` をすべて指定する。入力 JSON の生バイトから SHA-256 を計算する。サマリーには参照歌詞・予測歌詞・sample ID を含めず、`format_version: 1`、評価器、データとモデルの識別情報、正規化設定、CER/WER と集計カウント、閾値の有無・値・判定を記録する。`real_singing` は実データを利用したという実行者の申告であり、音源や権利、注釈品質を自動確認しない。サマリーだけを共有し、詳細 JSON と入力データは権利条件に従って非公開で扱う。
+
+例: `python -m open_karaoke_analysis.lyric_evaluator pairs.json --output artifacts/lyrics/detail.json --summary-output artifacts/lyrics/summary.json --dataset-id local-set --dataset-version v1 --model-name asr --model-version snapshot-1 --evaluation-kind real_singing`
+
 GUIなしでのCI実行はJob APIまたは既存のEvaluator CLIによって可能にする。現在の評価器の多くは保存済みartifact/fixtureを直接読み込むCLIであり、必ずJob APIを呼ぶ実装ではない。
 
 ## 1.0.0 Release Evaluation（未完了）

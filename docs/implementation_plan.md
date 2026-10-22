@@ -50,6 +50,14 @@ Issueのopen/closedと実装コードの存在が一致しないケースは
 
 #40.2のcounter観測だけで、PCMのepoch分離や実機の校正が完了したとは扱わない。
 
+### #18の実装単位（P0は空けておく）
+
+| 単位 | 優先度 | 依存 | 完了条件・対象 |
+|---|---|---|---|
+| #18.1 歌詞 Evaluator の共通集計形式 | P1 | 既存 CER/WER Evaluator | 詳細 JSON を保持しつつ、入力 hash・dataset/model 版・評価種別・集計指標・閾値状態を持つ匿名サマリーを任意出力する |
+
+#18.1は他の Evaluator への適用、baseline 比較、Job API runner、CI artifact 運用、実歌唱精度を完了扱いにしない。
+
 ### P2 — 通常優先：1.0.0の主要機能と品質・配布
 
 | Issue | 理由・実装タイミング |
