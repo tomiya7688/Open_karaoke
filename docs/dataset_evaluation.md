@@ -57,4 +57,20 @@ manifest と注釈の JSON は重複キーおよび `NaN`・`Infinity` を拒否
 
 他の `kind` の `payload` 構造と区間境界、注釈精度は未検証です。`duration_samples` が音声の実フレーム数と一致するかも未検証です。これらは後続の種別別検査で扱います。
 
-ローカルで `python -m open_karaoke_analysis.dataset_manifest datasets/manifest.json` を実行します。成功時は件数と hash 検査結果だけを表示します。公開 CI では private dataset を取得せず、検査結果や実データを公開 artifact にアップロードしません。モデルの版・実行条件・CER 等の測定結果との結合は #18 と #42 の後続単位です。
+ローカルで `python -m open_karaoke_analysis.dataset_manifest datasets/manifest.json` を実行します。成功時は件数と hash 検査結果だけを表示します。公開 CI では private dataset を取得せず、検査結果や実データを公開 artifact にアップロードしません。実行済みモデルの実体確認、録音条件の固定、歌詞以外の指標との結合は #18 と #42 の後続単位です。
+
+## 歌詞の集計評価（#42.4）
+
+予測は非公開 JSON に保存します。`version: 1`、自己申告の `model.name`・`model.version`、`predictions` 配列を持ち、各行は `sample_id` と `text` です。選択した split に属する歌詞注釈の sample ID を過不足なく指定します。異なる split の予測を混ぜると拒否します。空の予測文字列は許容します。
+
+```json
+{
+  "version": 1,
+  "model": {"name": "local-asr", "version": "snapshot-1"},
+  "predictions": [{"sample_id": "local-take-001", "text": "例"}]
+}
+```
+
+`python -m open_karaoke_analysis.lyric_dataset_report datasets/manifest.json datasets/predictions.json --split development` は既存の歌詞評価器で CER/WER を集計します。1 split あたり歌詞 sample は1000件までです。参照文字列は開始時刻順の segment を空白で連結します。CER は空白を除去し、WER は空白区切りで数えるため、日本語の形態素単位の誤り率とは見なしません。長い歌唱は評価器の編集距離上限に収まる区間へ分けます。
+
+標準出力には manifest・予測ファイルの SHA-256、split、モデル名・版、評価器版、集計件数と指標だけを出し、歌詞本文・sample ID・個別結果は出しません。モデル名・版は予測ファイルの申告値で、実行済みモデルの実体を検証しません。結果も非公開データとして扱い、公開 CI artifact へ載せません。実録歌唱の品質判断には人手で権利・注釈・録音条件を確認する必要があります。

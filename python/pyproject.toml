@@ -43,6 +43,7 @@ open-karaoke-pitch-evaluator = "open_karaoke_analysis.pitch_evaluator:main"
 open-karaoke-vocal-event-evaluator = "open_karaoke_analysis.vocal_event_evaluator:main"
 open-karaoke-note-evaluator = "open_karaoke_analysis.note_evaluator:main"
 open-karaoke-dataset-manifest = "open_karaoke_analysis.dataset_manifest:main"
+open-karaoke-lyric-dataset-report = "open_karaoke_analysis.lyric_dataset_report:main"
 
 [tool.setuptools]
 package-dir = {"" = "src"}

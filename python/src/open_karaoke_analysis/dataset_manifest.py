@@ -86,7 +86,7 @@ def _lyrics_payload(payload: dict, duration: int, label: str) -> None:
 
 def _annotation_envelope(
     path: Path, annotation_hash: str, sample_id: str, audio_hash: str, label: str
-) -> None:
+) -> dict:
     with path.open("rb") as source:
         data = source.read(4_194_305)
     if len(data) > 4_194_304:
@@ -128,6 +128,7 @@ def _annotation_envelope(
         raise ValueError(f"{label}.payload must be a nonempty object")
     if envelope["kind"] == "lyrics":
         _lyrics_payload(envelope["payload"], duration, f"{label}.payload")
+    return envelope
 
 
 def validate_manifest(path: Path) -> dict:
@@ -187,6 +188,7 @@ def validate_manifest(path: Path) -> dict:
         counts[split] += 1
     return {
         "version": 1,
+        "manifest_sha256": hashlib.sha256(data).hexdigest(),
         "samples": len(samples),
         "splits": counts,
         "hashes_verified": True,
