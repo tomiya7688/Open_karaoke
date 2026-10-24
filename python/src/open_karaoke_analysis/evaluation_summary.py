@@ -5,6 +5,15 @@ import re
 
 
 def _name(value: str, label: str) -> str:
+    """
+    {
+      責務: [_name: dataset・modelの名前や版が空でない128文字以下の文字列か検証する]
+      処理: [1: 文字列か確認する, 2: 空白のみでなく長さが上限内か確認する]
+      引数: [value: 検証対象, label: エラー表示名]
+      戻り値: [検証済みの文字列]
+      エラー: [ValueError: 文字列でない、空、または長すぎる]
+    }
+    """
     if not isinstance(value, str) or not value.strip() or len(value) > 128:
         raise ValueError(f"{label} must be a nonempty string of at most 128 characters")
     return value
@@ -20,6 +29,27 @@ def lyric_summary(
     model_version: str,
     evaluation_kind: str,
 ) -> dict:
+    """
+    {
+      責務: [lyric_summary: 歌詞評価レポートを、モデル比較用の集計だけの版付き要約へ変換する]
+      処理: [
+        1: dataset・model・SHA-256・評価種別のメタデータを検証する,
+        2: 歌詞評価レポートの種別・版・指標・品質ゲート・集計値・正規化を検証する,
+        3: 個別の歌詞を含めず、集計値と設定だけの要約を組み立てる
+      ]
+      引数: [
+        report: 歌詞evaluatorのレポート,
+        dataset_id: dataset識別子,
+        dataset_version: datasetの版,
+        dataset_sha256: 評価入力のSHA-256,
+        model_name: モデル名,
+        model_version: モデルの版,
+        evaluation_kind: synthetic または real_singing
+      ]
+      戻り値: [format_version 1の要約dict]
+      エラー: [ValueError: メタデータやレポートが契約を満たさない]
+    }
+    """
     for label, value in (
         ("dataset_id", dataset_id),
         ("dataset_version", dataset_version),

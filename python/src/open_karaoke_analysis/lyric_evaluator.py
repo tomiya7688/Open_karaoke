@@ -98,6 +98,19 @@ def evaluate(pairs: list[dict], *, normalized: bool = True, max_cer: float | Non
 
 
 def main() -> None:
+    """
+    {
+      責務: [main: 歌詞CER/WER評価のCLI入口]
+      処理: [
+        1: 評価pairを読み、CER/WERを計算する,
+        2: --summary-outputがあれば、メタデータ付きの集計要約を作る,
+        3: 要約のメタデータだけが渡された場合は拒否する,
+        4: 詳細レポートと要約を別のfileへ書き、品質ゲート不合格なら終了codeを1にする
+      ]
+      引数: []
+      戻り値: []
+    }
+    """
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("pairs", type=Path, help="JSON array of id/reference/hypothesis records")
     parser.add_argument("--output", type=Path, required=True)
