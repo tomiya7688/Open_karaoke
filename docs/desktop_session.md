@@ -28,6 +28,7 @@ launcher異常終了でもパイプEOFが停止を知らせる。期限内に終
 Core再起動は新しいtokenとinstance_idを使う。古いtokenは新Coreで401。
 Jobはメモリ内なので古いIDは404。新セッションへ旧Jobを自動再送しない。
 同じセッション内のSSE再接続は最新snapshotを返し、時系列イベントの全履歴再生ではない。
+完了・失敗・取消の終端snapshotを送ったSSEは閉じる。
 
 ## 脅威モデルと非対象
 
@@ -38,7 +39,8 @@ URL中のtokenを認証に使わず、Authorizationの重複も拒否する。
 
 OSユーザーが同じでメモリや継承ハンドルを読める相手、管理者、改変されたlauncher/Core、
 tokenを共有したクライアント同士の分離はこの能力モデルの対象外。
-マルチユーザーACL、クライアント別artifact認可、SSE/HTTP接続総数とtimeout制御は後続。
+マルチユーザーACL、クライアント別artifact認可、HTTP接続総数とtimeout制御は後続。
+SSEにはCore内で全Job合計32接続の上限がある。
 インターネット公開サービスとして使用しない。
 
 ## 検証
