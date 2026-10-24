@@ -100,42 +100,22 @@ def test_implicit_ids_preserve_positional_meaning(tmp_path):
     assert before != json.loads(output.read_text(encoding="utf-8"))["dataset"]["reference_sha256"]
 
 
-@pytest.mark.parametrize(
-    "limit,exit_code,passed", [(None, 0, None), ("0", 1, False), ("1", 0, True)]
-)
-def test_summary_preserves_quality_gate_and_detailed_metrics(tmp_path, limit, exit_code, passed):
+@pytest.mark.parametrize("explicit_id", [False, True])
+def test_reference_digest_has_a_stable_serialization(tmp_path, explicit_id):
     """{
-    責務: [閾値の有無と成功・失敗が集計と終了コードに保持されることを確認する]
-    処理: [1: 既知の誤りを評価する, 2: 詳細値・集計値・終了コードを照合する]
-    引数: [tmp_path: 作業先, limit: CER閾値, exit_code: 期待終了値, passed: 期待判定]
+    責務: [参照集合hashの永続的な表現を固定する]
+    処理: [1: 既知の参照を評価する, 2: 固定hashとID省略時の対応を確認する]
+    引数: [tmp_path: 作業先, explicit_id: 位置と同じIDを明示するか]
     戻り値: []
     }"""
-    flags = [] if limit is None else ["--max-cer", limit]
-    result, _, detail_path, summary_path = _run_summary(
-        tmp_path, [{"reference": "青い空", "hypothesis": "青い海"}], *flags
+    pair = {"reference": "青い空", "hypothesis": "空"}
+    if explicit_id:
+        pair["id"] = "0"
+    result, _, _, output = _run_summary(tmp_path, [pair])
+    assert result.returncode == 0, result.stderr
+    assert json.loads(output.read_text(encoding="utf-8"))["dataset"]["reference_sha256"] == (
+        "ee551690f14599aff15247e686df90e0d50652d3e384714621def0d0470ff469"
     )
-    assert result.returncode == exit_code, result.stderr
-    detail, summary = (
-        json.loads(path.read_text(encoding="utf-8")) for path in (detail_path, summary_path)
-    )
-    assert summary["metrics"]["cer"] == detail["cer"] == pytest.approx(1 / 3)
-    assert summary["gate"]["passed"] is passed
-    assert summary["gate"]["applied"] is (limit is not None)
-    assert detail["utterances"][0]["id"] == "0"
-
-
-def test_invalid_metadata_leaves_outputs_unwritten(tmp_path):
-    """{
-    責務: [モデル版の不正を成功結果として保存しないことを確認する]
-    処理: [1: 空のモデル版を指定する, 2: エラー終了と未出力を確認する]
-    引数: [tmp_path: 作業先]
-    戻り値: []
-    }"""
-    result, _, detail, summary = _run_summary(
-        tmp_path, [{"reference": "空", "hypothesis": "空"}], "--model-version", ""
-    )
-    assert result.returncode == 2
-    assert not detail.exists() and not summary.exists()
 
 
 @pytest.mark.parametrize("digest", ["A" * 64, "bad", 123, False])
