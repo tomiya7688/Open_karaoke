@@ -53,7 +53,8 @@ GitHub connectorだけの環境では対象Issue、対象PRのhead/base SHA、�
 |---|---|---|
 | Job/API | `core/src/lib.rs` | `core/tests/job_api.rs`、`docs/core_api.md` |
 | Core API v1 guard #41 | `core/src/lib.rs`のversion・Origin・Job枠 | `core/tests/job_api.rs`、`docs/core_api.md`（session authは後続） |
-| 実歌唱dataset #42 | `python/src/open_karaoke_analysis/dataset_manifest.py`、`lyric_dataset_report.py` | `docs/dataset_evaluation.md`、`lyric_evaluator.py`、非公開manifestと音源はGit管理外 |
+| 実歌唱dataset #42 | `python/src/open_karaoke_analysis/dataset_manifest.py`、`lyric_dataset_report.py` | `docs/dataset_evaluation.md`、`python/tests/test_dataset_manifest.py`、`test_lyric_dataset_report.py`、`lyric_evaluator.py`、非公開manifestと音源はGit管理外 |
+| Evaluator共通結果 #18 | `python/src/open_karaoke_analysis/evaluation_summary.py`、`lyric_evaluator.py` | `docs/testing.md`、`python/tests/test_lyric_evaluator.py`、`test_evaluation_summary.py`。共通形式は歌詞から段階導入 |
 | Python起動・復旧 | `core/src/analysis_service.rs`、`core/src/main.rs` | `core/tests/job_api.rs`、`python/tests/test_process.py`、`docs/analysis_service.md` |
 | Song Data / migration | `core/src/song_data.rs` | 同ファイル内tests、`core/tests/fixtures/song.json`、`docs/song_format.md` |
 | 音源入力・正規化 | `core/src/audio_import.rs` | 同ファイル内tests、`docs/audio_import.md` |
