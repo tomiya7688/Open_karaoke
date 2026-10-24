@@ -254,6 +254,110 @@ async fn sse_reconnect_starts_with_terminal_snapshot() {
     assert!(event.contains("completed"), "{event}");
 }
 
+/// {
+///   責務: [`open_events`: Jobのevents SSEへ接続する]
+///   処理: [1: api versionヘッダー付きGETを送る]
+///   引数: [router: 接続先, id: 対象Job]
+///   戻り値: [SSEのHTTP応答。本文を保持する間は接続枠を使う]
+/// }
+async fn open_events(router: &Router, id: Uuid) -> axum::response::Response {
+    router
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri(format!("/jobs/{id}/events"))
+                .header("x-open-karaoke-api-version", "1")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap()
+}
+
+/// {
+///   責務: [`sse_connection_budget_limits_and_recovers`: SSE同時接続の上限と枠の返却を確認する]
+///   処理: [
+///     1: 実行中Jobへ32接続して全て受理されることを確認する,
+///     2: 33件目が429になることを確認する,
+///     3: 1接続を切断して新しい接続が再び受理されることを確認する
+///   ]
+///   引数: []
+///   戻り値: []
+/// }
+#[tokio::test]
+async fn sse_connection_budget_limits_and_recovers() {
+    let router = app(AppState::new());
+    let id = create(&router, json!({"kind": "test", "steps": 100})).await;
+
+    let mut open = Vec::new();
+    for _ in 0..32 {
+        let response = open_events(&router, id).await;
+        assert_eq!(response.status(), StatusCode::OK);
+        open.push(response);
+    }
+    assert_eq!(
+        open_events(&router, id).await.status(),
+        StatusCode::TOO_MANY_REQUESTS
+    );
+
+    // 本文を破棄すると接続枠が返り、次の接続を受け付ける。
+    drop(open.pop());
+    assert_eq!(open_events(&router, id).await.status(), StatusCode::OK);
+
+    let (status, _) = call(&router, "POST", &format!("/jobs/{id}/cancel"), Value::Null).await;
+    assert_eq!(status, StatusCode::OK);
+}
+
+/// {
+///   責務: [`sse_closes_after_terminal_event`: 終端Jobのイベント送信後に接続が閉じることを確認する]
+///   処理: [
+///     1: 完了済みJobへ接続して終端snapshotを受け取る,
+///     2: 次の読み取りでストリームが終了することを確認する,
+///     3: 閉じた接続の枠が返り、上限まで再接続できることを確認する
+///   ]
+///   引数: []
+///   戻り値: []
+/// }
+#[tokio::test]
+async fn sse_closes_after_terminal_event() {
+    let router = app(AppState::new());
+    let id = create(&router, json!({"kind": "test", "steps": 1})).await;
+    assert_eq!(terminal(&router, id).await.status, JobStatus::Completed);
+
+    let mut stream = open_events(&router, id)
+        .await
+        .into_body()
+        .into_data_stream();
+    let first = timeout(Duration::from_secs(2), stream.next())
+        .await
+        .unwrap()
+        .unwrap()
+        .unwrap();
+    assert!(String::from_utf8_lossy(&first).contains("completed"));
+    assert!(
+        timeout(Duration::from_secs(2), stream.next())
+            .await
+            .unwrap()
+            .is_none(),
+        "stream must end after the terminal event"
+    );
+
+    // 32件を完了済みJobへ繰り返し接続しても、終端で閉じるため枠が尽きない。
+    for _ in 0..40 {
+        let mut stream = open_events(&router, id)
+            .await
+            .into_body()
+            .into_data_stream();
+        while timeout(Duration::from_secs(2), stream.next())
+            .await
+            .unwrap()
+            .is_some()
+        {}
+    }
+    assert_eq!(open_events(&router, id).await.status(), StatusCode::OK);
+}
+
 #[tokio::test]
 async fn missing_python_has_actionable_error() {
     let root = tempfile::tempdir().unwrap();

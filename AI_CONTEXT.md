@@ -6,17 +6,21 @@ Rust Core / Python Analysis Service / C#・Avalonia GUI のモノレポ。
 
 ## 着手する順序
 
+0. 共通規則([共同作業ルール](docs/collaboration.md)): 作業前に必ず`git pull --ff-only`、終了時は必ずPR、CIと自己レビューが問題なければマージ。
 1. 今回の依頼と対象Issueを確認する。「次」の場合もIssueの状態を取得する。
-2. [Remote delta](docs/ai_workflow.md#remote-delta)でブランチ・差分・未統合PRを確認する。
+2. [Remote delta](docs/ai_workflow.md#remote-delta)でブランチ・差分・未統合PRを確認し、統合済み・他者作業中の実装と重複しないことを確かめる。
 3. [Task routes](docs/ai_workflow.md#task-routes)の該当行からsourceとtestsだけを選ぶ。
 4. Goal / Required / Acceptance / Working setを短く決め、必要な根拠が揃ったら実装へ進む。
 5. 対象検証から始め、共有契約の変更や不明な影響があれば検証範囲を広げる。
+6. 終了時はPRを作り、最新SHAのCIと自己レビューを確認してからマージする。
 
 ## 正本
 
 - 今回の目的・完了条件: ユーザーの依頼とGitHubの対象Issue。
 - 要件・責務: [requirements](docs/requirements.md)、[architecture](docs/architecture.md)。必要な節だけ読む。
 - 実際の挙動・互換性: 作業対象SHAのsource、matching tests、API・保存形式の定義。
+- 共同作業の手順(pull・ブランチ・PR・CI・自己レビュー・マージ): [collaboration](docs/collaboration.md)。
+- コーディングルール: [coding rules](docs/coding_rules.md)（JSON-like宣言コメントを含む。「必須」は必ず守る）。設計背景は[architecture](docs/architecture.md)を参照する。
 - 検証手順: [development](docs/development.md)、`scripts/check.ps1`、`.github/workflows/`。
 - 現在の実装と未評価範囲: [Current status](docs/current_status.md)。記載日のmain SHAと作業対象のSHAを区別する。
 - 歌詞抽出 #7（実装あり・Issue受け入れ条件は要確認）: [Lyric transcription](docs/lyric_transcription.md)、`python/src/open_karaoke_analysis/lyrics.py`、`whisper_backend.py`、`lyric_evaluator.py`、`python/tests/test_lyric*.py`。実録歌唱の評価は別途確認する。

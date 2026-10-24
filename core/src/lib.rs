@@ -13,10 +13,12 @@ pub mod song_library;
 use std::{
     collections::HashMap,
     convert::Infallible,
+    pin::Pin,
     sync::{
         Arc,
         atomic::{AtomicBool, Ordering},
     },
+    task::{Context, Poll},
     time::Duration,
 };
 
@@ -34,8 +36,8 @@ use axum::{
 };
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use tokio::sync::{RwLock, broadcast};
-use tokio_stream::{Stream, StreamExt, wrappers::BroadcastStream};
+use tokio::sync::{OwnedSemaphorePermit, RwLock, Semaphore, broadcast};
+use tokio_stream::{Stream, wrappers::BroadcastStream};
 use uuid::Uuid;
 
 /// Protocol version for the native GUI and test client contract.
@@ -44,13 +46,33 @@ pub const CORE_API_VERSION_HEADER: &str = "x-open-karaoke-api-version";
 const MAX_CORE_REQUEST_BYTES: usize = 64 * 1024;
 const MAX_ACTIVE_JOBS: usize = 16;
 const MAX_RETAINED_JOBS: usize = 512;
+const MAX_SSE_CONNECTIONS: usize = 32;
 
-#[derive(Clone, Default)]
+#[derive(Clone)]
 pub struct AppState {
     jobs: Arc<RwLock<HashMap<Uuid, JobRecord>>>,
     analysis: AnalysisClient,
     song_library: Option<song_library::SongLibrary>,
     stopping: Arc<AtomicBool>,
+    sse_budget: Arc<Semaphore>,
+}
+
+impl Default for AppState {
+    /// {
+    ///   責務: [`default`: 既定のCore状態を作る]
+    ///   処理: [1: 空のJob表を作る, 2: SSE接続予算を `MAX_SSE_CONNECTIONS` で初期化する]
+    ///   引数: []
+    ///   戻り値: [Job・解析client・SSE予算を持つAppState]
+    /// }
+    fn default() -> Self {
+        Self {
+            jobs: Arc::new(RwLock::new(HashMap::new())),
+            analysis: AnalysisClient::default(),
+            song_library: None,
+            stopping: Arc::new(AtomicBool::new(false)),
+            sse_budget: Arc::new(Semaphore::new(MAX_SSE_CONNECTIONS)),
+        }
+    }
 }
 
 struct JobRecord {
@@ -58,6 +80,60 @@ struct JobRecord {
     cancelled: bool,
     import_control: Option<Arc<song_library::ImportControl>>,
     events: broadcast::Sender<JobEvent>,
+}
+
+/// {
+///   責務: [`JobEventStream`: 1接続分のJob SSEを供給し、終端で閉じて接続枠を返す]
+///   フィールド: [
+///     initial: 接続時に最初に送るsnapshot,
+///     updates: 以降の更新を受けるbroadcast,
+///     closed: 終端または取りこぼしで閉じた状態,
+///     _permit: 保持中だけ接続枠を占有するpermit
+///   ]
+/// }
+struct JobEventStream {
+    initial: Option<JobEvent>,
+    updates: BroadcastStream<JobEvent>,
+    closed: bool,
+    _permit: OwnedSemaphorePermit,
+}
+
+impl Stream for JobEventStream {
+    type Item = Result<Event, Infallible>;
+
+    /// {
+    ///   責務: [`poll_next`: 次のJob eventをSSE形式で返す]
+    ///   処理: [
+    ///     1: 閉じていれば終了する,
+    ///     2: 初回はsnapshot、以降はbroadcastの更新を取り出す,
+    ///     3: 取りこぼしまたは送信元終了なら閉じる,
+    ///     4: 終端状態のeventを送ったら以降を閉じる
+    ///   ]
+    ///   引数: [cx: 非同期の起床context]
+    ///   戻り値: [SSE event、待機、または終了]
+    /// }
+    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        let stream = self.get_mut();
+        if stream.closed {
+            return Poll::Ready(None);
+        }
+        let event = if let Some(initial) = stream.initial.take() {
+            initial
+        } else {
+            match Pin::new(&mut stream.updates).poll_next(cx) {
+                Poll::Ready(Some(Ok(update))) => update,
+                Poll::Ready(Some(Err(_)) | None) => {
+                    stream.closed = true;
+                    return Poll::Ready(None);
+                }
+                Poll::Pending => return Poll::Pending,
+            }
+        };
+        stream.closed = event.job.status.terminal();
+        Poll::Ready(Some(Ok(Event::default()
+            .event("job")
+            .data(serde_json::to_string(&event).unwrap_or_default()))))
+    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
@@ -542,14 +618,20 @@ async fn job_events(
         let record = jobs.get(&id).ok_or_else(ApiError::not_found)?;
         (record.snapshot.clone(), record.events.subscribe())
     };
-    let initial = tokio_stream::once(JobEvent { job: snapshot });
-    let updates = BroadcastStream::new(receiver).filter_map(Result::ok);
-    let stream = initial.chain(updates).map(|event| {
-        // Job contains only finite progress and ordinary strings/timestamps.
-        Ok(Event::default()
-            .event("job")
-            .data(serde_json::to_string(&event).unwrap_or_default()))
-    });
+    let permit = Arc::clone(&state.sse_budget)
+        .try_acquire_owned()
+        .map_err(|_| {
+            ApiError(
+                StatusCode::TOO_MANY_REQUESTS,
+                "Too many SSE connections".to_owned(),
+            )
+        })?;
+    let stream = JobEventStream {
+        initial: Some(JobEvent { job: snapshot }),
+        updates: BroadcastStream::new(receiver),
+        closed: false,
+        _permit: permit,
+    };
     Ok(Sse::new(stream).keep_alive(KeepAlive::default()))
 }
 
