@@ -5,18 +5,50 @@ from pathlib import Path, PurePosixPath
 
 
 def _object(value: object, keys: set[str], label: str) -> dict:
+    """
+    {
+      責務: [_object: JSON objectのキー集合が過不足ないことを検証する]
+      処理: [1: dictか確認する, 2: キー集合が期待と一致するか確認する]
+      引数: [value: 検証対象, keys: 必須かつ許可するキー, label: エラー表示名]
+      戻り値: [検証済みのdict]
+      エラー: [ValueError: objectでない、またはキーが過不足]
+    }
+    """
     if not isinstance(value, dict) or set(value) != keys:
         raise ValueError(f"{label} must contain exactly: {', '.join(sorted(keys))}")
     return value
 
 
 def _text(value: object, label: str) -> str:
+    """
+    {
+      責務: [_text: 空でない512文字以下の文字列を検証する]
+      処理: [1: 文字列か確認する, 2: 空白のみでなく長さが上限内か確認する]
+      引数: [value: 検証対象, label: エラー表示名]
+      戻り値: [検証済みの文字列]
+      エラー: [ValueError: 文字列でない、空、または長すぎる]
+    }
+    """
     if not isinstance(value, str) or not value.strip() or len(value) > 512:
         raise ValueError(f"{label} must be a nonempty string of at most 512 characters")
     return value
 
 
 def _digest(root: Path, file: object, label: str) -> str:
+    """
+    {
+      責務: [_digest: manifest配下のファイルを開き、記載されたSHA-256と照合する]
+      処理: [
+        1: pathとsha256のobjectを検証する,
+        2: 絶対パス・親参照・バックスラッシュを拒否する,
+        3: manifest配下の通常ファイルか確認する,
+        4: 1MiB単位でSHA-256を計算して照合する
+      ]
+      引数: [root: manifestのあるdirectory, file: pathとsha256を持つobject, label: エラー表示名]
+      戻り値: [照合済みのSHA-256(小文字hex)]
+      エラー: [ValueError: path・形式・実体・ハッシュのいずれかが不正]
+    }
+    """
     entry = _object(file, {"path", "sha256"}, label)
     raw_path = _text(entry["path"], f"{label}.path")
     relative = PurePosixPath(raw_path)
@@ -43,6 +75,20 @@ def _digest(root: Path, file: object, label: str) -> str:
 
 
 def validate_manifest(path: Path) -> dict:
+    """
+    {
+      責務: [validate_manifest: 非公開歌唱datasetのmanifestを検証して件数を報告する]
+      処理: [
+        1: 4 MiB以下で読み、versionとsamples数を確認する,
+        2: 各sampleのキー・id重複・split・出典・権利参照を検証する,
+        3: source_groupと同一音声がdevelopmentとholdoutにまたがらないか確認する,
+        4: 音声と注釈のSHA-256を検証する
+      ]
+      引数: [path: manifestのJSON file]
+      戻り値: [version・件数・split別件数・hashes_verifiedを持つdict]
+      エラー: [ValueError: manifestが契約を満たさない]
+    }
+    """
     with path.open("rb") as source:
         data = source.read(4_194_305)
     if len(data) > 4_194_304:
@@ -96,6 +142,18 @@ def validate_manifest(path: Path) -> dict:
 
 
 def main() -> None:
+    """
+    {
+      責務: [main: manifest検証のCLI入口]
+      処理: [
+        1: 引数からmanifestを受け取る,
+        2: 検証して結果をJSONで出力する,
+        3: 失敗は引数エラーとして終了する
+      ]
+      引数: []
+      戻り値: []
+    }
+    """
     parser = argparse.ArgumentParser(description="Validate a private real-singing dataset manifest")
     parser.add_argument("manifest", type=Path)
     args = parser.parse_args()
