@@ -70,7 +70,22 @@ Linux用のcontract checksや実モデルworkflowは対応するGitHub Actions�
 現在、個別EvaluatorのJSONはそれぞれの仕様で定義されており、**全Evaluatorで同一JSON schemaが強制されているわけではない**。
 共通フォーマットとベースライン比較の統合は [Issue #18](https://github.com/tomiya7688/Open_karaoke/issues/18) の対象。
 
-#18.1では歌詞 Evaluator に任意の集計サマリー出力を追加する。既存の `--output` は従来どおり詳細 JSON を保存する。サマリーを出す場合は `--summary-output` と、`--dataset-id`、`--dataset-version`、`--model-name`、`--model-version`、`--evaluation-kind synthetic|real_singing` をすべて指定する。入力 JSON の生バイトから SHA-256 を計算する。サマリーには参照歌詞・予測歌詞・sample ID を含めず、`format_version: 1`、評価器、データとモデルの識別情報、正規化設定、CER/WER と集計カウント、閾値の有無・値・判定を記録する。`real_singing` は実データを利用したという実行者の申告であり、音源や権利、注釈品質を自動確認しない。サマリーだけを共有し、詳細 JSON と入力データは権利条件に従って非公開で扱う。
+#18.1では歌詞 Evaluator に任意の集計サマリー出力を追加する。既存の `--output` は詳細 JSON を保存する。サマリーを出す場合は `--summary-output` と、`--dataset-id`、`--dataset-version`、`--model-name`、`--model-version`、`--evaluation-kind synthetic|real_singing` をすべて指定する。
+
+サマリーは `format_version: 1` と次の項目を持つ。参照歌詞・予測歌詞・sample ID は含まない。
+
+| 項目 | 意味 |
+|---|---|
+| `dataset.id` / `version` | 実行者が指定したデータ名と版 |
+| `dataset.sha256` | 予測も含む入力 JSON の生バイトの SHA-256。入力の追跡用 |
+| `dataset.reference_sha256` | ID と未正規化の参照歌詞の集合の SHA-256。予測が変わっても同じ参照集合を識別する |
+| `model` / `evaluation_kind` | 自己申告のモデル名・版と評価種別 |
+| `evaluator` / `configuration` | 評価器の版、正規化、CER の空白処理、WER の分割方法 |
+| `metrics` / `gate` | CER/WER、集計カウント、閾値の有無・値・判定 |
+
+参照集合hashは、ID順に整列した `[id, reference]` の配列を `ensure_ascii=True, separators=(",", ":")` でJSON化し、ASCII化したバイト列の前に `open-karaoke-lyric-reference-v1` と NUL を付けて計算する。ID省略時は詳細評価と同じ配列位置の文字列を使うため、明示IDのある行の並べ替えは同じhash、ID省略時の異なる参照の並べ替えは異なるhashになる。旧 version 1 サマリーや既存の関数呼び出しは `reference_sha256` を持たないことがあり、その結果だけでは参照集合の一致を確認できない。
+
+モデル間比較では参照集合hashだけでなく、データ名・版、評価種別、評価器と正規化設定の一致も確認する。音源の一致や権利、注釈品質はこのhashでは確認しない。`real_singing` も実行者の申告値である。詳細 JSON と入力データは権利条件に従って非公開で扱う。比較処理と回帰判定の自動化は後続単位とする。
 
 例: `python -m open_karaoke_analysis.lyric_evaluator pairs.json --output artifacts/lyrics/detail.json --summary-output artifacts/lyrics/summary.json --dataset-id local-set --dataset-version v1 --model-name asr --model-version snapshot-1 --evaluation-kind real_singing`
 

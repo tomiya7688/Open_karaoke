@@ -28,6 +28,7 @@ def lyric_summary(
     model_name: str,
     model_version: str,
     evaluation_kind: str,
+    reference_sha256: str | None = None,
 ) -> dict:
     """
     {
@@ -44,7 +45,8 @@ def lyric_summary(
         dataset_sha256: 評価入力のSHA-256,
         model_name: モデル名,
         model_version: モデルの版,
-        evaluation_kind: synthetic または real_singing
+        evaluation_kind: synthetic または real_singing,
+        reference_sha256: 任意の参照集合hash。省略した旧形式では参照集合を比較できない
       ]
       戻り値: [format_version 1の要約dict]
       エラー: [ValueError: メタデータやレポートが契約を満たさない]
@@ -59,6 +61,11 @@ def lyric_summary(
         _name(value, label)
     if not isinstance(dataset_sha256, str) or re.fullmatch(r"[0-9a-f]{64}", dataset_sha256) is None:
         raise ValueError("dataset_sha256 must be a lowercase SHA-256 digest")
+    if reference_sha256 is not None and (
+        not isinstance(reference_sha256, str)
+        or re.fullmatch(r"[0-9a-f]{64}", reference_sha256) is None
+    ):
+        raise ValueError("reference_sha256 must be a lowercase SHA-256 digest")
     if evaluation_kind not in ("synthetic", "real_singing"):
         raise ValueError("evaluation_kind must be synthetic or real_singing")
     if not isinstance(report, dict) or report.get("evaluator") != "lyric-transcription":
@@ -107,11 +114,14 @@ def lyric_summary(
         raise ValueError("Invalid lyric normalization")
     if report.get("wer_tokenizer") != "whitespace" or report.get("cer_whitespace") != "removed":
         raise ValueError("Unsupported lyric tokenization")
+    dataset = {"id": dataset_id, "version": dataset_version, "sha256": dataset_sha256}
+    if reference_sha256 is not None:
+        dataset["reference_sha256"] = reference_sha256
     return {
         "format_version": 1,
         "evaluation_kind": evaluation_kind,
         "evaluator": {"name": "lyric-transcription", "version": 1},
-        "dataset": {"id": dataset_id, "version": dataset_version, "sha256": dataset_sha256},
+        "dataset": dataset,
         "model": {"name": model_name, "version": model_version},
         "configuration": {
             "normalization": report["normalization"],
