@@ -103,7 +103,7 @@ def main() -> None:
       責務: [main: 歌詞CER/WER評価のCLI入口]
       処理: [
         1: 評価pairを読み、CER/WERを計算する,
-        2: --summary-outputがあれば、メタデータ付きの集計要約を作る,
+        2: --summary-outputがあれば、参照集合hashとメタデータ付きの集計要約を作る,
         3: 要約のメタデータだけが渡された場合は拒否する,
         4: 詳細レポートと要約を別のfileへ書き、品質ゲート不合格なら終了codeを1にする
       ]
@@ -136,6 +136,12 @@ def main() -> None:
         if args.summary_output is not None:
             if args.summary_output.resolve() in (args.output.resolve(), args.pairs.resolve()):
                 raise ValueError("Summary path must differ from input and detailed output")
+            references = sorted(
+                (pair.get("id", str(index)), pair["reference"]) for index, pair in enumerate(pairs)
+            )
+            reference_bytes = json.dumps(
+                references, ensure_ascii=True, separators=(",", ":")
+            ).encode("ascii")
             summary = lyric_summary(
                 report,
                 dataset_id=args.dataset_id,
@@ -144,6 +150,9 @@ def main() -> None:
                 model_name=args.model_name,
                 model_version=args.model_version,
                 evaluation_kind=args.evaluation_kind,
+                reference_sha256=hashlib.sha256(
+                    b"open-karaoke-lyric-reference-v1\0" + reference_bytes
+                ).hexdigest(),
             )
         elif any(
             value is not None
