@@ -32,6 +32,27 @@ The queue rejects NaN/infinity. Device-specific f32/i16/u16 conversion is limite
 backend boundary. Microphone capture is downmixed to raw mono f32, independently of
 playback and ahead of any later monitoring effects.
 
+Every queued playback frame is tagged with its `ClockEpoch`; `enqueue_stereo_at` also
+tags the source `song_sample` and rejects a stale producer message. The original
+`enqueue_stereo` keeps unpositioned playback available and never invents a song time.
+The output callback consumes at
+most one queued frame per output frame; stale frames become silence and are discarded,
+so epoch changes never make the callback scan an unbounded old queue. Ring occupancy
+includes stale slots until the output callback drains them. `playback_timestamp()` returns
+the last real PCM presentation as `(epoch, output_sample, song_sample)`; a reader must
+compare its epoch with the current `ClockSession`, because the last presentation can
+belong to the preceding epoch while the output is silent. An unpositioned frame clears
+the presentation snapshot instead of reporting an incorrect song position.
+
+Capture callbacks tag each frame with the active epoch and a monotonic 48 kHz input
+position. Queue overflow still advances the capture position, so the next delivered
+frame exposes the gap. `read_microphone_timestamped` drops stale frames on the non-realtime
+reader and returns timestamped raw mono samples. The original `read_microphone` remains
+available for raw mono clients, but does not expose timing. After `ClockSession` advances, the process owner
+must send the returned epoch to `AudioIo::set_clock_epoch` and cancel/recreate old
+producers at the desired song position. The WAV feeder marks a stale epoch enqueue as
+failed; automatic seek/restart orchestration is not provided by this layer.
+
 ### Clock
 
 AudioCounters.playback_sample_position is a u64 **48 kHz frame index** incremented

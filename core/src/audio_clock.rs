@@ -6,6 +6,8 @@
 
 use std::fmt;
 
+use crate::audio_engine::AudioCounters;
+
 pub const SONG_SAMPLE_RATE: u32 = 48_000;
 const PPM_BASE: i128 = 1_000_000;
 const MAX_ABS_DRIFT_PPM: i32 = 2_000;
@@ -15,6 +17,16 @@ const MAX_ABS_DRIFT_PPM: i32 = 2_000;
 pub struct ClockEpoch(u64);
 
 impl ClockEpoch {
+    /// {
+    ///   責務: [`from_sequence`: audio境界の保存値からclock型を復元する]
+    ///   処理: [1: 内部sequenceをclock epochとして包む]
+    ///   引数: [sequence: 保存済み世代番号]
+    ///   戻り値: [`ClockEpoch`: 復元した世代]
+    /// }
+    pub(crate) const fn from_sequence(sequence: u64) -> Self {
+        Self(sequence)
+    }
+
     #[must_use]
     pub const fn sequence(self) -> u64 {
         self.0
@@ -107,21 +119,65 @@ impl fmt::Display for ClockError {
 
 impl std::error::Error for ClockError {}
 
-/// Owns the two independent clock mappings for a playback transport epoch.
+/// {
+///   責務: [
+///     `ClockDiscontinuity`: 観測できた時刻不連続の原因を表す
+///   ]
+///   フィールド: []
+///   補足: [同一snapshotの複数原因はdevice error、counter reset、capture gap、playbackの順に代表する]
+/// }
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ClockDiscontinuity {
+    DeviceError,
+    CounterReset,
+    CaptureGap,
+    PlaybackTransition,
+}
+
+/// {
+///   責務: [`ClockInvalidation`: anchor無効化後のepochと観測理由を保持する]
+///   フィールド: [
+///     epoch: 次のanchorを構築するepoch
+///     reason: 無効化を必要とした代表原因
+///   ]
+/// }
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ClockInvalidation {
+    pub epoch: ClockEpoch,
+    pub reason: ClockDiscontinuity,
+}
+
+/// {
+///   責務: [`ClockSession`: transport epoch内の独立したoutput/capture mappingを所有する]
+///   フィールド: [
+///     epoch: 現在のtransport世代
+///     output: output domainのanchor
+///     capture: capture domainのanchor
+///     `last_audio`: 不連続検出に使う直前のlogical counter snapshot
+///   ]
+/// }
 #[derive(Clone, Debug)]
 pub struct ClockSession {
     epoch: ClockEpoch,
     output: Option<ClockAnchor>,
     capture: Option<ClockAnchor>,
+    last_audio: Option<AudioCounters>,
 }
 
 impl ClockSession {
+    /// {
+    ///   責務: [new: anchor未設定のclock sessionを作る]
+    ///   処理: [1: epochを1で開始し両domainとcounter baselineを未設定にする]
+    ///   引数: []
+    ///   戻り値: [`ClockSession`: 新しいclock owner]
+    /// }
     #[must_use]
     pub const fn new() -> Self {
         Self {
             epoch: ClockEpoch(1),
             output: None,
             capture: None,
+            last_audio: None,
         }
     }
 
@@ -130,10 +186,19 @@ impl ClockSession {
         self.epoch
     }
 
-    /// Discard both anchors at the same instant as a transport discontinuity.
+    /// {
+    ///   責務: [`begin_new_epoch`: 不連続のcontrol境界で両anchorとcounter baselineを破棄する]
+    ///   処理: [
+    ///     1: epochをoverflow検査付きで進める
+    ///     2: 両domainのanchorと直前のcounter snapshotを消す
+    ///   ]
+    ///   引数: []
+    ///   戻り値: [`ClockEpoch`: 新しいtransport世代]
+    ///   エラー: [`ArithmeticOverflow`: epoch counterを使い切った]
+    /// }
     ///
     /// # Errors
-    /// Returns `ArithmeticOverflow` if the epoch counter is exhausted.
+    /// Returns `ClockError::ArithmeticOverflow` if the epoch counter is exhausted.
     pub fn begin_new_epoch(&mut self) -> Result<ClockEpoch, ClockError> {
         self.epoch = ClockEpoch(
             self.epoch
@@ -143,7 +208,73 @@ impl ClockSession {
         );
         self.output = None;
         self.capture = None;
+        self.last_audio = None;
         Ok(self.epoch)
+    }
+
+    /// {
+    ///   責務: [`observe_audio`: logical audio counterの不連続で両domainのanchorを無効化する]
+    ///   処理: [
+    ///     1: error flagの立上りとcounter巻き戻りを確認する
+    ///     2: capture欠落増加とplayback状態遷移を確認する
+    ///     3: 原因があれば一度だけepochを進め両anchorを消す
+    ///     4: snapshotを次回のbaselineとして保存する
+    ///   ]
+    ///   引数: [counters: control threadが読み取った`AudioIo`の観測値]
+    ///   戻り値: [`Option<ClockInvalidation>`: anchorを無効化した場合のepochと理由]
+    ///   エラー: [`ArithmeticOverflow`: epoch counterを使い切った]
+    ///   補足: [
+    ///     snapshotは同時刻のhardware timestampではなくanchorを自動生成しない
+    ///     制御側は各play/pause境界で観測しseekや同値counterのdevice交換は明示的にepochを進める
+    ///     output underrunの無音frameはlogical clockを維持するため単独ではepochを変えない
+    ///   ]
+    /// }
+    ///
+    /// # Errors
+    /// Returns `ClockError::ArithmeticOverflow` if the epoch counter is exhausted.
+    pub fn observe_audio(
+        &mut self,
+        counters: AudioCounters,
+    ) -> Result<Option<ClockInvalidation>, ClockError> {
+        let previous = self.last_audio;
+        let new_device_error = (counters.output_device_error
+            && !previous.is_some_and(|old| old.output_device_error))
+            || (counters.input_device_error && !previous.is_some_and(|old| old.input_device_error));
+        let counter_reset = previous.is_some_and(|old| {
+            counters.playback_sample_position < old.playback_sample_position
+                || counters.microphone_frames_received < old.microphone_frames_received
+                || counters.output_underrun_frames < old.output_underrun_frames
+                || counters.input_overrun_frames < old.input_overrun_frames
+        });
+        let capture_gap = previous.map_or_else(
+            || {
+                counters.input_overrun_frames > 0
+                    && (self.output.is_some() || self.capture.is_some())
+            },
+            |old| counters.input_overrun_frames > old.input_overrun_frames,
+        );
+        let playback_transition = previous.is_some_and(|old| old.playing != counters.playing);
+        let reason = if new_device_error {
+            Some(ClockDiscontinuity::DeviceError)
+        } else if counter_reset {
+            Some(ClockDiscontinuity::CounterReset)
+        } else if capture_gap {
+            Some(ClockDiscontinuity::CaptureGap)
+        } else if playback_transition {
+            Some(ClockDiscontinuity::PlaybackTransition)
+        } else {
+            None
+        };
+        let invalidation = if let Some(reason) = reason {
+            Some(ClockInvalidation {
+                epoch: self.begin_new_epoch()?,
+                reason,
+            })
+        } else {
+            None
+        };
+        self.last_audio = Some(counters);
+        Ok(invalidation)
     }
 
     /// Install a domain anchor once per epoch.

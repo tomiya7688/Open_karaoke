@@ -104,24 +104,62 @@ pub struct WavFeedStatus {
     pub failed: bool,
 }
 
+/// {
+///   責務: [`WavFeeder`: 正規化`WAV`を指定epochとsong位置から非audio threadで送る]
+///   フィールド: [`stop`: 停止要求, `sent`: 送信数, `finished`: 完了状態, `failed`: 失敗状態, `epoch`: `PCM`世代, `duration_samples`: 曲長, `thread`: worker]
+/// }
 pub struct WavFeeder {
     stop: Arc<AtomicBool>,
     sent: Arc<AtomicU64>,
     finished: Arc<AtomicBool>,
     failed: Arc<AtomicBool>,
+    epoch: crate::audio_clock::ClockEpoch,
     duration_samples: u64,
     thread: Option<JoinHandle<()>>,
 }
 
 impl WavFeeder {
-    /// Open a canonical WAV and enqueue it off the audio thread with bounded memory.
+    /// {
+    ///   責務: [`start`: 従来の`WAV`開始`API`で曲頭から現在epochへ送る]
+    ///   処理: [1: `AudioIo`の現epochを取得する, 2: 曲頭から`start_at`を呼ぶ]
+    ///   引数: [io: audio queue, path: 正規化WAV]
+    ///   戻り値: [`WavFeeder`: workerの制御と状態]
+    ///   エラー: [WAVを開けない、headerまたはformatが不正]
+    /// }
     ///
     /// # Errors
     /// Returns an I/O or invalid-format error before spawning a feeder.
     pub fn start(io: AudioIo, path: impl AsRef<Path>) -> io::Result<Self> {
+        let epoch = io.clock_epoch();
+        Self::start_at(io, epoch, 0, path)
+    }
+
+    /// {
+    ///   責務: [`start_at`: `正規化WAVを指定epochとsong位置から非audio` threadでqueueへ送る]
+    ///   処理: [1: `WAV形式と開始song位置を検証する`, 2: `位置へseekする`, 3: bounded workerでepoch付きPCMを送る]
+    ///   引数: [io: audio queue, epoch: feederを所有するclock世代, `song_sample`: 最初のsong位置, path: 正規化WAV]
+    ///   戻り値: [`WavFeeder`: workerの制御と状態を持つowner]
+    ///   エラー: [WAVを開けない、headerまたはformatが不正]
+    /// }
+    ///
+    /// # Errors
+    /// Returns an I/O or invalid-format error before spawning a feeder.
+    pub fn start_at(
+        io: AudioIo,
+        epoch: crate::audio_clock::ClockEpoch,
+        song_sample: u64,
+        path: impl AsRef<Path>,
+    ) -> io::Result<Self> {
         let mut file = File::open(path)?;
         let metadata = parse_wav(&mut file)?;
-        file.seek(SeekFrom::Start(metadata.data_offset))?;
+        if song_sample > metadata.duration_samples {
+            return Err(invalid("WAV start sample exceeds its duration"));
+        }
+        let byte_offset = song_sample
+            .checked_mul(8)
+            .and_then(|offset| metadata.data_offset.checked_add(offset))
+            .ok_or_else(|| invalid("WAV start sample position overflowed"))?;
+        file.seek(SeekFrom::Start(byte_offset))?;
 
         let stop = Arc::new(AtomicBool::new(false));
         let sent = Arc::new(AtomicU64::new(0));
@@ -136,7 +174,7 @@ impl WavFeeder {
         let handle = thread::spawn(move || {
             let mut bytes = [0_u8; READ_FRAMES * 8];
             let mut samples = [[0.0_f32; 2]; READ_FRAMES];
-            let mut remaining = metadata.duration_samples;
+            let mut remaining = metadata.duration_samples - song_sample;
             while remaining > 0 && !stopping.load(Ordering::Acquire) {
                 let count = remaining.min(READ_FRAMES as u64);
                 let count = usize::try_from(count).unwrap_or(READ_FRAMES);
@@ -172,7 +210,13 @@ impl WavFeeder {
                 }
                 let mut written = 0;
                 while written < count && !stopping.load(Ordering::Acquire) {
-                    match io.enqueue_stereo(&samples[written..count]) {
+                    let Some(first_song_sample) =
+                        song_sample.checked_add(sending.load(Ordering::Acquire))
+                    else {
+                        failure.store(true, Ordering::Release);
+                        break;
+                    };
+                    match io.enqueue_stereo_at(epoch, first_song_sample, &samples[written..count]) {
                         Ok(0) => thread::sleep(Duration::from_millis(2)),
                         Ok(accepted) => {
                             written += accepted;
@@ -197,6 +241,7 @@ impl WavFeeder {
             sent,
             finished,
             failed,
+            epoch,
             duration_samples,
             thread: Some(handle),
         })
@@ -210,6 +255,17 @@ impl WavFeeder {
             finished: self.finished.load(Ordering::Acquire),
             failed: self.failed.load(Ordering::Acquire),
         }
+    }
+
+    /// {
+    ///   責務: [`epoch`: `このfeederがPCMを生成するtransport世代を読む`]
+    ///   処理: [1: ownerが保持するepoch値を返す]
+    ///   引数: []
+    ///   戻り値: [`ClockEpoch`: enqueue時に指定される世代]
+    /// }
+    #[must_use]
+    pub const fn epoch(&self) -> crate::audio_clock::ClockEpoch {
+        self.epoch
     }
 
     /// Stop and join the feeder from a non-realtime control thread.
@@ -229,7 +285,7 @@ impl Drop for WavFeeder {
 
 #[cfg(test)]
 mod tests {
-    use std::{fs, thread, time::Duration};
+    use std::fs;
 
     use super::{WavFeeder, invalid};
     use crate::audio_engine::AudioIo;
@@ -257,26 +313,40 @@ mod tests {
         bytes
     }
 
+    /// {
+    ///   責務: [`feeder_decodes_48k_stereo_float_without_callback_file_io`: WAV の非同期読込と PCM を検査する]
+    ///   処理: [1: queue 容量内の fixture を作る, 2: worker 完了を待つ, 3: 再生値と時刻を確認する]
+    ///   引数: []
+    ///   戻り値: []
+    /// }
     #[test]
     fn feeder_decodes_48k_stereo_float_without_callback_file_io() {
         let temporary = tempfile::tempdir().unwrap();
         let path = temporary.path().join("accompaniment.wav");
         fs::write(&path, fixture(&[[0.25, -0.25], [0.5, -0.5]])).unwrap();
         let io = AudioIo::new(32).unwrap();
-        let feeder = WavFeeder::start(io.clone(), &path).unwrap();
-        for _ in 0..100 {
-            if feeder.status().finished {
-                break;
-            }
-            thread::sleep(Duration::from_millis(1));
-        }
+        let mut feeder = WavFeeder::start(io.clone(), &path).unwrap();
+        // Both fixture frames fit in the ring, so completion needs no consumer.
+        feeder.thread.take().unwrap().join().unwrap();
         assert!(feeder.status().finished);
         assert!(!feeder.status().failed);
         assert_eq!(feeder.status().enqueued_samples, 2);
         io.set_playing(true);
         let mut output = [0.0; 4];
         io.render_mock(&mut output, 2);
-        assert_eq!(output, [0.25, -0.25, 0.5, -0.5]);
+        // These binary fractions must survive PCM decoding exactly.
+        assert_eq!(
+            output.map(f32::to_bits),
+            [0.25_f32, -0.25, 0.5, -0.5].map(f32::to_bits)
+        );
+        assert_eq!(
+            io.playback_timestamp(),
+            Some(crate::audio_engine::AudioPlaybackTimestamp {
+                epoch: feeder.epoch(),
+                output_sample: 1,
+                song_sample: 1,
+            })
+        );
         assert_eq!(io.counters().playback_sample_position, 2);
     }
 
@@ -286,7 +356,38 @@ mod tests {
         let path = temporary.path().join("bad.wav");
         fs::write(&path, b"invalid data").unwrap();
         let io = AudioIo::default();
-        assert!(WavFeeder::start(io, &path).is_err());
+        assert!(WavFeeder::start(io.clone(), &path).is_err());
         assert_eq!(invalid("bad").kind(), std::io::ErrorKind::InvalidData);
+    }
+
+    /// {
+    ///   責務: [`feeder_starts_at_the_requested_song_sample`: seek後のPCMとsong timestampが同じ位置を示すことを検査する]
+    ///   処理: [1: 複数frameのfixtureを作る, 2: 指定sampleから送る, 3: 音声値と再生timestampを照合する]
+    ///   引数: []
+    ///   戻り値: []
+    /// }
+    #[test]
+    fn feeder_starts_at_the_requested_song_sample() {
+        let temporary = tempfile::tempdir().unwrap();
+        let path = temporary.path().join("seek.wav");
+        fs::write(&path, fixture(&[[0.1, -0.1], [0.5, -0.5]])).unwrap();
+        let io = AudioIo::new(32).unwrap();
+        let epoch = io.clock_epoch();
+        let mut feeder = WavFeeder::start_at(io.clone(), epoch, 1, &path).unwrap();
+        feeder.thread.take().unwrap().join().unwrap();
+        assert_eq!(feeder.status().enqueued_samples, 1);
+        io.set_playing(true);
+        let mut output = [0.0; 2];
+        io.render_mock(&mut output, 2);
+        assert!((output[0] - 0.5).abs() < 1e-6);
+        assert!((output[1] + 0.5).abs() < 1e-6);
+        assert_eq!(
+            io.playback_timestamp(),
+            Some(crate::audio_engine::AudioPlaybackTimestamp {
+                epoch,
+                output_sample: 0,
+                song_sample: 1,
+            })
+        );
     }
 }

@@ -6,6 +6,7 @@ __pycache__/
 .python-version
 .venv/
 artifacts/
+datasets/
 
 .pytest_cache/
 .ruff_cache/

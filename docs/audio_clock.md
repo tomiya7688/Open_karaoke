@@ -4,8 +4,9 @@
 
 This is the **first contract and hardware-independent baseline**, not a completed CPAL or
 WASAPI implementation. The Rust reference mapping lives in `core/src/audio_clock.rs`;
-regressions are in `core/tests/audio_clock.rs`. Its arithmetic has no audio device
-dependencies, allocations, locks, external clock reads, or Python/model calls.
+regressions are in `core/tests/audio_clock.rs` and `core/tests/audio_clock_observation.rs`.
+Its arithmetic has no audio device dependencies, allocations, locks, external clock reads,
+or Python/model calls.
 
 The audio engine (#12), real-time scoring (#14), GUI (#16), and Windows device tests still
 need to connect their actual timestamps and calibration UI to this contract. A successful
@@ -124,6 +125,56 @@ A Core timestamp event eventually exposed to GUI should carry at least
 `epoch`, `song_sample`, source domain, calibration quality, and diagnostics
 for stale/uncalibrated data. #41 defines secure/versioned API publication.
 
+### Observing logical audio counters (unit #40.2)
+
+`ClockSession::observe_audio(AudioCounters)` runs on the control thread and invalidates
+both anchors when it observes a play/pause transition, a new input/output device error,
+a capture-overrun increase, or cumulative counters moving backwards. One snapshot advances
+one epoch, with device error taking diagnostic precedence over counter reset, capture gap,
+and playback transition. A persistent error flag or a repeated snapshot does not advance
+the epoch again. Output underrun silence keeps the logical output timeline continuous,
+so an underrun increase alone does not invalidate it.
+
+Call it at each control transition and before using mappings with newly read audio data.
+These counter reads are not a simultaneous hardware timestamp and never create an anchor
+or measured calibration. Seek, device replacement with identical counters, buffer/rate
+renegotiation, and transitions that occur between polls still require `begin_new_epoch()`
+at the control boundary. That explicit operation also clears the observation baseline,
+so historical capture-overrun counts in the next snapshot do not cause a second epoch
+change while no new anchors have been bound. An active device error still invalidates
+the session; counter observation never authorizes rebinding to a failed device.
+
+The opt-in WASAPI example applies invalidations to `AudioIo` and restarts its WAV feeder at
+the last presented song sample. The logical counter reads remain observations rather than
+simultaneous hardware timestamps or physical latency measurements.
+
+### Epoch-tagged PCM boundary (unit #40.3)
+
+`AudioIo::set_clock_epoch` is the process-side message that applies a `ClockSession` epoch
+to capture callbacks and realtime output reads. Update it with the epoch returned from
+`begin_new_epoch()` or `ClockInvalidation`; a lower epoch is rejected. Playback producers
+use `enqueue_stereo_at(epoch, song_sample, frames)`, and the output callback's presentation
+snapshot carries both that source position and its logical output position. Capture
+consumers use `read_microphone_timestamped` and receive
+`TimestampedMicrophoneSample { epoch, stream_sample, sample }`. The sample
+position counts dropped capture frames, making discontinuities visible to the scoring
+worker. Both paths carry raw PCM before monitoring effects.
+
+The realtime output callback discards at most one stale queued frame per requested output
+frame, writing silence for each discarded slot. This bounds callback work by its device
+buffer size. The capture consumer discards stale queued frames outside the callback. Queue
+occupancy can include stale slots until those readers drain them. A playback presentation
+snapshot remains tagged with its original epoch until new PCM is output; consumers must
+reject it when it does not match the current epoch. The owner must stop the old WAV feeder
+and call `WavFeeder::start_at` with the current song position; the feeder seeks to that frame in
+the source WAV. This API does not provide automatic transport policy or guarantee physical
+speaker timing.
+
+The original `enqueue_stereo`, `read_microphone`, and `WavFeeder::start` calls remain for
+existing playback/capture clients. `enqueue_stereo` has no song position, so playback
+timestamps for those frames are unavailable. Scoring and synchronized transport must use
+the timestamped messages; the legacy microphone reader still discards old-epoch PCM.
+
 ## Intended realtime callback design
 
 The mapper is pure integer arithmetic; it does no memory allocation, locking,
@@ -141,7 +192,7 @@ GUI emission operate on separate workers without blocking the callback.
 Run the deterministic unit/contract tests:
 
 ```powershell
-cargo test --locked -p open-karaoke-core --test audio_clock
+cargo test --locked -p open-karaoke-core --test audio_clock --test audio_clock_observation
 ```
 
 The standalone evaluator also writes deterministic JSON metrics:
@@ -154,13 +205,18 @@ The Linux CI uploads `artifacts/audio-clock-regression.json` as part of the
 test-report artifact. `max_absolute_error_samples = 0` is a **synthetic contract
 gate only**; `hardware_latency_verified` remains `false`.
 
-This test is included in the existing Rust `--all-targets` CI. It covers:
+These tests are included in the existing Rust `--all-targets` CI. They cover:
 
 - unknown vs measured latency metadata, signed corrections and pre-roll
 - ±100 ppm simulated drift across a 10-second window
 - output vs capture independent domains
 - seek/reset epoch invalidation and stale-frame rejection
 - invalid drift, double-binding, overflow
+- logical counter observation through `AudioIo` mocks: play/pause/resume, sticky device
+  errors, capture overrun, counter rollback, explicit epoch baseline reset, and concurrent
+  discontinuity causes producing a single invalidation
+- output underrun silence preserving continuous logical time and unknown calibration;
+  clean observations never inventing anchors
 
 The following **physical** checks are required before Issue #40 is fully accepted
 and prior to 1.0.0; they are not automated by the current code:

@@ -39,6 +39,39 @@ Issueのopen/closedと実装コードの存在が一致しないケースは
 | [#14 Realtime scoring](https://github.com/tomiya7688/Open_karaoke/issues/14) | #12・#40・譜面契約の後。音程とタイミング、遅延補正を確認 |
 | [#15 Avalonia Core client](https://github.com/tomiya7688/Open_karaoke/issues/15) | #41のAPI契約に基づき並行実装。将来GUI変更も可能にする |
 
+### #40の実装単位（P0は空けておく）
+
+| 単位 | 優先度 | 依存 | 完了条件・対象 |
+|---|---|---|---|
+| #40.1 整数clock mapping契約 | P1 | Song Dataの48 kHz時刻 | #45でmerge済み。独立domain、epoch、未知/推定/実測の遅延区別 |
+| #40.2 logical counterの不連続観測 | P1 | #40.1、#12 counter | `audio_clock.rs`で両anchor無効化、同一snapshotの重複処理防止、WASAPI診断例へ接続。`audio_clock_observation.rs`で制御遷移・欠落・error・resetを回帰検証 |
+| #40.3 PCMのepochとtimestamp接続 | P1 | #40.2 | capture frameにepochと48 kHz位置を付与。出力PCMにepochとsong位置を付け、古いframeを再生・採点しない。seek/device変更時のfeeder再配置と実機挙動は別途確認 |
+| #40.4 実機校正・drift評価 | P1 | #40.3、Windows実機 | [clock契約](audio_clock.md#regression-and-hardware-evaluation)の物理loopback、p95、30分driftと再接続試験 |
+
+#40.2のcounter観測だけで、PCMのepoch分離や実機の校正が完了したとは扱わない。
+
+### #41の実装単位（P0は空けておく）
+
+| 単位 | 優先度 | 依存 | 完了条件・対象 |
+|---|---|---|---|
+| #41.1 SSE接続予算 | P1 | #41の認証済みCore API | 全Job合計32接続で受付を制限し、超過は429、切断時と終端イベント送信後は枠を返す |
+| #41.2 HTTP処理予算 | P1 | #41.1 | 全ルート合計64件の同時処理を制限し、超過は429、応答生成後に枠を返す。TCP接続総数とは分ける |
+| #41.3 エラー表現の統一 | P1 | #41.2 | 製品Coreのframework由来エラーをJSONへ揃え、405の`Allow`を保持する |
+
+#41の残りはTCP接続総数の制限・timeoutとクライアント別認可の要否を個別に判断する。
+
+### #42の実装単位（P0は空けておく）
+
+| 単位 | 優先度 | 依存 | 完了条件・対象 |
+|---|---|---|---|
+| #42.1 非公開dataset manifest | P1 | #42の権利・分割方針 | [manifest契約](dataset_evaluation.md)とローカル検査CLIでhash・provenance参照・development/holdout漏洩を検査する |
+| #42.2 注釈の共通ヘッダー | P1 | #42.1 | 注釈をsample ID・音源hash・48 kHz時刻軸へ結び付け、版・長さ・種別を検査する |
+| #42.3 歌詞参照区間 | P1 | #42.2 | 歌詞注釈のID・文字列・48 kHz区間境界・開始時刻順を検査し、空参照を許容する |
+| #42.4 歌詞集計レポート | P1 | #42.3、既存CER/WER evaluator | development/holdoutを混ぜず、モデル版と入力hash付きの集計指標を本文・IDなしで出力する |
+| #42.5 評価データの層別 | P1 | #42.1〜#42.4 | 日本語・合成歌唱・音質劣化・長音・レガート・反復の分類をmanifestで検査し、件数を示す |
+
+#42.1〜#42.5は実データの権利確認・収集・注釈品質、歌詞以外の指標、および#18の継続評価を完了扱いにしない。
+
 ### P2 — 通常優先：1.0.0の主要機能と品質・配布
 
 | Issue | 理由・実装タイミング |
