@@ -39,7 +39,8 @@ URL中のtokenを認証に使わず、Authorizationの重複も拒否する。
 
 OSユーザーが同じでメモリや継承ハンドルを読める相手、管理者、改変されたlauncher/Core、
 tokenを共有したクライアント同士の分離はこの能力モデルの対象外。
-マルチユーザーACL、クライアント別artifact認可、HTTP接続総数とtimeout制御は後続。
+マルチユーザーACL、クライアント別artifact認可、TCP接続総数とtimeout制御は後続。
+Coreは応答を生成中のHTTP要求を全ルート合計64件に制限する。
 SSEにはCore内で全Job合計32接続の上限がある。
 インターネット公開サービスとして使用しない。
 
