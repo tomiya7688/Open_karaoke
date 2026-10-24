@@ -15,6 +15,15 @@ from .lyric_evaluator import evaluate
 
 
 def _read_bounded(path: Path, label: str) -> bytes:
+    """
+    {
+      責務: [_read_bounded: fileを4 MiB以下に制限して読む]
+      処理: [1: 上限+1 byteまで読む, 2: 上限を超えたらエラーにする]
+      引数: [path: 読むfile, label: エラー表示名]
+      戻り値: [fileのbytes]
+      エラー: [ValueError: 4 MiBを超える]
+    }
+    """
     with path.open("rb") as source:
         data = source.read(4_194_305)
     if len(data) > 4_194_304:
@@ -23,6 +32,21 @@ def _read_bounded(path: Path, label: str) -> bytes:
 
 
 def build_report(manifest_path: Path, prediction_path: Path, split: str) -> dict:
+    """
+    {
+      責務: [build_report: 非公開datasetの歌詞予測をsplit単位でCER/WER集計する]
+      処理: [
+        1: manifestを検証し、検証後に変化していないか確認する,
+        2: 指定splitの歌詞注釈から参照歌詞を集める,
+        3: 予測fileの形式・重複・件数を検証する,
+        4: 予測と参照のsample集合が完全一致することを確認する,
+        5: 歌詞evaluatorで集計し、manifestと予測のSHA-256付きで返す
+      ]
+      引数: [manifest_path: manifest, prediction_path: 予測file, split: development/holdout]
+      戻り値: [モデル・件数・CER/WER・evaluator情報を持つレポート]
+      エラー: [ValueError: splitや入力が契約を満たさない、または予測と参照が一致しない]
+    }
+    """
     if split not in {"development", "holdout"}:
         raise ValueError("split must be development or holdout")
     validated = validate_manifest(manifest_path)
@@ -102,6 +126,18 @@ def build_report(manifest_path: Path, prediction_path: Path, split: str) -> dict
 
 
 def main() -> None:
+    """
+    {
+      責務: [main: 歌詞dataset集計のCLI入口]
+      処理: [
+        1: 引数を受け取る,
+        2: レポートを作ってJSONで出力する,
+        3: 失敗は引数エラーとして終了する
+      ]
+      引数: []
+      戻り値: []
+    }
+    """
     parser = argparse.ArgumentParser(description="Aggregate private lyric dataset CER/WER")
     parser.add_argument("manifest", type=Path)
     parser.add_argument("predictions", type=Path)

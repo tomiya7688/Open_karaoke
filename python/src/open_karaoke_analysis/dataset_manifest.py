@@ -5,6 +5,15 @@ from pathlib import Path, PurePosixPath
 
 
 def _unique_object(pairs: list[tuple[str, object]]) -> dict:
+    """
+    {
+      責務: [_unique_object: JSON objectの重複キーを拒否してdictにする]
+      処理: [1: キーと値を順に読む, 2: 既出のキーならエラーにする]
+      引数: [pairs: JSON parserが渡すキーと値の組]
+      戻り値: [重複のないdict]
+      エラー: [ValueError: 重複したキー]
+    }
+    """
     result = {}
     for key, value in pairs:
         if key in result:
@@ -14,26 +23,75 @@ def _unique_object(pairs: list[tuple[str, object]]) -> dict:
 
 
 def _invalid_constant(value: str) -> None:
+    """
+    {
+      責務: [_invalid_constant: NaN・Infinityなど非有限のJSON値を拒否する]
+      処理: [1: 受け取った定数名を含むエラーを送出する]
+      引数: [value: 定数名]
+      戻り値: []
+      エラー: [ValueError: 常に送出する]
+    }
+    """
     raise ValueError(f"Non-finite JSON value: {value}")
 
 
 def _load_json(data: bytes) -> object:
+    """
+    {
+      責務: [_load_json: 重複キーと非有限値を拒否してJSONを読む]
+      処理: [1: 重複キー検査と非有限値検査を指定してparseする]
+      引数: [data: JSONのbytes]
+      戻り値: [parse済みの値]
+      エラー: [ValueError: JSONが不正、重複キー、または非有限値]
+    }
+    """
     return json.loads(data, object_pairs_hook=_unique_object, parse_constant=_invalid_constant)
 
 
 def _object(value: object, keys: set[str], label: str) -> dict:
+    """
+    {
+      責務: [_object: JSON objectのキー集合が過不足ないことを検証する]
+      処理: [1: dictか確認する, 2: キー集合が期待と一致するか確認する]
+      引数: [value: 検証対象, keys: 必須かつ許可するキー, label: エラー表示名]
+      戻り値: [検証済みのdict]
+      エラー: [ValueError: objectでない、またはキーが過不足]
+    }
+    """
     if not isinstance(value, dict) or set(value) != keys:
         raise ValueError(f"{label} must contain exactly: {', '.join(sorted(keys))}")
     return value
 
 
 def _text(value: object, label: str) -> str:
+    """
+    {
+      責務: [_text: 空でない512文字以下の文字列を検証する]
+      処理: [1: 文字列か確認する, 2: 空白のみでなく長さが上限内か確認する]
+      引数: [value: 検証対象, label: エラー表示名]
+      戻り値: [検証済みの文字列]
+      エラー: [ValueError: 文字列でない、空、または長すぎる]
+    }
+    """
     if not isinstance(value, str) or not value.strip() or len(value) > 512:
         raise ValueError(f"{label} must be a nonempty string of at most 512 characters")
     return value
 
 
 def _strata(value: object, label: str) -> dict:
+    """
+    {
+      責務: [_strata: 評価層(言語・声の由来・音質・歌唱現象)を検証する]
+      処理: [
+        1: 4項目の過不足を確認する,
+        2: 言語・声の由来・音質が許可された値か確認する,
+        3: 歌唱現象が許可された値で重複しないか確認する
+      ]
+      引数: [value: 検証対象, label: エラー表示名]
+      戻り値: [検証済みの評価層]
+      エラー: [ValueError: 項目または値が不正]
+    }
+    """
     strata = _object(value, {"language", "vocal_source", "audio_condition", "phenomena"}, label)
     choices = {
         "language": {"ja", "en", "other", "mixed", "none"},
@@ -56,6 +114,20 @@ def _strata(value: object, label: str) -> dict:
 
 
 def _verified_file(root: Path, file: object, label: str) -> tuple[Path, str]:
+    """
+    {
+      責務: [_verified_file: manifest配下のファイルを開き、記載されたSHA-256と照合する]
+      処理: [
+        1: pathとsha256のobjectを検証する,
+        2: 絶対パス・親参照・バックスラッシュを拒否する,
+        3: manifest配下の通常ファイルか確認する,
+        4: 1MiB単位でSHA-256を計算して照合する
+      ]
+      引数: [root: manifestのあるdirectory, file: pathとsha256を持つobject, label: エラー表示名]
+      戻り値: [解決済みpathと照合済みのSHA-256(小文字hex)]
+      エラー: [ValueError: path・形式・実体・ハッシュのいずれかが不正]
+    }
+    """
     entry = _object(file, {"path", "sha256"}, label)
     raw_path = _text(entry["path"], f"{label}.path")
     relative = PurePosixPath(raw_path)
@@ -82,6 +154,19 @@ def _verified_file(root: Path, file: object, label: str) -> tuple[Path, str]:
 
 
 def _lyrics_payload(payload: dict, duration: int, label: str) -> None:
+    """
+    {
+      責務: [_lyrics_payload: 歌詞注釈のreference_segmentsを検証する]
+      処理: [
+        1: segment配列の件数上限を確認する,
+        2: id重複とテキスト長を確認する,
+        3: 開始・終了sampleが音源長に収まり開始順か確認する
+      ]
+      引数: [payload: 歌詞注釈のpayload, duration: 音源長(48 kHz sample), label: エラー表示名]
+      戻り値: []
+      エラー: [ValueError: segmentが契約を満たさない]
+    }
+    """
     payload = _object(payload, {"reference_segments"}, label)
     segments = payload["reference_segments"]
     if not isinstance(segments, list) or len(segments) > 10_000:
@@ -109,6 +194,26 @@ def _lyrics_payload(payload: dict, duration: int, label: str) -> None:
 def _annotation_envelope(
     path: Path, annotation_hash: str, sample_id: str, audio_hash: str, label: str
 ) -> dict:
+    """
+    {
+      責務: [_annotation_envelope: 注釈fileが音声とsampleに束縛されたenvelopeか検証する]
+      処理: [
+        1: 4 MiB以下で読み、検証済みのSHA-256から変化していないか確認する,
+        2: envelopeのキー・version・sample_id・音声SHA-256を確認する,
+        3: 48 kHzと音源長、kind、payloadを確認する,
+        4: 歌詞注釈ならreference_segmentsを検証する
+      ]
+      引数: [
+        path: 注釈file,
+        annotation_hash: 検証済みのSHA-256,
+        sample_id: manifest上のsample id,
+        audio_hash: 音声のSHA-256,
+        label: エラー表示名
+      ]
+      戻り値: [検証済みのenvelope]
+      エラー: [ValueError: envelopeが契約を満たさない]
+    }
+    """
     with path.open("rb") as source:
         data = source.read(4_194_305)
     if len(data) > 4_194_304:
@@ -154,6 +259,21 @@ def _annotation_envelope(
 
 
 def validate_manifest(path: Path) -> dict:
+    """
+    {
+      責務: [validate_manifest: 非公開歌唱datasetのmanifestを検証して件数を報告する]
+      処理: [
+        1: 4 MiB以下で読み、versionとsamples数を確認する,
+        2: 各sampleのキー・id重複・split・出典・権利参照を検証する,
+        3: source_groupと同一音声がdevelopmentとholdoutにまたがらないか確認する,
+        4: 評価層を検証し、split別に集計する,
+        5: 音声と注釈のSHA-256、注釈envelopeを検証する
+      ]
+      引数: [path: manifestのJSON file]
+      戻り値: [version・manifestのSHA-256・件数・split別件数・評価層集計・検証結果を持つdict]
+      エラー: [ValueError: manifestが契約を満たさない]
+    }
+    """
     with path.open("rb") as source:
         data = source.read(4_194_305)
     if len(data) > 4_194_304:
@@ -243,6 +363,18 @@ def validate_manifest(path: Path) -> dict:
 
 
 def main() -> None:
+    """
+    {
+      責務: [main: manifest検証のCLI入口]
+      処理: [
+        1: 引数からmanifestを受け取る,
+        2: 検証して結果をJSONで出力する,
+        3: 失敗は引数エラーとして終了する
+      ]
+      引数: []
+      戻り値: []
+    }
+    """
     parser = argparse.ArgumentParser(description="Validate a private real-singing dataset manifest")
     parser.add_argument("manifest", type=Path)
     args = parser.parse_args()
