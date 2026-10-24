@@ -151,12 +151,48 @@ fn rejected(status: StatusCode, message: &'static str) -> Response {
 }
 
 /// {
+///   責務: [`normalize_error_response`: framework由来の非JSONエラー応答を`{"error":"message"}`へ揃える]
+///   処理: [
+///     1: 成功応答、または既にJSONのエラー応答はそのまま返す,
+///     2: 405の`Allow`ヘッダーを退避する,
+///     3: 404・405・413に専用メッセージ、その他に汎用メッセージを選ぶ,
+///     4: JSONエラー応答を作り、`Allow`を戻す
+///   ]
+///   引数: [`response`: 後続handlerの応答]
+///   戻り値: [JSONエラーへ正規化した応答、または元の応答]
+/// }
+fn normalize_error_response(response: Response) -> Response {
+    let status = response.status();
+    if !(status.is_client_error() || status.is_server_error())
+        || response
+            .headers()
+            .get(header::CONTENT_TYPE)
+            .is_some_and(|value| value.as_bytes().starts_with(b"application/json"))
+    {
+        return response;
+    }
+    let allow = response.headers().get(header::ALLOW).cloned();
+    let message = match status {
+        StatusCode::NOT_FOUND => "Core route not found",
+        StatusCode::METHOD_NOT_ALLOWED => "Core method not allowed",
+        StatusCode::PAYLOAD_TOO_LARGE => "Core request body too large",
+        _ => "Core request rejected",
+    };
+    let mut normalized = rejected(status, message);
+    if let Some(allow) = allow {
+        normalized.headers_mut().insert(header::ALLOW, allow);
+    }
+    normalized
+}
+
+/// {
 ///   責務: [`authorize`: 認証・Host・Origin・versionの検証と同時処理枠の確保を行うmiddleware]
 ///   処理: [
 ///     1: `/health` 以外でブラウザ由来・token・Host・versionを検証する,
 ///     2: 同時処理枠を確保できなければ429を返す,
 ///     3: 後続handlerを実行し、応答生成後に枠を返す,
-///     4: 応答へ `Cache-Control: no-store` を付ける
+///     4: 非JSONのエラー応答をJSONへ正規化する,
+///     5: 応答へ `Cache-Control: no-store` を付ける
 ///   ]
 ///   引数: [`session`: 検証と処理枠を持つセッション, `request`: 受信要求, `next`: 後続handler]
 ///   戻り値: [検証失敗・上限超過・handler結果のいずれかの応答]
@@ -189,8 +225,9 @@ async fn authorize(State(session): State<CoreSession>, request: Request, next: N
     let Ok(permit) = Arc::clone(&session.request_budget).try_acquire_owned() else {
         return rejected(StatusCode::TOO_MANY_REQUESTS, "Too many Core requests");
     };
-    let mut response = next.run(request).await;
+    let response = next.run(request).await;
     drop(permit);
+    let mut response = normalize_error_response(response);
     response
         .headers_mut()
         .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
@@ -379,6 +416,69 @@ mod tests {
         let accepted = router.oneshot(request()).await.unwrap();
         assert_eq!(accepted.status(), StatusCode::OK);
         assert_eq!(budget.available_permits(), MAX_ACTIVE_HANDLERS);
+    }
+
+    /// {
+    ///   責務: [`framework_errors_are_normalized_to_json`: framework由来のエラーがJSON契約に揃うことを確認する]
+    ///   処理: [
+    ///     1: 未知のパスが404のJSONエラーになることを確認する,
+    ///     2: 許可されない操作が405のJSONエラーで`Allow`を保持することを確認する,
+    ///     3: 上限超過の本文が413のJSONエラーになることを確認する,
+    ///     4: 不正なJSON本文がJSONエラーになることを確認する
+    ///   ]
+    ///   引数: []
+    ///   戻り値: []
+    /// }
+    #[tokio::test]
+    async fn framework_errors_are_normalized_to_json() {
+        let router = session(TOKEN).router(AppState::new());
+        let send = |method: &'static str, path: &'static str, body: Vec<u8>| {
+            let router = router.clone();
+            async move {
+                let response = router
+                    .oneshot(
+                        Request::builder()
+                            .method(method)
+                            .uri(path)
+                            .header("host", "127.0.0.1:32145")
+                            .header("authorization", format!("Bearer {TOKEN}"))
+                            .header(CORE_API_VERSION_HEADER, "1")
+                            .header("content-type", "application/json")
+                            .body(Body::from(body))
+                            .unwrap(),
+                    )
+                    .await
+                    .unwrap();
+                let status = response.status();
+                let headers = response.headers().clone();
+                let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+                    .await
+                    .unwrap();
+                (
+                    status,
+                    headers,
+                    serde_json::from_slice::<serde_json::Value>(&bytes),
+                )
+            }
+        };
+
+        let (status, headers, body) = send("GET", "/no-such-route", Vec::new()).await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
+        assert_eq!(body.unwrap()["error"], "Core route not found");
+        assert_eq!(headers[header::CACHE_CONTROL], "no-store");
+
+        let (status, headers, body) = send("DELETE", "/session", Vec::new()).await;
+        assert_eq!(status, StatusCode::METHOD_NOT_ALLOWED);
+        assert_eq!(body.unwrap()["error"], "Core method not allowed");
+        assert!(headers.contains_key(header::ALLOW));
+
+        let (status, _, body) = send("POST", "/jobs", vec![b' '; 65 * 1024]).await;
+        assert_eq!(status, StatusCode::PAYLOAD_TOO_LARGE);
+        assert_eq!(body.unwrap()["error"], "Core request body too large");
+
+        let (status, _, body) = send("POST", "/jobs", b"{not json".to_vec()).await;
+        assert!(status.is_client_error());
+        assert!(body.unwrap()["error"].is_string());
     }
 
     #[tokio::test]
