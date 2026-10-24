@@ -83,6 +83,28 @@ class ModelAdapter(Protocol):
     def analyze(self, context: AnalysisContext, options: dict[str, Any]) -> list[str]: ...
 
 
+def validate_adapter_options(
+    schema: type[BaseModel], options: dict[str, Any], message: str
+) -> dict[str, Any]:
+    """
+    {
+      責務: [validate_adapter_options: 全Adapterで共通のPydantic検証とServiceError変換を行う]
+      処理: [1: schemaでoptionsを厳密に検証する, 2: 失敗をinvalid_optionsのServiceErrorへ変換する]
+      引数: [
+        schema: 検証に使うPydantic model,
+        options: 利用者が指定した設定,
+        message: 失敗時の役割別メッセージ
+      ]
+      戻り値: [検証済みの設定dict]
+      エラー: [ServiceError: invalid_options。optionsがschemaを満たさない]
+    }
+    """
+    try:
+        return schema.model_validate(options).model_dump()
+    except ValidationError as error:
+        raise ServiceError("invalid_options", message) from error
+
+
 class MockOptions(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
     steps: int = Field(default=5, ge=1, le=100)
@@ -96,10 +118,7 @@ class MockAdapter:
     info = ModelInfo(id="mock-v1", version="1.0.0", role=Role.MOCK, capabilities=["fixture"])
 
     def validate_options(self, options: dict[str, Any]) -> dict[str, Any]:
-        try:
-            return MockOptions.model_validate(options).model_dump()
-        except ValidationError as error:
-            raise ServiceError("invalid_options", "Invalid mock options") from error
+        return validate_adapter_options(MockOptions, options, "Invalid mock options")
 
     def analyze(self, context: AnalysisContext, options: dict[str, Any]) -> list[str]:
         for step in range(1, options["steps"] + 1):

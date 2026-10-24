@@ -9,9 +9,9 @@ import tempfile
 from pathlib import Path
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from .adapters import AnalysisContext, atomic_json, resolve_artifact
+from .adapters import AnalysisContext, atomic_json, resolve_artifact, validate_adapter_options
 from .contracts import ModelInfo, Role, ServiceError
 from .stem_backend import MODEL_ID, WEIGHT_VERSION, UmxHqBackend, file_sha256
 
@@ -107,10 +107,7 @@ class StemsAdapter:
         self.backend_factory = backend_factory
 
     def validate_options(self, options: dict[str, Any]) -> dict[str, Any]:
-        try:
-            return StemOptions.model_validate(options).model_dump()
-        except ValidationError as error:
-            raise ServiceError("invalid_options", "Invalid stem separation options") from error
+        return validate_adapter_options(StemOptions, options, "Invalid stem separation options")
 
     def analyze(self, context: AnalysisContext, options: dict[str, Any]) -> list[str]:
         if context.input_path is None:
