@@ -97,6 +97,8 @@ GUIなしでのCI実行はJob APIまたは既存のEvaluator CLIによって可�
 
 終了コードは0が合格、1が回帰または候補の既存絶対品質ゲートの不合格、2が不正入力・比較不能・I/Oエラー。比較が成立すれば不合格でも集計JSONを保存し、双方のモデル版・入力hash、CERと増分・許容値・判定を残す。入力と同じ出力先は拒否する。WER等の回帰、baselineの自動更新、Job API runner、公開CIへの実データ集計のアップロードは後続単位。
 
+合成歌詞CERの固定baseline比較と集計artifact保存は [#18.4のCI手順](lyric_ci.md) を参照する。実歌唱評価・Job API runnerの完了とは分ける。
+
 ## 1.0.0 Release Evaluation（未完了）
 
 正式リリース前に以下を評価する:

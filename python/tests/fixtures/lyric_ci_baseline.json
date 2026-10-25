@@ -1,0 +1,39 @@
+{
+  "format_version": 1,
+  "evaluation_kind": "synthetic",
+  "evaluator": {
+    "name": "lyric-transcription",
+    "version": 1
+  },
+  "dataset": {
+    "id": "lyric-ci",
+    "version": "v1",
+    "sha256": "1250fec672e6c44b90f7036327aa00eadb12d223440e42bb58ee11cc961e5ba0",
+    "reference_sha256": "7accebbfd798c5ba20e293417f7b3b49996b443a58e55b41cd4341d764261ad6"
+  },
+  "model": {
+    "name": "synthetic-fixture",
+    "version": "v1"
+  },
+  "configuration": {
+    "normalization": "NFKC+casefold+remove-punctuation",
+    "wer_tokenizer": "whitespace",
+    "cer_whitespace": "removed"
+  },
+  "metrics": {
+    "cer": 0.0,
+    "wer": 0.0,
+    "char_errors": 0,
+    "reference_chars": 17,
+    "word_errors": 0,
+    "reference_words": 5,
+    "empty_reference_insertions": 0
+  },
+  "gate": {
+    "applied": true,
+    "passed": true,
+    "thresholds": {
+      "max_cer": 0.1
+    }
+  }
+}

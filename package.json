@@ -1,0 +1,11 @@
+{
+  "name": "open-karaoke-dev-tools",
+  "private": true,
+  "scripts": {
+    "format:lyric-ci": "python -m ruff format python/tests/test_lyric_ci.py && prettier --write .prettierrc.json package.json package-lock.json .github/workflows/lyric-regression.yml python/tests/fixtures/lyric_ci_*.json docs/lyric_ci.md",
+    "format:check:lyric-ci": "python -m ruff format --check python/tests/test_lyric_ci.py && prettier --check .prettierrc.json package.json package-lock.json .github/workflows/lyric-regression.yml python/tests/fixtures/lyric_ci_*.json docs/lyric_ci.md"
+  },
+  "devDependencies": {
+    "prettier": "3.6.2"
+  }
+}
