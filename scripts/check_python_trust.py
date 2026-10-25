@@ -29,7 +29,10 @@ TRUST_OVERRIDE_VARIABLES = (
     "REQUESTS_CA_BUNDLE",
     "PIP_CERT",
 )
-PRERELEASE = re.compile(r"(a|b|rc|alpha|beta|dev|pre)\d*", re.IGNORECASE)
+# 事前版・開発版の印は、区切りか末尾までの1語として完全に一致したときだけ認める(例: "build" の b は対象外)。
+PRERELEASE = re.compile(
+    r"(?:a|b|c|rc|alpha|beta|pre|preview|dev)\d*(?=$|[.\-_])", re.IGNORECASE
+)
 WIDTH = 4  # 比較用に数値部を揃える桁数。"26.2" と "26.2.0" を同じ版として扱う
 
 
@@ -39,7 +42,8 @@ def parse_version(text: str) -> tuple[int, ...]:
       責務: [parse_version: バージョン文字列を大小比較できる固定長の組へ変換する]
       処理: [
         1: 先頭の数字とドットの並びを取り出し、WIDTH桁まで0で埋める,
-        2: 末尾に正式版なら1、開発版・事前版なら0を付け、同じ数値の事前版を正式版より小さくする
+        2: ローカル版識別子("+"以降)を取り除く,
+        3: 末尾に正式版なら1、開発版・事前版なら0を付け、同じ数値の事前版を正式版より小さくする
       ]
       引数: [text: pip・certifiなどのバージョン文字列]
       戻り値: [比較用の組。例: "26.2.2" -> (26, 2, 2, 0, 1)、"26.2.2rc1" -> (26, 2, 2, 0, 0)]
@@ -52,8 +56,9 @@ def parse_version(text: str) -> tuple[int, ...]:
     numbers = [int(part) for part in match.group().split(".")]
     if len(numbers) > WIDTH:
         raise ValueError(f"Unsupported version shape: {text!r}")
-    rest = text.strip()[match.end() :].lstrip(".-+_")
-    final = 0 if PRERELEASE.match(rest) else 1
+    # "26.2.2+build1" のようなローカル版識別子は事前版の判定に使わない。
+    public_rest = text.strip()[match.end() :].split("+", 1)[0].lstrip(".-_")
+    final = 0 if PRERELEASE.match(public_rest) else 1
     return (*numbers, *([0] * (WIDTH - len(numbers))), final)
 
 
@@ -63,26 +68,44 @@ def find_problems(installed: Mapping[str, str | None]) -> list[str]:
       責務: [find_problems: 導入済みの版が最小版を満たすか判定する]
       処理: [
         1: pipとcertifiが導入済みで最小版以上か確認する,
-        2: uvとsigstoreは導入されている場合だけ最小版以上か確認する
+        2: uvとsigstoreは導入されている場合だけ最小版以上か確認する,
+        3: 比較できない版文字列は例外にせず問題として報告する
       ]
       引数: [installed: パッケージ名から版(未導入ならNone)への対応]
       戻り値: [問題の説明の一覧。空なら全て適合]
     }
     """
     problems = []
-    for name, minimum in REQUIRED_MINIMUMS.items():
+    for name, minimum in {**REQUIRED_MINIMUMS, **OPTIONAL_MINIMUMS}.items():
         version = installed.get(name)
         if version is None:
-            problems.append(f"{name} is not installed (need >= {_dotted(minimum)})")
-        elif parse_version(version) < parse_version(_dotted(minimum)):
-            problems.append(f"{name} {version} is older than {_dotted(minimum)}")
-    for name, minimum in OPTIONAL_MINIMUMS.items():
-        version = installed.get(name)
-        if version is not None and parse_version(version) < parse_version(
-            _dotted(minimum)
-        ):
+            if name in REQUIRED_MINIMUMS:
+                problems.append(f"{name} is not installed (need >= {_dotted(minimum)})")
+            continue
+        try:
+            too_old = parse_version(version) < parse_version(_dotted(minimum))
+        except ValueError:
+            problems.append(f"{name} version {version!r} cannot be compared")
+            continue
+        if too_old:
             problems.append(f"{name} {version} is older than {_dotted(minimum)}")
     return problems
+
+
+def find_bundle_problems(bundle: Path) -> list[str]:
+    """
+    {
+      責務: [find_bundle_problems: 実際に参照するCA bundleが読める実体か判定する]
+      処理: [1: 通常ファイルとして存在するか確認する, 2: 空でないか確認する]
+      引数: [bundle: certifi.where()が返すCA bundleのパス]
+      戻り値: [問題の説明の一覧。空なら実体がある]
+    }
+    """
+    if not bundle.is_file():
+        return [f"certifi CA bundle does not exist: {bundle}"]
+    if bundle.stat().st_size == 0:
+        return [f"certifi CA bundle is empty: {bundle}"]
+    return []
 
 
 def _dotted(version: tuple[int, ...]) -> str:
@@ -104,7 +127,7 @@ def main() -> int:
         1: Python・pip・certifi・uv・sigstoreの版を集める,
         2: certifiのCA bundleと標準ライブラリのSSL検証パスを表示する,
         3: 信頼ストアを上書きする環境変数があれば警告する,
-        4: 最小版を満たさなければ終了コード1にする
+        4: 最小版を満たさない、またはCA bundleの実体が無い・空なら終了コード1にする
       ]
       引数: []
       戻り値: [終了コード。0なら適合]
@@ -115,11 +138,13 @@ def main() -> int:
     print(f"python {sys.version.split()[0]} ({sys.executable})")
     for name in names:
         print(f"{name}: {installed[name] or 'not installed'}")
+    bundle_problems: list[str] = []
     if installed["certifi"] is not None:
         import certifi
 
         bundle = Path(certifi.where())
         print(f"certifi CA bundle: {bundle} (exists={bundle.is_file()})")
+        bundle_problems = find_bundle_problems(bundle)
     paths = ssl.get_default_verify_paths()
     print(f"ssl default cafile: {paths.cafile}  capath: {paths.capath}")
     for variable in TRUST_OVERRIDE_VARIABLES:
@@ -127,7 +152,7 @@ def main() -> int:
             print(
                 f"WARNING: {variable} overrides the trust store: {os.environ[variable]}"
             )
-    problems = find_problems(installed)
+    problems = [*find_problems(installed), *bundle_problems]
     for problem in problems:
         print(f"ERROR: {problem}")
     return 1 if problems else 0
