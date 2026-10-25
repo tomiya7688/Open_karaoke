@@ -26,8 +26,8 @@ GOOD = {"pip": "26.2.2", "certifi": "2026.10.19", "uv": None, "sigstore": None}
         ("26.2.2.post1", (26, 2, 2, 0, 1)),
         ("26.2.2+build1", (26, 2, 2, 0, 1)),
         ("26.2.2+ubuntu1", (26, 2, 2, 0, 1)),
-        ("26.2.2final", (26, 2, 2, 0, 1)),
-        ("26.2.2abc", (26, 2, 2, 0, 1)),
+        ("26.2.2.post1.dev1", (26, 2, 2, 0, 1)),
+        ("26.2.2-post2", (26, 2, 2, 0, 1)),
     ],
 )
 def test_release_versions_are_final(text, expected):
@@ -48,6 +48,8 @@ def test_release_versions_are_final(text, expected):
         "26.2.2pre",
         "26.2.2preview1",
         "26.2.2RC1",
+        "26.2.2rc1.post2",
+        "26.2.2rc1+local",
     ],
 )
 def test_pre_and_dev_releases_are_below_the_release(text):
@@ -70,7 +72,21 @@ def test_equivalent_versions_compare_equal():
     assert trust.parse_version("26.2") == trust.parse_version("26.2.0")
 
 
-@pytest.mark.parametrize("text", ["", " ", "abc", "v26.2.2", "1.2.3.4.5", ".5"])
+@pytest.mark.parametrize(
+    "text",
+    [
+        "",
+        " ",
+        "abc",
+        "v26.2.2",
+        "1.2.3.4.5",
+        ".5",
+        "26.2.2final",
+        "26.2.2abc",
+        "26.2.2-1",
+        "26.2.2rc1b2",
+    ],
+)
 def test_parse_version_rejects_unrecognized_text(text):
     with pytest.raises(ValueError):
         trust.parse_version(text)
@@ -110,6 +126,11 @@ def test_unparseable_versions_are_problems_not_exceptions():
     assert problem == "pip version '1.2.3.4.5' cannot be compared"
 
 
+def test_unknown_suffixes_fail_closed_instead_of_passing_as_releases():
+    (problem,) = trust.find_problems({**GOOD, "certifi": "2026.10.19final"})
+    assert problem == "certifi version '2026.10.19final' cannot be compared"
+
+
 def test_bundle_must_be_a_nonempty_file(tmp_path):
     good = tmp_path / "cacert.pem"
     good.write_text("pem", encoding="utf-8")
@@ -119,6 +140,19 @@ def test_bundle_must_be_a_nonempty_file(tmp_path):
     assert "does not exist" in trust.find_bundle_problems(tmp_path / "missing.pem")[0]
     assert "does not exist" in trust.find_bundle_problems(tmp_path)[0]
     assert "is empty" in trust.find_bundle_problems(empty)[0]
+
+
+def test_unreadable_bundle_is_a_problem_not_a_crash(monkeypatch, tmp_path):
+    bundle = tmp_path / "cacert.pem"
+    bundle.write_text("pem", encoding="utf-8")
+
+    def deny(self):
+        raise PermissionError("denied")
+
+    monkeypatch.setattr(Path, "stat", deny)
+    (problem,) = trust.find_bundle_problems(bundle)
+    assert problem.startswith(f"certifi CA bundle cannot be accessed: {bundle}")
+    assert "denied" in problem
 
 
 def run_main(monkeypatch, capsys, versions, tmp_path, env=None, bundle_text="test"):
@@ -201,6 +235,9 @@ def step_blocks(source):
         steps, item_indent = [], None
         while index < len(lines):
             line = lines[index]
+            if line.lstrip().startswith("#"):  # コメント行(例: "# - foo")は step として数えない
+                index += 1
+                continue
             indent = len(line) - len(line.lstrip())
             if line.strip() and indent <= base:
                 break
@@ -212,6 +249,17 @@ def step_blocks(source):
             index += 1
         lists.append(steps)
     return lists
+
+
+def test_step_blocks_ignores_comments_and_keeps_multiline_steps():
+    source = (
+        "jobs:\n  a:\n    steps:\n      # - fake\n"
+        "      - uses: actions/setup-python@v5\n        with:\n          x: 1\n"
+        "      - uses: ./.github/actions/python-trust\n"
+    )
+    (steps,) = step_blocks(source)
+    assert len(steps) == 2
+    assert "with:" in steps[0] and "python-trust" in steps[1]
 
 
 def test_the_trust_action_upgrades_before_verifying_from_the_workspace():

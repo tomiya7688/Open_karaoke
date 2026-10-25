@@ -29,9 +29,15 @@ TRUST_OVERRIDE_VARIABLES = (
     "REQUESTS_CA_BUNDLE",
     "PIP_CERT",
 )
-# 事前版・開発版の印は、区切りか末尾までの1語として完全に一致したときだけ認める(例: "build" の b は対象外)。
-PRERELEASE = re.compile(
-    r"(?:a|b|c|rc|alpha|beta|pre|preview|dev)\d*(?=$|[.\-_])", re.IGNORECASE
+# 数値部の後ろに認める接尾辞の文法(PEP 440 の表記の一部)。1語は「種類 + 数字(省略可) + 区切りか末尾」。
+# これに合わない接尾辞は比較不能として拒否する(セキュリティ判定なので、未知の表記を正式版として通さない)。
+SUFFIX_TOKEN = re.compile(
+    r"(?P<kind>alpha|beta|preview|pre|post|rev|rc|dev|a|b|c|r)\d*(?:[.\-_]|$)",
+    re.IGNORECASE,
+)
+# 先頭の語がこれなら、同じ数値の正式版より小さい版として扱う。
+PRERELEASE_KINDS = frozenset(
+    {"a", "b", "c", "rc", "alpha", "beta", "pre", "preview", "dev"}
 )
 WIDTH = 4  # 比較用に数値部を揃える桁数。"26.2" と "26.2.0" を同じ版として扱う
 
@@ -43,11 +49,12 @@ def parse_version(text: str) -> tuple[int, ...]:
       処理: [
         1: 先頭の数字とドットの並びを取り出し、WIDTH桁まで0で埋める,
         2: ローカル版識別子("+"以降)を取り除く,
-        3: 末尾に正式版なら1、開発版・事前版なら0を付け、同じ数値の事前版を正式版より小さくする
+        3: 残りをSUFFIX_TOKENの列として読み、合わない接尾辞は拒否する,
+        4: 先頭の語が事前版・開発版なら末尾に0、それ以外(接尾辞なし・post)は1を付ける
       ]
       引数: [text: pip・certifiなどのバージョン文字列]
       戻り値: [比較用の組。例: "26.2.2" -> (26, 2, 2, 0, 1)、"26.2.2rc1" -> (26, 2, 2, 0, 0)]
-      エラー: [ValueError: 先頭が数字で始まらない、または数値部がWIDTH桁を超える]
+      エラー: [ValueError: 先頭が数字で始まらない、数値部がWIDTH桁を超える、または未知の接尾辞]
     }
     """
     match = re.match(r"\d+(?:\.\d+)*", text.strip())
@@ -58,7 +65,15 @@ def parse_version(text: str) -> tuple[int, ...]:
         raise ValueError(f"Unsupported version shape: {text!r}")
     # "26.2.2+build1" のようなローカル版識別子は事前版の判定に使わない。
     public_rest = text.strip()[match.end() :].split("+", 1)[0].lstrip(".-_")
-    final = 0 if PRERELEASE.match(public_rest) else 1
+    first_kind = None
+    position = 0
+    while position < len(public_rest):
+        token = SUFFIX_TOKEN.match(public_rest, position)
+        if token is None:
+            raise ValueError(f"Unsupported version suffix: {text!r}")
+        first_kind = first_kind or token.group("kind").lower()
+        position = token.end()
+    final = 0 if first_kind in PRERELEASE_KINDS else 1
     return (*numbers, *([0] * (WIDTH - len(numbers))), final)
 
 
@@ -96,15 +111,18 @@ def find_bundle_problems(bundle: Path) -> list[str]:
     """
     {
       責務: [find_bundle_problems: 実際に参照するCA bundleが読める実体か判定する]
-      処理: [1: 通常ファイルとして存在するか確認する, 2: 空でないか確認する]
+      処理: [1: 通常ファイルとして存在するか確認する, 2: 空でないか確認する, 3: 参照できない場合は問題として返す]
       引数: [bundle: certifi.where()が返すCA bundleのパス]
       戻り値: [問題の説明の一覧。空なら実体がある]
     }
     """
-    if not bundle.is_file():
-        return [f"certifi CA bundle does not exist: {bundle}"]
-    if bundle.stat().st_size == 0:
-        return [f"certifi CA bundle is empty: {bundle}"]
+    try:
+        if not bundle.is_file():
+            return [f"certifi CA bundle does not exist: {bundle}"]
+        if bundle.stat().st_size == 0:
+            return [f"certifi CA bundle is empty: {bundle}"]
+    except OSError as error:
+        return [f"certifi CA bundle cannot be accessed: {bundle} ({error})"]
     return []
 
 
