@@ -11,3 +11,6 @@ datasets/
 .pytest_cache/
 .ruff_cache/
 *.egg-info/
+
+# Local Node development tools
+node_modules/

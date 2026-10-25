@@ -1,0 +1,9 @@
+[
+  {
+    "id": "japanese",
+    "reference": "こんにちは、世界！",
+    "hypothesis": "こんにちは世界"
+  },
+  { "id": "unicode", "reference": "ＡＢＣ　abc", "hypothesis": "abc abc" },
+  { "id": "repetition", "reference": "らら らら", "hypothesis": "らら らら" }
+]
