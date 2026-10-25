@@ -19,6 +19,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+      - uses: ./.github/actions/python-trust
       - name: Install test dependencies
         run: python -m pip install --quiet -e './python[dev]'
       - name: Static diagnostics
@@ -47,6 +48,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+      - uses: ./.github/actions/python-trust
       - name: Install pinned CPU acoustic runtime
         run: |
           python -m pip install --quiet torch==2.10.0 --index-url https://download.pytorch.org/whl/cpu

@@ -53,6 +53,30 @@ The dedicated desktop workflow runs the real process tests and headless GUI work
 Windows and Linux. See [UI validation](desktop_ui_validation.md) for the evidence boundary.
 CI permissions are read-only. Dependency inventories are review inputs, not a completed audit.
 
+## Python trust tooling (#66)
+
+Every Python environment that installs project dependencies must use `pip >= 26.2.2` and
+`certifi >= 2026.10.19`. `uv >= 0.13.4` and `sigstore >= 4.5.1` are required only when used;
+the repository uses neither today. Upgrade first, then verify:
+
+```powershell
+python -m pip install --upgrade "pip>=26.2.2" "certifi>=2026.10.19"
+python scripts/check_python_trust.py
+```
+
+`check_python_trust.py` prints the Python executable, the pip/certifi/uv/sigstore versions, the
+CA bundle that certifi resolves to, the standard-library default verify paths and any
+`SSL_CERT_FILE`/`SSL_CERT_DIR`/`REQUESTS_CA_BUNDLE`/`PIP_CERT` override, and exits non-zero when
+a minimum is not met. `build.ps1` and `check.ps1` run both commands before installing the
+package, and every GitHub Actions job that calls `actions/setup-python` also calls
+`.github/actions/python-trust` (guarded by `python/tests/test_python_trust.py`).
+
+Existing virtual environments are not repaired by editing `pyproject.toml`: re-run the two
+commands in each one. Model weight downloads (`urllib`) use the operating system trust store,
+not certifi, so the OS certificate update state must be checked separately. Whether a specific
+affected certificate chain is still trusted has to be confirmed against the real CA bundle in
+use; passing this check only proves the minimum versions and shows which bundle is read.
+
 ## Run Core and GUI
 
 From the repository root:

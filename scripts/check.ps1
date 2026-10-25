@@ -5,6 +5,8 @@ $repo = Split-Path -Parent $PSScriptRoot
 
 Push-Location $repo
 try {
+    python -m pip install --upgrade "pip>=26.2.2" "certifi>=2026.10.19"
+    python scripts/check_python_trust.py
     python -m pip install -e "./python[dev]"
     cargo fmt --all -- --check
     cargo clippy --workspace --all-targets -- -D warnings
