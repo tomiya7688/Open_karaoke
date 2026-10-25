@@ -9,4 +9,4 @@ runs:
       shell: bash
       run: |
         python -m pip install --upgrade "pip>=26.2.2" "certifi>=2026.10.19"
-        python scripts/check_python_trust.py
+        python "$GITHUB_WORKSPACE/scripts/check_python_trust.py"
