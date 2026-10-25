@@ -114,7 +114,15 @@ def test_unavailable_cer_and_failed_absolute_gate_cannot_pass():
 
 @pytest.mark.parametrize(
     "case,code",
-    [("pass", 0), ("fail", 1), ("duplicate", 2), ("large", 2), ("overwrite", 2), ("mismatch", 2)],
+    [
+        ("pass", 0),
+        ("fail", 1),
+        ("duplicate", 2),
+        ("large", 2),
+        ("deep", 2),
+        ("overwrite", 2),
+        ("mismatch", 2),
+    ],
 )
 def test_cli_exit_and_input_protection(tmp_path, case, code):
     """{
@@ -133,6 +141,8 @@ def test_cli_exit_and_input_protection(tmp_path, case, code):
         raw = raw.replace('"format_version": 1', '"format_version": 1, "format_version": 1')
     if case == "large":
         raw = " " * 65_537
+    if case == "deep":
+        raw = "[" * 2000 + "0" + "]" * 2000
     candidate.write_text(raw, encoding="utf-8")
     original = baseline.read_bytes()
     target = baseline if case == "overwrite" else output

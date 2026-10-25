@@ -154,7 +154,10 @@ def _load(path: Path) -> dict:
         raw = stream.read(65_537)
     if len(raw) > 65_536:
         raise ValueError("Summary exceeds 64 KiB")
-    return json.loads(raw, object_pairs_hook=_unique_object)
+    try:
+        return json.loads(raw, object_pairs_hook=_unique_object)
+    except RecursionError as error:
+        raise ValueError("Summary nesting is too deep") from error
 
 
 def main() -> int:
