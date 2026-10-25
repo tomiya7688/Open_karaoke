@@ -165,6 +165,18 @@ def test_main_fails_when_the_ca_bundle_is_missing_or_empty(monkeypatch, capsys, 
     assert f"ERROR: certifi CA bundle is empty: {bundle}" in output
 
 
+def test_main_reports_a_broken_certifi_install_as_an_error(monkeypatch, capsys, tmp_path):
+    def broken():
+        raise OSError("cacert.pem unreadable")
+
+    monkeypatch.setitem(sys.modules, "certifi", SimpleNamespace(where=broken))
+    monkeypatch.setattr(trust, "_installed_version", lambda name: GOOD.get(name))
+    assert trust.main() == 1
+    assert "ERROR: certifi cannot be imported: OSError('cacert.pem unreadable')" in (
+        capsys.readouterr().out
+    )
+
+
 @pytest.mark.parametrize("variable", trust.TRUST_OVERRIDE_VARIABLES)
 def test_main_warns_when_the_trust_store_is_overridden(monkeypatch, capsys, tmp_path, variable):
     code, output, _ = run_main(

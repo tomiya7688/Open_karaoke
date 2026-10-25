@@ -140,11 +140,18 @@ def main() -> int:
         print(f"{name}: {installed[name] or 'not installed'}")
     bundle_problems: list[str] = []
     if installed["certifi"] is not None:
-        import certifi
+        try:
+            import certifi
 
-        bundle = Path(certifi.where())
-        print(f"certifi CA bundle: {bundle} (exists={bundle.is_file()})")
-        bundle_problems = find_bundle_problems(bundle)
+            bundle = Path(certifi.where())
+        except (
+            ImportError,
+            OSError,
+        ) as error:  # 壊れた導入でも例外ではなく問題として報告する
+            bundle_problems = [f"certifi cannot be imported: {error!r}"]
+        else:
+            print(f"certifi CA bundle: {bundle} (exists={bundle.is_file()})")
+            bundle_problems = find_bundle_problems(bundle)
     paths = ssl.get_default_verify_paths()
     print(f"ssl default cafile: {paths.cafile}  capath: {paths.capath}")
     for variable in TRUST_OVERRIDE_VARIABLES:
