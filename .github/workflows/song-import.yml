@@ -33,6 +33,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+      - uses: ./.github/actions/python-trust
       - name: Install existing fixture dependencies
         run: python -m pip install -e './python[dev]'
       - name: Compile and test all Rust targets
