@@ -85,11 +85,17 @@ Linux用のcontract checksや実モデルworkflowは対応するGitHub Actions�
 
 参照集合hashは、ID順に整列した `[id, reference]` の配列を `ensure_ascii=True, separators=(",", ":")` でJSON化し、ASCII化したバイト列の前に `open-karaoke-lyric-reference-v1` と NUL を付けて計算する。ID省略時は詳細評価と同じ配列位置の文字列を使うため、明示IDのある行の並べ替えは同じhash、ID省略時の異なる参照の並べ替えは異なるhashになる。旧 version 1 サマリーや既存の関数呼び出しは `reference_sha256` を持たないことがあり、その結果だけでは参照集合の一致を確認できない。
 
-モデル間比較では参照集合hashだけでなく、データ名・版、評価種別、評価器と正規化設定の一致も確認する。音源の一致や権利、注釈品質はこのhashでは確認しない。`real_singing` も実行者の申告値である。詳細 JSON と入力データは権利条件に従って非公開で扱う。比較処理と回帰判定の自動化は後続単位とする。
+モデル間比較では参照集合hashだけでなく、データ名・版、評価種別、評価器と正規化設定の一致も確認する。音源の一致や権利、注釈品質はこのhashでは確認しない。`real_singing` も実行者の申告値である。詳細 JSON と入力データは権利条件に従って非公開で扱う。
 
 例: `python -m open_karaoke_analysis.lyric_evaluator pairs.json --output artifacts/lyrics/detail.json --summary-output artifacts/lyrics/summary.json --dataset-id local-set --dataset-version v1 --model-name asr --model-version snapshot-1 --evaluation-kind real_singing`
 
 GUIなしでのCI実行はJob APIまたは既存のEvaluator CLIによって可能にする。現在の評価器の多くは保存済みartifact/fixtureを直接読み込むCLIであり、必ずJob APIを呼ぶ実装ではない。
+
+### 歌詞CERの回帰判定（#18.3）
+
+`python -m open_karaoke_analysis.lyric_regression baseline.json candidate.json --output artifacts/lyrics/regression.json --max-cer-increase 0.01` は共通サマリーを比較する。許容する CER 増分は既定で0。集計カウントの整数比と許容値の十進表示を使って境界を判定する。モデル名・版と入力全体のhashは異なってよいが、データ名・版・参照集合hash、評価種別、評価器・正規化設定、参照文字/単語数は一致が必要。参照hashのない旧サマリー、未知の項目や版、率と集計の不整合、null CER、負値/非有限の許容値は拒否する。入力は各64KiB以内、重複JSONキーは不可。
+
+終了コードは0が合格、1が回帰または候補の既存絶対品質ゲートの不合格、2が不正入力・比較不能・I/Oエラー。比較が成立すれば不合格でも集計JSONを保存し、双方のモデル版・入力hash、CERと増分・許容値・判定を残す。入力と同じ出力先は拒否する。WER等の回帰、baselineの自動更新、Job API runner、公開CIへの実データ集計のアップロードは後続単位。
 
 ## 1.0.0 Release Evaluation（未完了）
 
