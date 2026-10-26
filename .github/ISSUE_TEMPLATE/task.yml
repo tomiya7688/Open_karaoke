@@ -1,0 +1,84 @@
+name: "タスク・不具合・改善"
+description: "開発タスク、バグ、文書、設計、調査を共通の形式で起票します"
+title: ""
+body:
+  - type: markdown
+    attributes:
+      value: |
+        優先度は P0＝緊急 / P1＝高 / P2＝通常 / P3＝低 / P4＝保留。
+        **P0は重大な緊急事態専用で、通常は空けておきます。迷ったらP2にしてください。**
+        詳しくはリポジトリの `.github/CONTRIBUTING.md`（Issue運用ルール）を確認してください。
+  - type: dropdown
+    id: issue_type
+    attributes:
+      label: 種別
+      options:
+        - "バグ"
+        - "機能追加"
+        - "改善・リファクタリング"
+        - "テスト・CI"
+        - "ドキュメント"
+        - "設計・調査"
+        - "その他"
+    validations:
+      required: true
+  - type: dropdown
+    id: priority
+    attributes:
+      label: 優先度
+      description: "P0は重大障害など即時対応が必要な場合のみ選び、緊急性の根拠を記入してください"
+      options:
+        - "P0：緊急（重大障害・データ損失・セキュリティ事故など）"
+        - "P1：高（直近で対応すべき重要タスク）"
+        - "P2：通常（標準）"
+        - "P3：低（後回し可能）"
+        - "P4：保留・長期（アイデア・調査）"
+      default: 2
+    validations:
+      required: true
+  - type: textarea
+    id: purpose
+    attributes:
+      label: 目的・現状の問題
+      description: "何を解決・実現するか、今の状態と必要性を具体的に記載してください"
+      placeholder: "現状／困っていること／このIssueで目指す状態"
+    validations:
+      required: true
+  - type: textarea
+    id: scope
+    attributes:
+      label: 対応内容・対象範囲
+      description: "変更予定の機能や文書、守るべき制約。必要なら対象外も記載してください"
+    validations:
+      required: false
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: 完了条件
+      description: "終わったと判断できる条件を書いてください"
+      placeholder: |
+        - [ ] 条件1
+        - [ ] 条件2
+    validations:
+      required: true
+  - type: textarea
+    id: validation
+    attributes:
+      label: 検証・再現手順
+      description: "バグなら再現手順・期待結果、実装ならテスト方法、調査なら確認方法を記載してください"
+    validations:
+      required: false
+  - type: textarea
+    id: urgency
+    attributes:
+      label: 優先度の根拠（P0の場合は必須）
+      description: "P0なら影響範囲と、なぜ今すぐ対応しなければならないかを具体的に書いてください"
+    validations:
+      required: false
+  - type: textarea
+    id: references
+    attributes:
+      label: 関連Issue・PR・仕様
+      description: "必要なリンクや先行作業があれば記載してください"
+    validations:
+      required: false
