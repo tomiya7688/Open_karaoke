@@ -1,4 +1,5 @@
 import os
+import queue
 import sys
 import threading
 import time
@@ -114,6 +115,29 @@ def test_deadline_includes_blocked_io_and_closes_owner(phase):
     owner.client.create_job.assert_called_once()
     assert owner.client.get_job.call_count == (0 if phase == "create_job" else 1)
     owner.close.assert_called_once()
+
+
+def test_early_wakeup_of_clipped_wait_does_not_poll(monkeypatch):
+    """{
+    責務: [OSの期限前wakeでpolling間隔を満たさずGETする退行を防ぐ]
+    処理: [1: 待機が早く戻るEventを用意, 2: 時計を期限まで進める, 3: 取得なしを確認]
+    引数: [monkeypatch: observerの時計境界置換]
+    戻り値: []
+    }"""
+    owner = _owner()
+    stopped = Mock()
+    stopped.is_set.return_value = False
+    stopped.wait.return_value = False
+    result = queue.Queue(maxsize=1)
+    monkeypatch.setattr(
+        api, "time", SimpleNamespace(monotonic=Mock(side_effect=[0, 0, 0.01, 0.02]))
+    )
+    api._observe(owner.client, {"kind": "analysis.mock"}, 0.02, 10, stopped, result)
+    assert result.get_nowait() == ("timed_out", None)
+    assert stopped.wait.call_count == 2
+    assert stopped.wait.call_args_list[0].args == (0.02,)
+    assert stopped.wait.call_args_list[1].args == (0.01,)
+    owner.client.get_job.assert_not_called()
 
 
 def test_poll_wait_is_clipped_to_deadline():

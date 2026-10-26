@@ -63,7 +63,8 @@ def _observe(
                 raise CoreJobError("Invalid Job observation state")
             if stopped.wait(min(interval, remaining)):
                 return
-            if time.monotonic() >= deadline:
+            # A clipped wait never reaches the next poll, even if an OS timer wakes early.
+            if remaining <= interval or time.monotonic() >= deadline:
                 continue
             polls += 1
             job = client.get_job(identifier)
