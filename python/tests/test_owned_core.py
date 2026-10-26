@@ -287,23 +287,31 @@ def test_missing_windows_system_root_reports_shutdown_failure(monkeypatch, tmp_p
         owner.close()
 
 
-def test_pipe_close_failure_attempts_both_streams(monkeypatch, tmp_path):
+@pytest.mark.parametrize("shutdown_fails", [False, True])
+def test_pipe_close_failure_attempts_both_streams(monkeypatch, tmp_path, shutdown_fails):
     """{
     責務: [stdoutのclose失敗でもstderrを閉じ、失敗を明示する]
     処理: [1: 起動, 2: reader終了後にcloseを失敗させる, 3: 両pipeの処理を確認]
-    引数: [monkeypatch: 依存置換, tmp_path: データ場所]
+    引数: [monkeypatch: 依存置換, tmp_path: データ場所, shutdown_fails: waitも失敗するか]
     戻り値: []
     }"""
     process, _, _, _ = _child(monkeypatch)
     owner = api.OwnedCore.start(sys.executable, tmp_path, sys.executable)
     for thread in owner._threads:
         thread.join(timeout=1)
+        assert not thread.is_alive()
+    if shutdown_fails:
+        process.wait.side_effect = [OSError("private"), 0]
     process.stdout.close = Mock(side_effect=OSError("private"))
-    with pytest.raises(api.CoreLaunchError, match="pipes"):
+    expected = "shutdown; pipe cleanup also failed" if shutdown_fails else "pipes"
+    with pytest.raises(api.CoreLaunchError, match=expected):
         owner.close()
     assert process.stderr.closed
     process.stdout.close.side_effect = None
     owner.close()
+    assert process.stdout.close.call_count == process.wait.call_count == 2
+    owner.close()
+    assert process.wait.call_count == 2
 
 
 def test_ready_at_exact_byte_limit_is_accepted(monkeypatch, tmp_path):

@@ -202,6 +202,7 @@ class OwnedCore:
             return
         self._closed, self._client = True, None
         process = self._process
+        shutdown_failure = False
         try:
             try:
                 process.stdin.close()
@@ -229,7 +230,7 @@ class OwnedCore:
                 process.wait(timeout=5)
             self._stopped = True
         except (OSError, KeyError, subprocess.SubprocessError):
-            raise CoreLaunchError("Could not confirm owned Core shutdown") from None
+            shutdown_failure = True
         finally:
             for thread in self._threads:
                 thread.join(timeout=1)
@@ -241,7 +242,11 @@ class OwnedCore:
                     pipe_failure = True
             if pipe_failure:
                 self._stopped = False
-                raise CoreLaunchError("Could not close owned Core pipes") from None
+        if shutdown_failure:
+            suffix = "; pipe cleanup also failed" if pipe_failure else ""
+            raise CoreLaunchError("Could not confirm owned Core shutdown" + suffix) from None
+        if pipe_failure:
+            raise CoreLaunchError("Could not close owned Core pipes") from None
 
     def __enter__(self):
         """{
