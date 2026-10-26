@@ -131,7 +131,7 @@ class CoreJobClient:
         finally:
             connection.close()
 
-    def _session(self) -> None:
+    def verify_session(self) -> None:
         """{
         責務: [最初のJob操作前に所有sessionを照合する]
         処理: [1: 未照合ならsessionを取得, 2: API版とinstanceを照合して保持]
@@ -204,7 +204,7 @@ class CoreJobClient:
             raise ValueError("Invalid Core Job request JSON") from None
         if len(payload) > 65_536:
             raise ValueError("Core Job request exceeds 64 KiB")
-        self._session()
+        self.verify_session()
         return self._snapshot(self._request("POST", "/jobs", payload, 202), kind=request["kind"])
 
     def get_job(self, identifier: str) -> JobSnapshot:
@@ -215,7 +215,7 @@ class CoreJobClient:
         戻り値: [JobSnapshot。HTTP失敗や不正応答はCoreJobError]
         }"""
         _uuid(identifier)
-        self._session()
+        self.verify_session()
         return self._snapshot(
             self._request("GET", f"/jobs/{identifier}", None, 200), identifier=identifier
         )
