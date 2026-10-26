@@ -58,7 +58,9 @@ def test_real_loopback_http_messages(monkeypatch, host, family):
             戻り値: []
             }"""
             body = self.rfile.read(int(self.headers.get("Content-Length", "0")))
-            calls.append((self.command, self.path, dict(self.headers), body))
+            calls.append(
+                (self.command, self.path, {k.lower(): v for k, v in self.headers.items()}, body)
+            )
             raw = json.dumps(value).encode()
             self.send_response(status)
             self.send_header("Content-Type", "application/json")
@@ -105,9 +107,9 @@ def test_real_loopback_http_messages(monkeypatch, host, family):
         ]
         assert json.loads(calls[1][3]) == {"kind": "framework-smoke"}
         assert all(
-            c[2]["Authorization"] == f"Bearer {TOKEN}"
-            and c[2]["Host"] == authority
-            and c[2]["X-Open-Karaoke-Api-Version"] == "1"
+            c[2]["authorization"] == f"Bearer {TOKEN}"
+            and c[2]["host"] == authority
+            and c[2]["x-open-karaoke-api-version"] == "1"
             for c in calls
         )
     finally:
@@ -211,8 +213,12 @@ def test_unsafe_origins_rejected_before_connection(monkeypatch, origin):
     "field,value",
     [
         ("token", "bad"),
+        ("token", "g" * 64),
+        ("token", "A" * 64),
         ("token", "a" * 63 + "\n"),
         ("instance_id", "../jobs"),
+        ("instance_id", f"urn:uuid:{INSTANCE}"),
+        ("instance_id", "AAAAAAAA-AAAA-4AAA-8AAA-AAAAAAAAAAAA"),
         ("timeout", True),
         ("timeout", 0),
         ("timeout", -1),
@@ -366,3 +372,29 @@ def test_exact_request_size_limit(monkeypatch):
     with pytest.raises(ValueError):
         client.create_job(payload)
     assert connection.request.call_count == 2
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [
+        b"bad JSON",
+        b"[]",
+        b" " * 1_048_577,
+        b"[" * 2000 + b"0" + b"]" * 2000,
+        (json.dumps(SESSION)[:-1] + ', "api_version": 2}').encode(),
+    ],
+)
+def test_invalid_session_json_never_submits_job(monkeypatch, raw):
+    """{
+    責務: [sessionのJSON破損・上限・深さ・重複キーでPOSTへ進まない]
+    処理: [1: sessionの異常応答, 2: 秘密なし例外と接続終了・POSTなしを確認]
+    引数: [monkeypatch: transport置換, raw: 不正なsession応答]
+    戻り値: []
+    }"""
+    connection, _ = _transport(monkeypatch, [_response(raw)])
+    with pytest.raises(api.CoreJobError) as failure:
+        api.CoreJobClient("http://127.0.0.1:12345", TOKEN, INSTANCE).create_job(
+            {"kind": "framework-smoke"}
+        )
+    assert TOKEN not in str(failure.value)
+    assert connection.request.call_count == connection.close.call_count == 1
