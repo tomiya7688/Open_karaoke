@@ -60,7 +60,7 @@ jobs:
               run: cargo build --locked -p open-karaoke-core
             - name: Evaluator owned Core lifecycle
               run: >-
-                  python -c "import os,pathlib,subprocess,sys; env=os.environ.copy(); env['OPEN_KARAOKE_TEST_CORE']=str(pathlib.Path('target/debug/open-karaoke-core'+('.exe' if sys.platform=='win32' else '')).resolve()); subprocess.run([sys.executable,'-m','pytest','python/tests/test_owned_core.py','python/tests/test_core_job_client.py','-q'],env=env,check=True)"
+                  python -c "import os,pathlib,subprocess,sys; env=os.environ.copy(); env['OPEN_KARAOKE_TEST_CORE']=str(pathlib.Path('target/debug/open-karaoke-core'+('.exe' if sys.platform=='win32' else '')).resolve()); subprocess.run([sys.executable,'-m','pytest','python/tests/test_owned_core.py','python/tests/test_core_job_client.py','python/tests/test_job_runner.py','-q'],env=env,check=True)"
             - name: Build Avalonia GUI and client
               run: dotnet build gui/OpenKaraoke.Gui/OpenKaraoke.Gui.csproj --configuration Release
             - name: Client contracts and real Core-Python session lifecycle
