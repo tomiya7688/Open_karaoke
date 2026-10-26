@@ -13,6 +13,7 @@ from open_karaoke_analysis import owned_core as api
 
 INSTANCE = "11111111-1111-4111-8111-111111111111"
 READY = {"event": "core_ready", "api_version": 1, "instance_id": INSTANCE, "port": 12345}
+WAIT_TIMEOUT = 8 if os.name == "nt" else 5
 
 
 def _child(monkeypatch, raw=None):
@@ -34,6 +35,10 @@ def _child(monkeypatch, raw=None):
     factory = Mock()
     monkeypatch.setattr(api.subprocess, "Popen", spawn)
     monkeypatch.setattr(api, "CoreJobClient", factory)
+    monkeypatch.setattr(api, "_exited", lambda child: child.poll() is not None)
+    if os.name != "nt":
+        monkeypatch.setattr(api, "_wait_posix_exit", Mock())
+        monkeypatch.setattr(api.os, "killpg", Mock())
     return process, spawn, factory, wire
 
 
@@ -72,7 +77,7 @@ def test_owned_bootstrap_context_and_cleanup(monkeypatch, tmp_path):
                 assert connected.client is factory.return_value
         owner.close()
         process.stdin.close.assert_called_once_with()
-        process.wait.assert_called_once_with(timeout=8)
+        process.wait.assert_called_once_with(timeout=WAIT_TIMEOUT)
         process.stdout.readline.assert_called_once_with(8193)
         assert process.stdout.closed and process.stderr.closed
         with pytest.raises(api.CoreLaunchError):
@@ -124,7 +129,7 @@ def test_bad_ready_never_connects_and_always_closes(monkeypatch, tmp_path, raw):
     assert wire[0].decode().strip() not in str(error.value)
     factory.assert_not_called()
     process.stdin.close.assert_called_once_with()
-    process.wait.assert_called_once_with(timeout=8)
+    process.wait.assert_called_once_with(timeout=WAIT_TIMEOUT)
 
 
 def test_session_failure_is_sanitized_and_cleanup_runs(monkeypatch, tmp_path):
@@ -202,7 +207,8 @@ def test_forced_cleanup_targets_only_owned_tree(monkeypatch, tmp_path):
     戻り値: []
     }"""
     process, _, _, _ = _child(monkeypatch)
-    process.wait.side_effect = [subprocess.TimeoutExpired("Core", 8), 0]
+    if os.name == "nt":
+        process.wait.side_effect = [subprocess.TimeoutExpired("Core", 8), 0]
     terminate = Mock()
     if os.name == "nt":
         monkeypatch.setattr(api.subprocess, "run", terminate)
@@ -309,9 +315,10 @@ def test_pipe_close_failure_attempts_both_streams(monkeypatch, tmp_path, shutdow
     assert process.stderr.closed
     process.stdout.close.side_effect = None
     owner.close()
-    assert process.stdout.close.call_count == process.wait.call_count == 2
+    assert process.stdout.close.call_count == 2
+    assert process.wait.call_count == (2 if shutdown_fails else 1)
     owner.close()
-    assert process.wait.call_count == 2
+    assert process.wait.call_count == (2 if shutdown_fails else 1)
 
 
 def test_ready_at_exact_byte_limit_is_accepted(monkeypatch, tmp_path):
@@ -341,6 +348,100 @@ def test_core_exit_before_context_entry_still_closes(monkeypatch, tmp_path):
         with owner:
             pytest.fail("Exited Core must not enter context")
     process.wait.assert_called_once()
+
+
+@pytest.mark.parametrize("already_exited", [False, True])
+def test_posix_observes_without_reaping_then_kills_group(monkeypatch, already_exited):
+    """{
+    責務: [終了済みleaderも回収前に所有groupを停止し、PID再利用を避ける]
+    処理: [1: OS境界を記録, 2: 生存照会, 3: close, 4: 観測→group停止→回収を検証]
+    引数: [monkeypatch: OS境界置換, already_exited: Coreが先に終了したか]
+    戻り値: []
+    }"""
+    from types import SimpleNamespace
+
+    events = []
+    process = Mock(pid=12345, stdin=Mock(), stdout=io.BytesIO(), stderr=io.BytesIO())
+    process.wait.side_effect = lambda **kwargs: events.append("reap")
+    observe = Mock(
+        side_effect=lambda *args: events.append("observe") or (object() if already_exited else None)
+    )
+    kill = Mock(side_effect=lambda *args: events.append("group-kill"))
+    monkeypatch.setattr(
+        api,
+        "os",
+        SimpleNamespace(
+            name="posix", waitid=observe, killpg=kill, P_PID=1, WEXITED=4, WNOHANG=1, WNOWAIT=8
+        ),
+    )
+    monkeypatch.setattr(api, "signal", SimpleNamespace(SIGKILL=9))
+    monkeypatch.setattr(
+        api, "time", SimpleNamespace(monotonic=Mock(side_effect=[0, 1]), sleep=Mock())
+    )
+    owner = api.OwnedCore(process, 1)
+    owner._client = Mock()
+    if already_exited:
+        with pytest.raises(api.CoreLaunchError):
+            _ = owner.client
+    else:
+        assert owner.client is owner._client
+    owner.close()
+    owner.close()
+    process.poll.assert_not_called()
+    observe.assert_called_with(1, 12345, 4 | 1 | 8)
+    kill.assert_called_once_with(12345, 9)
+    process.wait.assert_called_once_with(timeout=5)
+    assert events == ["observe", "observe", "group-kill", "reap"]
+
+
+@pytest.mark.skipif(sys.platform != "linux", reason="Linux real process-group regression")
+def test_linux_crashed_leader_does_not_leave_running_descendant():
+    """{
+    責務: [実Linuxのleader異常終了後にも子孫を停止しPIDを回収する]
+    処理: [1: 専用sessionに有限寿命の子孫を起動してleaderを異常終了,
+      2: WNOWAITで終了を観測, 3: ownerでgroup停止して子孫の終了を確認]
+    引数: []
+    戻り値: []
+    補足: [stdlibプロセスの回帰テスト。Coreや実モデルの精度評価ではない]
+    }"""
+    code = (
+        "import subprocess,sys,os; p=subprocess.Popen([sys.executable,'-c',"
+        "'import time; time.sleep(5)']); print(p.pid,flush=True); os._exit(3)"
+    )
+    process = subprocess.Popen(
+        [sys.executable, "-c", code],
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        start_new_session=True,
+        bufsize=0,
+    )
+    owner = api.OwnedCore(process, 0.5)
+    try:
+        descendant = int(process.stdout.readline(32))
+        deadline = time.monotonic() + 2
+        while not api._exited(process):
+            assert time.monotonic() < deadline
+            time.sleep(0.01)
+        owner._client = Mock()
+        with pytest.raises(api.CoreLaunchError):
+            _ = owner.client
+        assert process.returncode is None
+        owner.close()
+        assert process.returncode == 3
+        state = Path(f"/proc/{descendant}/stat")
+        deadline = time.monotonic() + 2
+        while state.exists():
+            try:
+                status = state.read_text().rpartition(")")[2].split()[0]
+            except FileNotFoundError:
+                break
+            if status == "Z":
+                break
+            assert time.monotonic() < deadline, "Descendant remained running after group shutdown"
+            time.sleep(0.01)
+    finally:
+        owner.close()
 
 
 @pytest.mark.skipif(not os.environ.get("OPEN_KARAOKE_TEST_CORE"), reason="real Core opt-in")

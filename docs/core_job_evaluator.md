@@ -37,7 +37,9 @@ with OwnedCore.start(core_executable, evaluator_data_directory, python_executabl
 
 readyはLF込み8KiB以内、重複キー不可でevent・整数API版・正規UUID・整数portを検査する。認証付きsession照合までを `startup_timeout`（既定45秒、0超120秒以下）で待つ。期限超過・不正ready・session不一致時は所有子を終了し、別の既存Coreへ接続しない。stdout/stderrは固定サイズで排出し、保存・表示せず、例外にも含めない。終了したownerからclientを再取得することはできない。取り出し済みclientをownerの外へ保持して再利用しない。
 
-`close()` またはwith終了時はstdinを閉じ、`shutdown_timeout`（既定8秒、0超30秒以下）待つ。超過時はWindowsで所有PIDのtree、POSIXで専用sessionのprocess groupだけを強制終了し、さらに最大5秒待つ。正常停止確認後のcloseは冪等。停止確認が失敗すれば `CoreLaunchError` を返し、再度closeできる。起動待ちの期限とcleanup予算は別であり、起動失敗の返却にはcleanup時間も加わる。Job全体の期限や起動中のOS障害を含むhard real-time保証ではない。
+`close()` またはwith終了時はstdinを閉じ、`shutdown_timeout`（既定8秒、0超30秒以下）待つ。Windowsは期限超過時に所有PIDのtreeを強制終了し、POSIXは後述の手順で専用sessionのprocess groupを停止して、さらに最大5秒待つ。正常停止確認後のcloseは冪等。停止確認が失敗すれば `CoreLaunchError` を返し、再度closeできる。起動待ちの期限とcleanup予算は別であり、起動失敗の返却にはcleanup時間も加わる。Job全体の期限や起動中のOS障害を含むhard real-time保証ではない。
+
+POSIXでは生存照会も `waitid(WNOWAIT)` を使い、PIDを回収せず保持する。Coreが先に異常終了した場合を含め、正常終了観測または期限後に専用groupへSIGKILLを送り、その後にCoreをwaitして回収する。回収済みPIDへ再送しないよう、pipe cleanupの再実行ではgroup操作とwaitを繰り返さない。この所有者以外のSIGCHLD handler等で子を回収しないこと。WNOWAITを利用できないPOSIX環境は起動前に拒否する。[Pythonのwaitid/WNOWAIT契約](https://docs.python.org/3.12/library/os.html#os.WNOWAIT)に従う。Linuxではleader異常終了後に子孫だけが残る実プロセスの回帰テストも実行する。
 
 境界テストは偽のプロセスとHTTP clientを使う。`OPEN_KARAOKE_TEST_CORE` にビルド済みCoreの絶対パスを指定した場合だけ実Core・実Python workerのテストも行う。workerは既定でテスト実行Pythonを使い、`OPEN_KARAOKE_TEST_PYTHON` で別の絶対パスを指定できる。Windowsのvenv redirector等、起動PIDと実行PIDが変わる実行ファイルはCoreのPID照合を満たさないため、パッケージを利用できる直接のPython実行ファイルを指定する。開発用の `PYTHONPATH` を使う場合もCoreのcwdに依存しない絶対パスが必要。PID照合の緩和や別Pythonへの自動fallbackは行わない。
 

@@ -7,6 +7,7 @@ import secrets
 import signal
 import subprocess
 import threading
+import time
 from pathlib import Path
 from uuid import UUID
 
@@ -49,11 +50,42 @@ def _drain(stream):
         pass
 
 
+def _exited(process):
+    """{
+    責務: [POSIXではPIDを回収せず所有Coreの終了を観測する]
+    処理: [1: Windowsはhandle経由で照会、POSIXはWNOWAITで照会]
+    引数: [process: まだ回収していない所有子]
+    戻り値: [終了済みならTrue。照会失敗はCoreLaunchError]
+    }"""
+    try:
+        if os.name == "nt":
+            return process.poll() is not None
+        return os.waitid(os.P_PID, process.pid, os.WEXITED | os.WNOHANG | os.WNOWAIT) is not None
+    except OSError:
+        raise CoreLaunchError("Could not inspect owned Core lifetime") from None
+
+
+def _wait_posix_exit(process, timeout):
+    """{
+    責務: [PIDを予約したままCoreの正常終了を有限時間待つ]
+    処理: [1: 単調時刻で期限を作る, 2: WNOWAITで観測し短く待機する]
+    引数: [process: 所有子, timeout: 正常終了予算秒]
+    戻り値: [None。終了または期限で戻り、回収は呼び出し元がgroup停止後に行う]
+    }"""
+    deadline = time.monotonic() + timeout
+    while not _exited(process):
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            return
+        time.sleep(min(0.05, remaining))
+
+
 class OwnedCore:
     """{
     責務: [Evaluatorが起動したCore一つの認証接続と生存期間を所有する]
     フィールド: [_process: 起動した子, _threads: 出力の排出, _client: 照合済み接続,
-      _closed: 接続失効, _stopped: 停止確認済み, _shutdown_timeout: 正常終了待ち秒]
+      _closed: 接続失効, _reaped: 子の回収済み, _stopped: cleanup完了,
+      _shutdown_timeout: 正常終了待ち秒]
     }"""
 
     def __init__(self, process, shutdown_timeout):
@@ -67,6 +99,7 @@ class OwnedCore:
         self._process, self._shutdown_timeout = process, shutdown_timeout
         self._threads, self._client, self._closed = [], None, False
         self._stopped = False
+        self._reaped = False
 
     @classmethod
     def start(
@@ -96,6 +129,10 @@ class OwnedCore:
         for value, maximum in ((startup_timeout, 120), (shutdown_timeout, 30)):
             if type(value) not in (int, float) or not 0 < value <= maximum:
                 raise ValueError("Invalid Core lifetime timeout")
+        if os.name != "nt" and not all(
+            hasattr(os, name) for name in ("waitid", "P_PID", "WEXITED", "WNOHANG", "WNOWAIT")
+        ):
+            raise ValueError("Core ownership requires non-reaping child observation on POSIX")
         core, data, python = paths
         token = secrets.token_hex(32)
         env = os.environ.copy()
@@ -186,15 +223,15 @@ class OwnedCore:
         引数: []
         戻り値: [CoreJobClient。終了済みならCoreLaunchError]
         }"""
-        if self._closed or self._client is None or self._process.poll() is not None:
+        if self._closed or self._client is None or _exited(self._process):
             raise CoreLaunchError("Owned Core is not running")
         return self._client
 
     def close(self):
         """{
-        責務: [EOFで正常終了を依頼し期限超過時は所有プロセスツリーだけを終了する]
-        処理: [1: 一度だけstdinを閉じる, 2: 有限時間待つ, 3: 超過時に所有treeを停止,
-          4: readerとpipeを片付ける]
+        責務: [EOF終了と所有tree停止・子の回収・pipeの後始末を管理する]
+        処理: [1: stdinを閉じる, 2: 有限時間待つ。POSIXは回収せず観測,
+          3: Windowsは期限超過時、POSIXは常に所有treeを停止して回収, 4: readerとpipeを片付ける]
         引数: []
         戻り値: [停止を確認できなければCoreLaunchError。startupとは別の終了予算を使う]
         }"""
@@ -208,10 +245,12 @@ class OwnedCore:
                 process.stdin.close()
             except OSError:
                 pass  # A broken bootstrap pipe must still run wait/tree cleanup.
-            try:
-                process.wait(timeout=self._shutdown_timeout)
-            except subprocess.TimeoutExpired:
-                if os.name == "nt":
+            if self._reaped:
+                pass  # A pipe-close retry must never signal a recycled PID/group.
+            elif os.name == "nt":
+                try:
+                    process.wait(timeout=self._shutdown_timeout)
+                except subprocess.TimeoutExpired:
                     taskkill = Path(os.environ["SystemRoot"]) / "System32/taskkill.exe"
                     subprocess.run(
                         [str(taskkill), "/PID", str(process.pid), "/T", "/F"],
@@ -221,15 +260,18 @@ class OwnedCore:
                         timeout=5,
                         check=False,
                     )
-                else:
-                    try:
-                        os.killpg(process.pid, signal.SIGKILL)
-                    except ProcessLookupError:
-                        if process.poll() is None:
-                            raise
+                    process.wait(timeout=5)
+            else:
+                _wait_posix_exit(process, self._shutdown_timeout)
+                # Keep the leader unreaped until its entire owned group is signalled.
+                # Even a crashed Core can leave its worker in this group.
+                try:
+                    os.killpg(process.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
                 process.wait(timeout=5)
-            self._stopped = True
-        except (OSError, KeyError, subprocess.SubprocessError):
+            self._reaped, self._stopped = True, True
+        except (OSError, KeyError, CoreLaunchError, subprocess.SubprocessError):
             shutdown_failure = True
         finally:
             for thread in self._threads:
