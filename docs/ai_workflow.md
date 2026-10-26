@@ -57,6 +57,7 @@ GitHub connectorだけの環境では対象Issue、対象PRのhead/base SHA、�
 | Evaluator共通結果 #18 | `python/src/open_karaoke_analysis/evaluation_summary.py`、`lyric_evaluator.py` | `docs/testing.md`、`python/tests/test_evaluation_summary.py`、`test_lyric_reference_snapshot.py`、`test_lyric_evaluator.py`。共通形式は歌詞から段階導入 |
 | 歌詞CER回帰 #18.3 | `python/src/open_karaoke_analysis/lyric_regression.py` | `python/tests/test_lyric_regression.py`、`docs/testing.md`。集計値と比較条件を検証する |
 | 合成歌詞CER CI #18.4 | `.github/workflows/lyric-regression.yml`、`python/tests/fixtures/lyric_ci_*.json` | `python/tests/test_lyric_ci.py`、`docs/lyric_ci.md`。固定baseline比較と集計のみのartifact保存 |
+| Core Job evaluator client #18.5 | `python/src/open_karaoke_analysis/core_job_client.py` | `python/tests/test_core_job_client.py`、`docs/core_job_evaluator.md`。認証済みJob作成・取得。launcher/pollingは後続 |
 | Python起動・復旧 | `core/src/analysis_service.rs`、`core/src/main.rs` | `core/tests/job_api.rs`、`python/tests/test_process.py`、`docs/analysis_service.md` |
 | Song Data / migration | `core/src/song_data.rs` | 同ファイル内tests、`core/tests/fixtures/song.json`、`docs/song_format.md` |
 | 音源入力・正規化 | `core/src/audio_import.rs` | 同ファイル内tests、`docs/audio_import.md` |
