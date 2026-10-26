@@ -383,6 +383,7 @@ def test_exact_request_size_limit(monkeypatch):
         b"[" * 2000 + b"0" + b"]" * 2000,
         (json.dumps(SESSION)[:-1] + ', "api_version": 2}').encode(),
     ],
+    ids=["invalid-json", "non-object", "oversize", "deep", "duplicate"],
 )
 def test_invalid_session_json_never_submits_job(monkeypatch, raw):
     """{
