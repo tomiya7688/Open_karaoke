@@ -81,7 +81,8 @@ Issueのopen/closedと実装コードの存在が一致しないケースは
 | #18.3 歌詞CERの回帰ゲート | P1 | #18.2 | 同じ参照・設定の集計を比較し、許容増分超過と候補の絶対閾値不合格を終了コードへ反映する |
 | #18.4 合成歌詞CERのCI集計保存 | P1 | #18.3 | [固定合成fixtureとbaseline](lyric_ci.md)の回帰をCIで判定し、候補・比較の集計JSONだけをartifactへ保存する |
 | #18.5 Evaluator用Core Job client | P1 | #41のsession/API契約 | [認証済みJob message](core_job_evaluator.md)の作成・取得をGUIなしで提供し、session・数値loopback・応答を検証する |
-| #18.6 Job API benchmark runner | P1 | #18.5 | 所有Coreの起動・polling・全体期限・失敗/取消と計測集計を結合する。未実装 |
+| #18.6a Evaluator所有Coreのlifetime | P1 | #18.5 | [専用launcher](core_job_evaluator.md)でstdin bootstrap・ready/session照合・EOF終了と所有treeだけのcleanupを実装する |
+| #18.6b Job API benchmark runner | P1 | #18.6a | polling・Job全体期限・失敗/取消と計測集計を結合する。未実装 |
 
 #18.4のartifact運用は公開合成fixtureに限定する。他指標の回帰比較、Job API runner、非公開実データのCI運用、実歌唱精度は後続とする。
 

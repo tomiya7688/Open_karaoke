@@ -160,6 +160,8 @@ def test_authenticated_messages_and_minimal_snapshots(monkeypatch, status, origi
     connection, factory = _transport(monkeypatch, replies)
     monkeypatch.setenv("HTTP_PROXY", "http://invalid.proxy:1")
     client = api.CoreJobClient(origin, TOKEN, INSTANCE)
+    client.verify_session()
+    client.verify_session()
     assert TOKEN not in repr(client)
     created = client.create_job({"kind": "framework-smoke", "steps": 1})
     assert created == client.get_job(JOB) == api.JobSnapshot(JOB, "framework-smoke", status, 0.0)
