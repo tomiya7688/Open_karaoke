@@ -2,8 +2,8 @@
   "name": "open-karaoke-dev-tools",
   "private": true,
   "scripts": {
-    "format:core-job-client": "python -m ruff format python/src/open_karaoke_analysis/core_job_client.py python/src/open_karaoke_analysis/owned_core.py python/tests/test_core_job_client.py python/tests/test_owned_core.py && prettier --write package.json docs/core_job_evaluator.md .github/workflows/desktop-integration.yml",
-    "format:check:core-job-client": "python -m ruff format --check python/src/open_karaoke_analysis/core_job_client.py python/src/open_karaoke_analysis/owned_core.py python/tests/test_core_job_client.py python/tests/test_owned_core.py && prettier --check package.json docs/core_job_evaluator.md .github/workflows/desktop-integration.yml",
+    "format:core-job-client": "python -m ruff format python/src/open_karaoke_analysis/core_job_client.py python/src/open_karaoke_analysis/owned_core.py python/tests/test_core_job_client.py python/tests/test_owned_core.py python/src/open_karaoke_analysis/job_runner.py python/tests/test_job_runner.py && prettier --write package.json docs/core_job_evaluator.md .github/workflows/desktop-integration.yml",
+    "format:check:core-job-client": "python -m ruff format --check python/src/open_karaoke_analysis/core_job_client.py python/src/open_karaoke_analysis/owned_core.py python/tests/test_core_job_client.py python/tests/test_owned_core.py python/src/open_karaoke_analysis/job_runner.py python/tests/test_job_runner.py && prettier --check package.json docs/core_job_evaluator.md .github/workflows/desktop-integration.yml",
     "format:lyric-ci": "python -m ruff format python/tests/test_lyric_ci.py && prettier --write .prettierrc.json package.json package-lock.json .github/workflows/lyric-regression.yml python/tests/fixtures/lyric_ci_*.json docs/lyric_ci.md",
     "format:check:lyric-ci": "python -m ruff format --check python/tests/test_lyric_ci.py && prettier --check .prettierrc.json package.json package-lock.json .github/workflows/lyric-regression.yml python/tests/fixtures/lyric_ci_*.json docs/lyric_ci.md"
   },

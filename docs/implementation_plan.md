@@ -82,9 +82,10 @@ Issueのopen/closedと実装コードの存在が一致しないケースは
 | #18.4 合成歌詞CERのCI集計保存 | P1 | #18.3 | [固定合成fixtureとbaseline](lyric_ci.md)の回帰をCIで判定し、候補・比較の集計JSONだけをartifactへ保存する |
 | #18.5 Evaluator用Core Job client | P1 | #41のsession/API契約 | [認証済みJob message](core_job_evaluator.md)の作成・取得をGUIなしで提供し、session・数値loopback・応答を検証する |
 | #18.6a Evaluator所有Coreのlifetime | P1 | #18.5 | [専用launcher](core_job_evaluator.md)でstdin bootstrap・ready/session照合・EOF終了と所有treeだけのcleanupを実装する |
-| #18.6b Job API benchmark runner | P1 | #18.6a | polling・Job全体期限・失敗/取消と計測集計を結合する。未実装 |
+| #18.6b 単一Job runner | P1 | #18.6a | [一回の実行](core_job_evaluator.md)にpolling・通信待機を含むJob全体期限・終端と通信失敗の区別・必ずownerを閉じる契約を追加する |
+| #18.6c Job API benchmark集計/CLI | P1 | #18.6b | 複数trial・匿名集計JSON・CLIとCI artifactを結合する。未実装 |
 
-#18.4のartifact運用は公開合成fixtureに限定する。他指標の回帰比較、Job API runner、非公開実データのCI運用、実歌唱精度は後続とする。
+#18.4のartifact運用は公開合成fixtureに限定する。他指標の回帰比較、Job API benchmark集計/CLI（#18.6c）、非公開実データのCI運用、実歌唱精度は後続とする。
 
 ### P2 — 通常優先：1.0.0の主要機能と品質・配布
 

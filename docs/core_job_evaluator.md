@@ -1,4 +1,4 @@
-# Evaluator用Core接続（#18.5 / #18.6a / P1）
+# Evaluator用Core接続と単一Job実行（#18.5 / #18.6a / #18.6b / P1）
 
 `open_karaoke_analysis.core_job_client.CoreJobClient` はGUIやPython workerの内部APIに依存せず、製品Coreの公開HTTP APIへJob作成・取得のmessageを送る。
 
@@ -22,7 +22,7 @@ POSTは202、GETは200だけを受理し、認証失敗・429・redirect・不�
 
 通信前のURL・token・instance・timeout・作成要求JSON・要求サイズ・取得IDの不正は `ValueError` で拒否する。応答の契約違反と区別する。
 
-POST後に通信・応答検証が失敗してもCore側でJobが作成されている可能性がある。自動再送はしない。`verify_session()` はJobを作成せずsessionだけを明示照合し、成功後は同じclient内で再照合しない。polling、Job全体の期限、キャンセル方針、benchmark集計は#18.6b以降とする。
+POST後に通信・応答検証が失敗してもCore側でJobが作成されている可能性がある。自動再送はしない。`verify_session()` はJobを作成せずsessionだけを明示照合し、成功後は同じclient内で再照合しない。単一Jobの実行は下記#18.6b、複数trialの集計とCLIは#18.6cで段階導入する。
 
 ## 所有Coreの起動と終了（#18.6a）
 
@@ -45,6 +45,36 @@ POSIXでは生存照会も `waitid(WNOWAIT)` を使い、PIDを回収せず保�
 
 この結合テストの解析はmock-v1であり、実モデル精度・GUI・benchmarkの証拠ではない。CIのdesktop-integrationでは実Coreをビルド後、このテストを両OSで実行する。
 
+## 一回のJob実行（#18.6b）
+
+`open_karaoke_analysis.job_runner.JobRunner` は一つの所有済みCoreを消費する。設定生成はI/Oなしで、`timeout` は0超3600秒以下、`poll_interval` は0.01以上10秒以下。既定は30秒と0.2秒。
+
+```python
+runner = JobRunner(timeout=30, poll_interval=0.2)
+owner = OwnedCore.start(core_executable, evaluator_data_directory, python_executable)
+result = runner.run(owner, {"kind": "framework-smoke", "steps": 1})
+```
+
+`run` は作成を一度だけ依頼し、queued/runningの間、同じID・kindの状態を有限間隔で取得する。自動再送・別sessionへの再作成・Core再起動はしない。作成応答が終端ならpollingは不要。requestはCore公開要求で、実行中に他の呼び出し元から変更しない。詳細な入力検証は既存client/Coreの契約を使う。
+
+`JobRunResult` は不変の3項目のみを持つ。入力・token・Job ID・エラー本文・artifactパスは含まない。
+
+作成応答が終端の場合と、最初のGET前の通信失敗では`poll_attempts`は0になる。GETを試みた通信失敗はその試行も数える。
+
+| 項目              | 契約                                                                                                  |
+| ----------------- | ----------------------------------------------------------------------------------------------------- |
+| `outcome`         | `completed`、`failed`、`cancelled`、`timed_out`、`transport_error`。Job失敗・取消と通信失敗を区別する |
+| `elapsed_seconds` | 作成要求前から呼び出し側の判定までの単調時計の秒。Core起動とcleanupは除く                             |
+| `poll_attempts`   | 状態取得messageの試行数。HTTP到達や成功の件数ではない。期限超過時は観測が未確定のため`None`           |
+
+全体期限はPOST・GETの通信待機とpolling待機を含む。socket timeoutだけに依存せず、observerを別threadで実行して呼び出し側も期限を監視する。期限内に結果を受け取れなければ`timed_out`とし、遅い完了応答を成功にしない。受け取った入力拒否・予期しないobserver例外は、foregroundの判定時刻が期限を跨いでも例外として伝える。polling待機は残り予算で切り詰め、期限後の追加GETを避ける。POSTが届いたか不確定な場合も再送しない。
+
+正常・失敗・例外・期限超過のいずれでもownerを一度closeし、そのCoreを以後使わない。期限超過時もownerを閉じ、Coreのshutdown契約で未完了Jobを停止する。個別cancel endpointを送った、またはJobのcancelled終端を確認したという意味ではない。cleanupは別予算のため、`run`の返却時間はJob全体期限より長くなることがある。OS停止やPython実行停止を含むhard real-time保証はしない。
+
+不正要求は本文なしの`ValueError`、予期しないobserver失敗は`JobRunError`を返す。`run`内で不正要求を拒否した場合もownerはcloseされる。runner生成時の設定検証はownerを受け取る前に行う。Core終了失敗の`CoreLaunchError`は通常結果や観測エラーより優先する。Coreを閉じた後もobserverが1秒以内に停止しなければ、停止未確認の`JobRunError`にし、正常に片付いたとは扱わない。優先順位はCore終了失敗、observer停止未確認、通常の観測結果・エラーの順になる。runnerが期限超過を返しても、解析結果や成功率を推定しない。
+
+実Core/workerの結合テストはmock-v1の完了・失敗・長いJobの期限超過とruntime cleanupを確認する。取消の終端、通信待機中の期限、observer異常は境界テストで別途検証する。複数trialの統計、JSON保存、CLI、精度回帰ゲートへの接続は#18.6c以降であり、今回の計測値は実モデル精度の指標ではない。
+
 ## 整形と確認
 
 Python開発依存を導入した環境で、リポジトリ直下から次を実行する。Ruff 0.17.2・Prettier 3.6.2を既存の固定依存から使う。
@@ -52,7 +82,7 @@ Python開発依存を導入した環境で、リポジトリ直下から次を�
 ```text
 npm run format:core-job-client
 npm run format:check:core-job-client
-python -m pytest python/tests/test_core_job_client.py python/tests/test_owned_core.py -q
+python -m pytest python/tests/test_core_job_client.py python/tests/test_owned_core.py python/tests/test_job_runner.py -q
 ```
 
-対象はクライアント・launcherと対応テスト、この説明、npm設定、desktop-integration workflowのみ。生成物や担当外dirtyは整形しない。既存Markdown索引の追記は従来の表記を保持して確認する。既存CIの全Python検査にも同じクライアントとテストが含まれる。
+対象はクライアント・launcher・runnerと対応テスト、この説明、npm設定、desktop-integration workflowのみ。生成物や担当外dirtyは整形しない。既存Markdown索引の追記は従来の表記を保持して確認する。既存CIの全Python検査にも同じ実装とテストが含まれる。
