@@ -156,9 +156,8 @@ def test_authenticated_messages_and_minimal_snapshots(monkeypatch, status, origi
     戻り値: []
     }"""
     snapshot = {**SNAPSHOT, "status": status, "artifacts": ["private/path"], "error": "private"}
-    connection, factory = _transport(
-        monkeypatch, [_response(SESSION), _response(snapshot, 202), _response(snapshot)]
-    )
+    replies = [_response(SESSION), _response(snapshot, 202), _response(snapshot)]
+    connection, factory = _transport(monkeypatch, replies)
     monkeypatch.setenv("HTTP_PROXY", "http://invalid.proxy:1")
     client = api.CoreJobClient(origin, TOKEN, INSTANCE)
     assert TOKEN not in repr(client)
@@ -166,6 +165,8 @@ def test_authenticated_messages_and_minimal_snapshots(monkeypatch, status, origi
     assert created == client.get_job(JOB) == api.JobSnapshot(JOB, "framework-smoke", status, 0.0)
     assert not hasattr(created, "artifacts") and not hasattr(created, "error")
     assert factory.call_count == connection.close.call_count == 3
+    for reply in replies:
+        reply.read.assert_called_once_with(1_048_577)
     factory.assert_called_with(host, 12345, timeout=5)
     calls = connection.request.call_args_list
     assert [(c.args[0], c.args[1]) for c in calls] == [
