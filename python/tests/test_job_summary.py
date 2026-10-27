@@ -1,4 +1,5 @@
 import json
+import math
 from dataclasses import replace
 
 import pytest
@@ -92,6 +93,11 @@ def test_repeated_duration_rounding_and_finite_extremes(duration):
     戻り値: []
     }"""
     summary = JobBenchmarkSummary([JobRunResult("completed", duration, 0)] * 3)
+    expected = float(duration)
+    stats = summary.to_dict()["elapsed_seconds"]["all_trials"]
+    assert stats["min"] == stats["max"] == expected
+    assert stats["total"] == math.fsum([expected] * 3)
+    assert stats["mean"] == stats["total"] / 3
     assert JobBenchmarkSummary.from_json(summary.to_json()).to_dict() == summary.to_dict()
 
 
@@ -359,6 +365,49 @@ def test_arithmetically_impossible_extrema_are_rejected():
     report["elapsed_seconds"]["all_trials"]["min"] = 1
     with pytest.raises(ValueError):
         JobBenchmarkSummary.from_json(json.dumps(report))
+
+
+def test_remaining_observations_must_reproduce_global_extrema():
+    """{
+    責務: [完了以外の残りが全体の最小・最大を実現できない集計を拒否する]
+    処理: [1: 2件の合法集計を用意, 2: 完了1件を中間値に改変, 3: 読込拒否を確認]
+    引数: []
+    戻り値: []
+    }"""
+    report = JobBenchmarkSummary(
+        [JobRunResult("completed", 2, 0), JobRunResult("failed", 1, 0)]
+    ).to_dict()
+    stats = report["elapsed_seconds"]["completed_trials"]
+    stats.update(total=1.5, mean=1.5, min=1.5, max=1.5)
+    with pytest.raises(ValueError, match="Invalid Job benchmark JSON"):
+        JobBenchmarkSummary.from_json(json.dumps(report))
+
+
+def test_remaining_subset_allows_float_cancellation():
+    """{
+    責務: [合計差で小さい未完了時間が丸め落ちても正当な集計を拒否しない]
+    処理: [1: 桁が大きく異なる時間を集計, 2: JSON読込を確認]
+    引数: []
+    戻り値: []
+    }"""
+    summary = JobBenchmarkSummary(
+        [JobRunResult("completed", 1e200, 0), JobRunResult("failed", 1e-200, 0)]
+    )
+    assert JobBenchmarkSummary.from_json(summary.to_json()).to_dict() == summary.to_dict()
+
+
+@pytest.mark.parametrize("completed,other", [(0, 1e200), (1e200, 0)])
+def test_remaining_single_extreme_is_valid(completed, other):
+    """{
+    責務: [全体の片方の極値を完了集合が既に満たす合法な集計を受理する]
+    処理: [1: 極値を完了と未完了に分けて集計, 2: JSONを往復]
+    引数: [completed: 完了時間, other: 未完了時間]
+    戻り値: []
+    }"""
+    summary = JobBenchmarkSummary(
+        [JobRunResult("completed", completed, 0), JobRunResult("failed", other, 0)]
+    )
+    assert JobBenchmarkSummary.from_json(summary.to_json()).to_dict() == summary.to_dict()
 
 
 @pytest.mark.parametrize(

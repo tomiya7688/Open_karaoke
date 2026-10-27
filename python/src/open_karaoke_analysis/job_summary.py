@@ -105,6 +105,32 @@ def _leq(left, right):
     return left <= right or math.isclose(left, right, rel_tol=1e-12, abs_tol=0)
 
 
+def _validate_remaining(all_stats, completed, total_count, completed_count):
+    """{
+    責務: [未完了集合が残りの合計と全体の最大最小を実現できるか検査する]
+    処理: [1: 残り件数・平均, 2: 未達の極値を必要条件に加える, 3: 丸めを考慮して範囲を照合]
+    引数: [all_stats: 全体時間集計, completed: 完了時間集計,
+      total_count: 全件数, completed_count: 完了件数]
+    戻り値: [None。残りの観測値では実現できない場合はValueError]
+    補足: [部分集合の合計差による桁落ちを考慮し、全体合計の相対誤差1e-12を残り合計へ許容する]
+    }"""
+    remaining = total_count - completed_count
+    if not remaining or not completed_count:
+        return
+    low, high = float(all_stats["min"]), float(all_stats["max"])
+    total, done = float(all_stats["total"]), float(completed["total"])
+    mean = (total - done) / remaining
+    need_low = not math.isclose(float(completed["min"]), low, rel_tol=1e-12, abs_tol=0)
+    need_high = not math.isclose(float(completed["max"]), high, rel_tol=1e-12, abs_tol=0)
+    lower = low + (high - low) / remaining if need_high else low
+    upper = high - (high - low) / remaining if need_low else high
+    tolerance = max(total, done) * 1e-12 / remaining
+    if (mean < lower and not math.isclose(mean, lower, rel_tol=1e-12, abs_tol=tolerance)) or (
+        mean > upper and not math.isclose(mean, upper, rel_tol=1e-12, abs_tol=tolerance)
+    ):
+        raise ValueError("Inconsistent remaining duration subset")
+
+
 def _validate(value):
     """{
     責務: [版付きJob集計の固定schemaと相互整合性を検証する]
@@ -152,6 +178,7 @@ def _validate(value):
         or (counts["completed"] == trials and completed != all_stats)
     ):
         raise ValueError("Inconsistent completed duration subset")
+    _validate_remaining(all_stats, completed, trials, counts["completed"])
     polls = value["poll_attempts"]
     _keys(polls, ("known_trials", "unknown_trials", "total_known"))
     if (

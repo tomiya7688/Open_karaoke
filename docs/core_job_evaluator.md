@@ -99,7 +99,7 @@ format version 1の固定JSON契約は次のとおり。全objectで追加・欠
 | `elapsed_seconds`              | `all_trials`と`completed_trials`。各objectは`count / total / mean / min / max`の5項目。件数はそれぞれ`trials`と`completed`に一致。単位は秒 |
 | `poll_attempts`                | `known_trials / unknown_trials / total_known`。既知と未知の件数の和は`trials`、未知件数は`timed_out`に一致。GET数0とみなさない             |
 
-時間は既存runnerの観測開始から判定までであり、Core起動・cleanupを除く。`all_trials`は失敗・timeout等も含む観測時間、`completed_trials`は完了結果だけの時間。完了0件では`count=0`、`total=0`、`mean/min/max=null`とする。平均・範囲は合計や件数との算術整合性を検証し、浮動小数点の相対丸め誤差1e-12だけを許容する。0付近に絶対許容幅は設けない。元のtrialが保存されないため、読込時に個別観測の真正性までは証明しない。
+時間は既存runnerの観測開始から判定までであり、Core起動・cleanupを除く。`all_trials`は失敗・timeout等も含む観測時間、`completed_trials`は完了結果だけの時間。完了0件では`count=0`、`total=0`、`mean/min/max=null`とする。平均・範囲は合計や件数との算術整合性を検証し、浮動小数点の相対丸め誤差1e-12を許容する。残り試行の合計と全体の最大・最小の実現可能性も検査する際は、合計の差分の桁落ちを考慮し、全体合計の1e-12を残り合計の絶対誤差として許容する。元のtrialが保存されないため、読込時に個別観測の真正性までは証明しない。
 
 経過秒は非負・有限でfloatへ正規化し、poll数は整数0以上`2**53-1`以下（合計も同上）。`timed_out`の個別poll数は`None`、他状態は整数必須。合計がoverflowする観測集合は拒否する。JSON読込はUTF-8で8KiBまで、重複キー・未知版・NaN/Infinity・深すぎる構造・不正Unicode・件数や率の不整合を本文なしの`ValueError`で拒否する。入力・token・Job ID・path・エラー本文・任意文字列のmetadataは結果へ加えない。
 
