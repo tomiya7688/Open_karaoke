@@ -1,4 +1,4 @@
-# Evaluator用Core接続と単一Job実行（#18.5 / #18.6a / #18.6b / P1）
+# Evaluator用Core接続・Job実行・集計（#18.5 / #18.6 / P1）
 
 `open_karaoke_analysis.core_job_client.CoreJobClient` はGUIやPython workerの内部APIに依存せず、製品Coreの公開HTTP APIへJob作成・取得のmessageを送る。
 
@@ -73,7 +73,37 @@ result = runner.run(owner, {"kind": "framework-smoke", "steps": 1})
 
 不正要求は本文なしの`ValueError`、予期しないobserver失敗は`JobRunError`を返す。`run`内で不正要求を拒否した場合もownerはcloseされる。runner生成時の設定検証はownerを受け取る前に行う。Core終了失敗の`CoreLaunchError`は通常結果や観測エラーより優先する。Coreを閉じた後もobserverが1秒以内に停止しなければ、停止未確認の`JobRunError`にし、正常に片付いたとは扱わない。優先順位はCore終了失敗、observer停止未確認、通常の観測結果・エラーの順になる。runnerが期限超過を返しても、解析結果や成功率を推定しない。
 
-実Core/workerの結合テストはmock-v1の完了・失敗・長いJobの期限超過とruntime cleanupを確認する。取消の終端、通信待機中の期限、observer異常は境界テストで別途検証する。複数trialの統計、JSON保存、CLI、精度回帰ゲートへの接続は#18.6c以降であり、今回の計測値は実モデル精度の指標ではない。
+実Core/workerの結合テストはmock-v1の完了・失敗・長いJobの期限超過とruntime cleanupを確認する。取消の終端、通信待機中の期限、observer異常は境界テストで別途検証する。観測結果の集計は#18.6c1、複数trial実行CLIとCI保存は#18.6c2であり、実モデル精度の指標ではない。
+
+## 匿名の集計契約（#18.6c1）
+
+`open_karaoke_analysis.job_summary.JobBenchmarkSummary` は、既存runnerの `JobRunResult` を1以上1000以下のlist/tupleで受け取る。長さ不明のiteratorは消費せず拒否する。Core起動・Job実行・保存・画面表示は行わず、所有する値は匿名集計の固定JSONだけで、個別結果や元の配列を保持しない。
+
+```python
+from open_karaoke_analysis.job_summary import JobBenchmarkSummary
+
+summary = JobBenchmarkSummary(results)  # runnerから受け取った有限の観測結果
+text = summary.to_json()              # ファイルI/Oなし、末尾LF付き
+loaded = JobBenchmarkSummary.from_json(text)
+report = loaded.to_dict()             # 呼び出し側が変更しても所有値は変わらない
+```
+
+format version 1の固定JSON契約は次のとおり。全objectで追加・欠落キーを拒否する。ここでのschemaは下表と実装validatorを正本とし、汎用JSON Schemaエンジンや新しい依存は導入しない。
+
+| フィールド                     | 契約                                                                                                                                       |
+| ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| `format_version` / `evaluator` | 整数`1` / 固定文字列`core-job-benchmark`                                                                                                   |
+| `trials`                       | 1〜1000の整数。結果を得た観測件数であり、未着手trialや起動/cleanup例外を含めない                                                           |
+| `outcomes`                     | `completed`、`failed`、`cancelled`、`timed_out`、`transport_error`の整数件数。全5キー必須、合計は`trials`                                  |
+| `completion_rate`              | `completed / trials`を浮動小数点で求めた値と厳密一致。解析品質の成功率や精度ではなく、Job完了の割合                                        |
+| `elapsed_seconds`              | `all_trials`と`completed_trials`。各objectは`count / total / mean / min / max`の5項目。件数はそれぞれ`trials`と`completed`に一致。単位は秒 |
+| `poll_attempts`                | `known_trials / unknown_trials / total_known`。既知と未知の件数の和は`trials`、未知件数は`timed_out`に一致。GET数0とみなさない             |
+
+時間は既存runnerの観測開始から判定までであり、Core起動・cleanupを除く。`all_trials`は失敗・timeout等も含む観測時間、`completed_trials`は完了結果だけの時間。完了0件では`count=0`、`total=0`、`mean/min/max=null`とする。平均・範囲は合計や件数との算術整合性を検証し、浮動小数点の相対丸め誤差1e-12だけを許容する。0付近に絶対許容幅は設けない。元のtrialが保存されないため、読込時に個別観測の真正性までは証明しない。
+
+経過秒は非負・有限でfloatへ正規化し、poll数は整数0以上`2**53-1`以下（合計も同上）。`timed_out`の個別poll数は`None`、他状態は整数必須。合計がoverflowする観測集合は拒否する。JSON読込はUTF-8で8KiBまで、重複キー・未知版・NaN/Infinity・深すぎる構造・不正Unicode・件数や率の不整合を本文なしの`ValueError`で拒否する。入力・token・Job ID・path・エラー本文・任意文字列のmetadataは結果へ加えない。
+
+これは観測結果の集計と保存形式の契約であり、実行予算、起動失敗の扱い、同条件での性能比較、精度ゲートは定義しない。複数trialを起動するCLIとCI artifact保存は#18.6c2へ続ける。起動・cleanup例外や未実行trialを結果から除外して完了率を過大に見せないよう、CLIは不完全な実行を明示する契約を定める。今回のテストは既知の匿名fixtureと境界値に対する検証であり、実モデル精度やGUIを確認したものではない。
 
 ## 整形と確認
 
@@ -83,6 +113,11 @@ Python開発依存を導入した環境で、リポジトリ直下から次を�
 npm run format:core-job-client
 npm run format:check:core-job-client
 python -m pytest python/tests/test_core_job_client.py python/tests/test_owned_core.py python/tests/test_job_runner.py -q
+npm run format:job-summary
+npm run format:check:job-summary
+python -m pytest python/tests/test_job_summary.py -q
 ```
 
 対象はクライアント・launcher・runnerと対応テスト、この説明、npm設定、desktop-integration workflowのみ。生成物や担当外dirtyは整形しない。既存Markdown索引の追記は従来の表記を保持して確認する。既存CIの全Python検査にも同じ実装とテストが含まれる。
+
+`format:job-summary`の対象は集計module・対応テスト、この説明、npm設定。CIでは既存の全Python検査に同じmoduleとテストが含まれる。
