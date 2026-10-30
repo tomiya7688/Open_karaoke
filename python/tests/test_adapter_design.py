@@ -16,7 +16,6 @@ from open_karaoke_analysis.song import SongAdapter
 from open_karaoke_analysis.stems import StemsAdapter
 from open_karaoke_analysis.vocal_events import VocalEventAdapter
 
-
 ADAPTER_CASES = [
     (MockAdapter, {}, "Invalid mock options"),
     (LyricsAdapter, {}, "Invalid lyric transcription options"),
@@ -42,11 +41,12 @@ def test_each_adapter_delegates_to_the_shared_validator(
 
     def spy(schema, options, text):
         calls.append((schema, options, text))
-        return {"validated": True}
+        return validate_adapter_options(schema, options, text)
 
     # アダプタ自身が持つ検証を使わず、共有関数へ自分のスキーマと固有のメッセージで委譲していること。
+    # 本物の関数へ処理を渡すので、委譲後の追加検査(SongAdapterのタイトル検査など)もそのまま動く。
     monkeypatch.setattr(sys.modules[type(adapter).__module__], "validate_adapter_options", spy)
-    assert adapter.validate_options(valid_options) == {"validated": True}
+    assert isinstance(adapter.validate_options(valid_options), dict)
     assert len(calls) == 1
     schema, options, text = calls[0]
     assert issubclass(schema, BaseModel) and options == valid_options and text == message

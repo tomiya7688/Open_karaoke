@@ -304,8 +304,8 @@ def test_numbers_that_overflow_to_infinity_in_an_annotation_are_rejected(tmp_pat
     audio_sha = entry["audio"]["sha256"]
     # 1e999 は "Infinity" の綴りを使わずに float('inf') になる。
     raw = (
-        '{"version":1,"sample_id":"a","audio_sha256":"%s","sample_rate":48000,'
-        '"duration_samples":48000,"kind":"pitch","payload":{"hz":1e999}}' % audio_sha
+        f'{{"version":1,"sample_id":"a","audio_sha256":"{audio_sha}","sample_rate":48000,'
+        '"duration_samples":48000,"kind":"pitch","payload":{"hz":1e999}}'
     ).encode()
     entry["annotation"] = write_file(tmp_path, "a.json", raw)
     with pytest.raises(ValueError, match="Non-finite JSON value"):
