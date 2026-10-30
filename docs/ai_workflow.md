@@ -59,7 +59,8 @@ GitHub connectorだけの環境では対象Issue、対象PRのhead/base SHA、�
 | 合成歌詞CER CI #18.4 | `.github/workflows/lyric-regression.yml`、`python/tests/fixtures/lyric_ci_*.json` | `python/tests/test_lyric_ci.py`、`docs/lyric_ci.md`。固定baseline比較と集計のみのartifact保存 |
 | Core Job evaluator client #18.5 | `python/src/open_karaoke_analysis/core_job_client.py` | `python/tests/test_core_job_client.py`、`docs/core_job_evaluator.md`。認証済みsession照合・Job作成・取得 |
 | Evaluator所有Core #18.6a | `python/src/open_karaoke_analysis/owned_core.py` | `python/tests/test_owned_core.py`、`docs/core_job_evaluator.md`。起動/終了と認証接続 |
-| 単一Job runner #18.6b | `python/src/open_karaoke_analysis/job_runner.py` | `python/tests/test_job_runner.py`、`docs/core_job_evaluator.md`。全体期限・polling・終端。集計/CLIは#18.6c |
+| 単一Job runner #18.6b | `python/src/open_karaoke_analysis/job_runner.py` | `python/tests/test_job_runner.py`、`docs/core_job_evaluator.md`。全体期限・polling・終端。実行CLI/CI保存は#18.6c2 |
+| Job benchmark集計 #18.6c1 | `python/src/open_karaoke_analysis/job_summary.py` | `python/tests/test_job_summary.py`、`docs/core_job_evaluator.md`。匿名の固定JSON・整合性検証。実行CLI/CI保存は#18.6c2 |
 | Python起動・復旧 | `core/src/analysis_service.rs`、`core/src/main.rs` | `core/tests/job_api.rs`、`python/tests/test_process.py`、`docs/analysis_service.md` |
 | Song Data / migration | `core/src/song_data.rs` | 同ファイル内tests、`core/tests/fixtures/song.json`、`docs/song_format.md` |
 | 音源入力・正規化 | `core/src/audio_import.rs` | 同ファイル内tests、`docs/audio_import.md` |
