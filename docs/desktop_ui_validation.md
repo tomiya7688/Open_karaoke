@@ -26,3 +26,11 @@ Windows/Linuxの実ウィンドウ管理、物理マウス/IME、実マイク/�
 ネイティブ環境での対話操作・機材品質・長時間稼働は別に検証する。
 
 開発起動は [Desktop client](desktop_client.md)、認証契約は [Desktop session](desktop_session.md)。
+
+## 画面の見た目(デザイン)
+
+色・角丸・文字の階層は `gui/OpenKaraoke.Gui/App.axaml` に集約し、画面は名前付きクラス(`card`、`statusPill`、
+`infoBar`、`danger` など)だけを使う。OSのライト/ダーク設定に追従するが、headless描画はライトのみで、
+ダーク配色・高DPI・実ウィンドウでの見た目は目視で別途確認する。
+画面構成は上部バー(接続状態と接続操作)、エラー通知、`解析・Job`/`設定` タブの順。
+スモークはボタン文言、`TabControl`・`ProgressBar` が各1つ、設定タブの入力欄3つに依存するため、変更時は合わせて更新する。

@@ -90,7 +90,7 @@
                     <TextBlock Classes="caption" Text="状態" />
                     <TextBlock Text="{Binding JobStatusLabel}" FontSize="15" FontWeight="SemiBold" />
                   </StackPanel>
-                  <TextBlock Grid.Column="1" Classes="metric" Text="{Binding ProgressText}"
+                  <TextBlock Grid.Column="1" Classes="metric" Text="{Binding ProgressText}" IsVisible="{Binding HasJob}"
                              VerticalAlignment="Bottom" />
                 </Grid>
                 <ProgressBar Minimum="0" Maximum="100" Value="{Binding Progress}"
