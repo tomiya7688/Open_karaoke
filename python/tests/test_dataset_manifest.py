@@ -156,7 +156,8 @@ def test_hash_mismatch_and_malformed_digest_are_rejected(tmp_path):
 def test_paths_must_stay_below_manifest_directory(tmp_path, raw):
     entry = sample(tmp_path, "a")
     entry["audio"]["path"] = raw
-    with pytest.raises(ValueError, match="manifest directory"):
+    # 実体の有無で落ちる別エラーではなく、path形式そのものの拒否であることを確かめる。
+    with pytest.raises(ValueError, match=r"audio\.path must stay below the manifest directory"):
         validate_manifest(manifest(tmp_path, [entry]))
 
 
@@ -166,7 +167,9 @@ def test_paths_must_stay_below_manifest_directory(tmp_path, raw):
 def test_annotation_paths_must_also_stay_below_manifest_directory(tmp_path, raw):
     entry = sample(tmp_path, "a")
     entry["annotation"]["path"] = raw
-    with pytest.raises(ValueError, match=r"annotation\.path must .*manifest directory"):
+    with pytest.raises(
+        ValueError, match=r"annotation\.path must stay below the manifest directory"
+    ):
         validate_manifest(manifest(tmp_path, [entry]))
 
 

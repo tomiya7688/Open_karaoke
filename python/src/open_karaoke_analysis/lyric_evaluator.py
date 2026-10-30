@@ -4,6 +4,7 @@ import argparse
 import hashlib
 import json
 import os
+import shutil
 import unicodedata
 from pathlib import Path
 
@@ -187,7 +188,17 @@ def main() -> None:
             for target, text in pending:
                 temporary = target.with_name(f".{target.name}.tmp")
                 staged.append((temporary, target))
-                temporary.write_text(text, encoding="utf-8")
+                # 前回の残骸(緩い権限やsymlink)は使わず、新しいファイルとして作り直す。
+                # 既存レポートがあれば所有者限定で作ってから書き込み、その権限を引き継ぐ
+                # (既存より緩い権限で置き換えない)。新規なら従来どおりumaskに従う。
+                temporary.unlink(missing_ok=True)
+                existing = target.exists()
+                flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_BINARY", 0)
+                descriptor = os.open(temporary, flags, 0o600 if existing else 0o666)
+                with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
+                    stream.write(text)
+                if existing:
+                    shutil.copymode(target, temporary)
             for temporary, target in staged:
                 os.replace(temporary, target)
         finally:

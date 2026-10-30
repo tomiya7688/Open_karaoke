@@ -2,7 +2,7 @@ import argparse
 import hashlib
 import json
 import math
-from pathlib import Path, PurePosixPath
+from pathlib import Path, PurePosixPath, PureWindowsPath
 
 
 def _unique_object(pairs: list[tuple[str, object]]) -> dict:
@@ -141,7 +141,7 @@ def _verified_file(root: Path, file: object, label: str) -> tuple[Path, str]:
       責務: [_verified_file: manifest配下のファイルを開き、記載されたSHA-256と照合する]
       処理: [
         1: pathとsha256のobjectを検証する,
-        2: 絶対パス・親参照・バックスラッシュを拒否する,
+        2: 絶対パス・ドライブ指定・空や親の参照・バックスラッシュを拒否する,
         3: manifest配下の通常ファイルか確認する,
         4: 1MiB単位でSHA-256を計算して照合する
       ]
@@ -155,8 +155,9 @@ def _verified_file(root: Path, file: object, label: str) -> tuple[Path, str]:
     relative = PurePosixPath(raw_path)
     if (
         relative.is_absolute()
+        or PureWindowsPath(raw_path).drive
         or "\\" in raw_path
-        or any(part in {".", ".."} for part in raw_path.split("/"))
+        or any(part in {"", ".", ".."} for part in raw_path.split("/"))
         or not relative.parts
     ):
         raise ValueError(f"{label}.path must stay below the manifest directory")

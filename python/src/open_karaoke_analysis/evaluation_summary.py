@@ -122,7 +122,8 @@ def lyric_summary(
         ):
             raise ValueError(f"{rate} is inconsistent with the lyric evaluation totals")
     insertions = report.get("empty_reference_insertions")
-    if type(insertions) is not int or insertions < 0:
+    # 空の参照への挿入は文字誤りの一部なので、総数を超えない(lyric_regressionと同じ不変条件)。
+    if type(insertions) is not int or not 0 <= insertions <= totals["char_errors"]:
         raise ValueError("Invalid empty-reference insertion count")
     if applied:
         # 評価器の合否の定義: CERが閾値以下で、空の参照への挿入がないこと。

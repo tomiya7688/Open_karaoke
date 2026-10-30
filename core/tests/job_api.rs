@@ -374,7 +374,17 @@ async fn sse_closes_after_terminal_event() {
         {
             body.extend_from_slice(&chunk.unwrap());
         }
-        assert!(String::from_utf8_lossy(&body).contains("completed"));
+        // 文字列の部分一致ではなく、job eventを1件だけ解析して終端snapshotであることを確かめる。
+        let text = String::from_utf8(body).unwrap();
+        let events: Vec<&str> = text.split("\n\n").filter(|e| !e.is_empty()).collect();
+        assert_eq!(events.len(), 1, "{text}");
+        let mut lines = events[0].lines();
+        assert_eq!(lines.next(), Some("event: job"), "{text}");
+        let data = lines.next().and_then(|line| line.strip_prefix("data: "));
+        let event: Value = serde_json::from_str(data.unwrap()).unwrap();
+        assert!(lines.next().is_none(), "{text}");
+        assert_eq!(event["job"]["id"], id.to_string());
+        assert_eq!(event["job"]["status"], "completed");
     }
     // 枠が本当に返っていれば、ループ後も上限ちょうどまで同時に保持でき、33本目だけが拒否される。
     // 冒頭で読み終えた接続はここで手放す(テスト内のoneshotでは本文を破棄するまで枠が残るため)。
