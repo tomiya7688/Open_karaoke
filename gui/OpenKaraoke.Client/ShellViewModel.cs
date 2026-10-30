@@ -48,7 +48,7 @@ public sealed class ShellViewModel : INotifyPropertyChanged, IAsyncDisposable
     public bool CanCancel => !_disposed && _connection is not null && _job is not null && !_job.IsTerminal && !_cancelling;
 
     // 画面の見た目(状態色・表示切替)専用の派生値。状態の正本は上のフィールドで、ここでは保持しない。
-    public bool IsConnected => _connection is not null && !_disconnecting;
+    public bool IsConnected => _connection is not null && !_connecting && !_disconnecting;
     public bool IsTransitioning => _connecting || _disconnecting;
     public bool HasError => _error.Length > 0;
     public bool HasJob => _job is not null;

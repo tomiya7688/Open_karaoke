@@ -18,8 +18,8 @@
       <Color x:Key="SystemAccentColorLight2">#AE90FF</Color>
       <Color x:Key="SystemAccentColorLight3">#C6B1FF</Color>
 
-      <FontFamily x:Key="OkFontFamily">avares://Avalonia.Fonts.Inter/Assets#Inter, Yu Gothic UI, Meiryo UI, Hiragino Sans, Noto Sans CJK JP, sans-serif</FontFamily>
-      <FontFamily x:Key="OkMonoFontFamily">Cascadia Mono, Consolas, Menlo, DejaVu Sans Mono, monospace</FontFamily>
+      <FontFamily x:Key="OkFontFamily">avares://Avalonia.Fonts.Inter/Assets#Inter, Yu Gothic UI, Meiryo UI, Hiragino Sans, Noto Sans CJK JP</FontFamily>
+      <FontFamily x:Key="OkMonoFontFamily">Cascadia Mono, Consolas, Menlo, DejaVu Sans Mono</FontFamily>
       <CornerRadius x:Key="OkCardRadius">12</CornerRadius>
       <CornerRadius x:Key="OkControlRadius">8</CornerRadius>
 
@@ -34,9 +34,9 @@
           <SolidColorBrush x:Key="OkCodeBackground" Color="#F0F0F6" />
           <SolidColorBrush x:Key="OkNeutral" Color="#6B6E80" />
           <SolidColorBrush x:Key="OkNeutralSubtle" Color="#EDEDF3" />
-          <SolidColorBrush x:Key="OkSuccess" Color="#1E7F45" />
+          <SolidColorBrush x:Key="OkSuccess" Color="#176B39" />
           <SolidColorBrush x:Key="OkSuccessSubtle" Color="#E4F3EA" />
-          <SolidColorBrush x:Key="OkWarning" Color="#9A5B00" />
+          <SolidColorBrush x:Key="OkWarning" Color="#8A4F00" />
           <SolidColorBrush x:Key="OkWarningSubtle" Color="#FFF2DC" />
           <SolidColorBrush x:Key="OkDanger" Color="#B42318" />
           <SolidColorBrush x:Key="OkDangerSubtle" Color="#FDECEA" />
@@ -224,7 +224,7 @@
       <Setter Property="MinHeight" Value="36" />
       <Setter Property="Padding" Value="10,7" />
     </Style>
-    <Style Selector="ProgressBar">
+    <Style Selector="ProgressBar.slim">
       <Setter Property="MinHeight" Value="8" />
       <Setter Property="Height" Value="8" />
       <Setter Property="CornerRadius" Value="4" />
@@ -240,8 +240,8 @@
       <Setter Property="FontSize" Value="15" />
       <Setter Property="FontWeight" Value="Medium" />
       <Setter Property="MinHeight" Value="40" />
-      <Setter Property="Padding" Value="4,0" />
-      <Setter Property="Margin" Value="0,0,20,0" />
+      <Setter Property="Padding" Value="12,0" />
+      <Setter Property="Margin" Value="0,0,4,0" />
     </Style>
   </Application.Styles>
 </Application>
