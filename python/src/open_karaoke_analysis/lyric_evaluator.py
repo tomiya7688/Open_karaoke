@@ -105,7 +105,8 @@ def main() -> None:
         1: 評価pairを読み、CER/WERを計算する,
         2: --summary-outputがあれば、参照集合hashとメタデータ付きの集計要約を作る,
         3: 要約のメタデータだけが渡された場合は拒否する,
-        4: 詳細レポートと要約を別のfileへ書き、品質ゲート不合格なら終了codeを1にする
+        4: 両方の直列化と出力先の準備を済ませてから、詳細レポートと要約を別のfileへ書く,
+        5: 品質ゲート不合格なら終了codeを1にする
       ]
       引数: []
       戻り値: []
@@ -165,17 +166,19 @@ def main() -> None:
             )
         ):
             raise ValueError("Evaluation metadata requires --summary-output")
-        args.output.parent.mkdir(parents=True, exist_ok=True)
-        args.output.write_text(
-            json.dumps(report, ensure_ascii=False, indent=2, allow_nan=False) + "\n",
-            encoding="utf-8",
+        # 片方だけ書かれた状態を避けるため、直列化と出力先の準備を両方済ませてから書き込む。
+        detail_text = json.dumps(report, ensure_ascii=False, indent=2, allow_nan=False) + "\n"
+        summary_text = (
+            None
+            if summary is None
+            else json.dumps(summary, ensure_ascii=False, indent=2, allow_nan=False) + "\n"
         )
+        args.output.parent.mkdir(parents=True, exist_ok=True)
         if summary is not None:
             args.summary_output.parent.mkdir(parents=True, exist_ok=True)
-            args.summary_output.write_text(
-                json.dumps(summary, ensure_ascii=False, indent=2, allow_nan=False) + "\n",
-                encoding="utf-8",
-            )
+        args.output.write_text(detail_text, encoding="utf-8")
+        if summary_text is not None:
+            args.summary_output.write_text(summary_text, encoding="utf-8")
     except (OSError, UnicodeError, ValueError) as error:
         parser.error(str(error))
     if report["passed"] is False:

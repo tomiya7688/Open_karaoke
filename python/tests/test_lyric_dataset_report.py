@@ -47,7 +47,9 @@ def test_report_aggregates_only_lyric_samples_in_the_selected_split(tmp_path):
     assert report["sample_count"] == 2
     assert report["split"] == "development"
     assert report["model"] == {"name": "whisper", "version": "large-v3"}
-    assert 0.0 < report["cer"] < 0.2
+    # 空白を除いた文字: 参照 abc + helloworld = 13文字、予測 abc + helloword は編集距離1。
+    assert report["cer"] == pytest.approx(1 / 13)
+    assert report["totals"]["char_errors"] == 1 and report["totals"]["reference_chars"] == 13
     assert report["wer"] == pytest.approx(1 / 3)
     assert (
         report["dataset_manifest_sha256"] == hashlib.sha256(manifest_path.read_bytes()).hexdigest()
@@ -112,5 +114,25 @@ def test_invalid_manifest_stops_the_report(tmp_path):
     manifest_path = dataset(tmp_path)
     (tmp_path / "a.wav").write_bytes(b"tampered")
     prediction = predictions(tmp_path, [{"sample_id": "a", "text": "abc"}])
+    with pytest.raises(ValueError, match="SHA-256 mismatch"):
+        build_report(manifest_path, prediction, "development")
+
+
+def test_prediction_count_and_text_length_boundaries(tmp_path):
+    manifest_path = dataset(tmp_path)
+    too_many = [{"sample_id": f"x{i}", "text": "t"} for i in range(1001)]
+    with pytest.raises(ValueError, match="1..1000"):
+        build_report(manifest_path, predictions(tmp_path, too_many), "development")
+    longest = [{"sample_id": "a", "text": "x" * 20_000}, {"sample_id": "b", "text": "y"}]
+    report = build_report(manifest_path, predictions(tmp_path, longest), "development")
+    assert report["sample_count"] == 2
+
+
+def test_tampering_with_a_file_of_another_split_stops_the_report(tmp_path):
+    manifest_path = dataset(tmp_path)
+    (tmp_path / "h.wav").write_bytes(b"tampered")
+    prediction = predictions(
+        tmp_path, [{"sample_id": "a", "text": "abc"}, {"sample_id": "b", "text": "x"}]
+    )
     with pytest.raises(ValueError, match="SHA-256 mismatch"):
         build_report(manifest_path, prediction, "development")

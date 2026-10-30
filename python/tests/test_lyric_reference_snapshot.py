@@ -1,5 +1,6 @@
 import hashlib
 import json
+import os
 import subprocess
 import sys
 
@@ -43,8 +44,9 @@ def _run_summary(tmp_path, pairs, *flags):
             *flags,
         ],
         capture_output=True,
-        text=True,
-        timeout=10,
+        encoding="utf-8",
+        env={**os.environ, "PYTHONUTF8": "1"},
+        timeout=30,
         check=False,
     )
     return result, source, detail, summary
@@ -80,8 +82,13 @@ def test_reference_identity_tracks_the_reference_set(tmp_path, change):
     assert (
         current["dataset"]["reference_sha256"] == baseline["dataset"]["reference_sha256"]
     ) is same_reference
+    summary_text = output.read_text(encoding="utf-8")
+    escaped_summary = json.dumps(json.loads(summary_text), ensure_ascii=True)
     for private_value in ("private-a", "private-b", "秘密の空", "private reference"):
-        assert private_value not in output.read_text(encoding="utf-8")
+        # 生の本文・ASCIIエスケープ後の本文・標準出力/標準エラーのどこにも参照を出さない。
+        assert private_value not in summary_text
+        assert private_value not in escaped_summary
+        assert private_value not in result.stdout + result.stderr
 
 
 def test_implicit_ids_preserve_positional_meaning(tmp_path):
@@ -116,6 +123,36 @@ def test_reference_digest_has_a_stable_serialization(tmp_path, explicit_id):
     assert json.loads(output.read_text(encoding="utf-8"))["dataset"]["reference_sha256"] == (
         "ee551690f14599aff15247e686df90e0d50652d3e384714621def0d0470ff469"
     )
+
+
+def test_reference_digest_fixes_multi_item_order_and_id_pairing(tmp_path):
+    """{
+    責務: [複数参照のhashがid昇順・ASCII固定の直列化であることを固定する]
+    処理: [
+      1: idの昇順と逆順に並べた2件を評価する,
+      2: 仕様の式で手計算したhashと固定値に一致することを確認する,
+      3: idと参照の組み換えでhashが変わることを確認する
+    ]
+    引数: [tmp_path: 作業先]
+    戻り値: []
+    }"""
+    pairs = [
+        {"id": "b", "reference": "海", "hypothesis": "海"},
+        {"id": "a", "reference": "青い空", "hypothesis": "空"},
+    ]
+    result, _, _, output = _run_summary(tmp_path, pairs)
+    assert result.returncode == 0, result.stderr
+    digest = json.loads(output.read_text(encoding="utf-8"))["dataset"]["reference_sha256"]
+    body = json.dumps([("a", "青い空"), ("b", "海")], ensure_ascii=True, separators=(",", ":"))
+    assert (
+        digest
+        == hashlib.sha256(b"open-karaoke-lyric-reference-v1\0" + body.encode("ascii")).hexdigest()
+    )
+    assert digest == "e73f74f6da382aa6c9e44414931aac0472b6054de1c5590519382f2e5a0c9933"
+    swapped = [{**pairs[0], "id": "a"}, {**pairs[1], "id": "b"}]
+    result, _, _, output = _run_summary(tmp_path, swapped)
+    assert result.returncode == 0, result.stderr
+    assert json.loads(output.read_text(encoding="utf-8"))["dataset"]["reference_sha256"] != digest
 
 
 @pytest.mark.parametrize("digest", ["A" * 64, "bad", 123, False])

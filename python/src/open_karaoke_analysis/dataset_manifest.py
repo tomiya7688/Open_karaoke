@@ -1,6 +1,7 @@
 import argparse
 import hashlib
 import json
+import math
 from pathlib import Path, PurePosixPath
 
 
@@ -35,6 +36,22 @@ def _invalid_constant(value: str) -> None:
     raise ValueError(f"Non-finite JSON value: {value}")
 
 
+def _finite_float(text: str) -> float:
+    """
+    {
+      責務: [_finite_float: JSONの小数を読み、"1e999" のようにinfになる値を拒否する]
+      処理: [1: floatへ変換する, 2: 有限でなければエラーにする]
+      引数: [text: JSONの数値表記]
+      戻り値: [有限のfloat]
+      エラー: [ValueError: 非有限の値]
+    }
+    """
+    value = float(text)
+    if not math.isfinite(value):
+        raise ValueError(f"Non-finite JSON value: {text}")
+    return value
+
+
 def _load_json(data: bytes) -> object:
     """
     {
@@ -45,7 +62,12 @@ def _load_json(data: bytes) -> object:
       エラー: [ValueError: JSONが不正、重複キー、または非有限値]
     }
     """
-    return json.loads(data, object_pairs_hook=_unique_object, parse_constant=_invalid_constant)
+    return json.loads(
+        data,
+        object_pairs_hook=_unique_object,
+        parse_constant=_invalid_constant,
+        parse_float=_finite_float,
+    )
 
 
 def _object(value: object, keys: set[str], label: str) -> dict:
