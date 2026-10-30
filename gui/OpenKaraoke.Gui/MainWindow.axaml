@@ -34,7 +34,8 @@
             <StackPanel Orientation="Horizontal" Spacing="8">
               <Ellipse Width="8" Height="8" VerticalAlignment="Center" />
               <TextBlock Text="{Binding ConnectionStatus}" FontSize="13" FontWeight="Medium"
-                         VerticalAlignment="Center" MaxWidth="200" TextTrimming="CharacterEllipsis" />
+                         VerticalAlignment="Center" MaxWidth="200" TextTrimming="CharacterEllipsis"
+                         ToolTip.Tip="{Binding ConnectionStatus}" />
             </StackPanel>
           </Border>
           <Button Classes="accent" Content="Coreに接続"
