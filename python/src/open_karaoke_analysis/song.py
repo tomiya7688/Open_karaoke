@@ -173,17 +173,20 @@ class SongAdapter:
         """
         message = "Invalid full-song options"
         parsed = validate_adapter_options(SongOptions, options, message)
-        rejected = (
-            not parsed["title"].strip()
-            or any(not model or len(model) > 128 for model in parsed["models"].values())
-            or any(
-                name.endswith("_artifact") or name == "analysis_version"
-                for values in parsed["stage_options"].values()
-                for name in values
-            )
-        )
-        if rejected:
-            raise ServiceError("invalid_options", message)
+        reason = None
+        if not parsed["title"].strip():
+            reason = "Empty title"
+        elif any(not model or len(model) > 128 for model in parsed["models"].values()):
+            reason = "Invalid model ID"
+        elif any(
+            name.endswith("_artifact") or name == "analysis_version"
+            for values in parsed["stage_options"].values()
+            for name in values
+        ):
+            reason = "Pipeline-owned wiring cannot be overridden"
+        if reason is not None:
+            # 利用者向けの文言は役割共通のまま、原因は例外連鎖に残す(変更前と同じ扱い)。
+            raise ServiceError("invalid_options", message) from ValueError(reason)
         return parsed
 
     def analyze(self, context: AnalysisContext, options: dict[str, Any]) -> list[str]:

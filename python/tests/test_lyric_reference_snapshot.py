@@ -83,12 +83,13 @@ def test_reference_identity_tracks_the_reference_set(tmp_path, change):
         current["dataset"]["reference_sha256"] == baseline["dataset"]["reference_sha256"]
     ) is same_reference
     summary_text = output.read_text(encoding="utf-8")
-    escaped_summary = json.dumps(json.loads(summary_text), ensure_ascii=True)
     for private_value in ("private-a", "private-b", "秘密の空", "private reference"):
+        escaped_value = json.dumps(private_value, ensure_ascii=True)[1:-1]
         # 生の本文・ASCIIエスケープ後の本文・標準出力/標準エラーのどこにも参照を出さない。
         assert private_value not in summary_text
-        assert private_value not in escaped_summary
+        assert escaped_value not in summary_text
         assert private_value not in result.stdout + result.stderr
+        assert escaped_value not in result.stdout + result.stderr
 
 
 def test_implicit_ids_preserve_positional_meaning(tmp_path):
@@ -149,6 +150,9 @@ def test_reference_digest_fixes_multi_item_order_and_id_pairing(tmp_path):
         == hashlib.sha256(b"open-karaoke-lyric-reference-v1\0" + body.encode("ascii")).hexdigest()
     )
     assert digest == "e73f74f6da382aa6c9e44414931aac0472b6054de1c5590519382f2e5a0c9933"
+    result, _, _, output = _run_summary(tmp_path, list(reversed(pairs)))
+    assert result.returncode == 0, result.stderr
+    assert json.loads(output.read_text(encoding="utf-8"))["dataset"]["reference_sha256"] == digest
     swapped = [{**pairs[0], "id": "a"}, {**pairs[1], "id": "b"}]
     result, _, _, output = _run_summary(tmp_path, swapped)
     assert result.returncode == 0, result.stderr

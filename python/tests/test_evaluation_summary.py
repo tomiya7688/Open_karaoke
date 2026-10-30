@@ -124,10 +124,11 @@ def test_a_gate_fails_when_an_empty_reference_received_insertions():
 def test_rates_with_an_empty_reference_follow_the_evaluator_definition(pairs, cer, wer):
     summary = lyric_summary(evaluate(pairs), **META)
     assert summary["metrics"]["cer"] == cer and summary["metrics"]["wer"] == wer
-    broken = evaluate(pairs)
-    broken["cer"] = 1.0 if cer is None else None
-    with pytest.raises(ValueError, match="cer is inconsistent"):
-        lyric_summary(broken, **META)
+    for rate, expected in (("cer", cer), ("wer", wer)):
+        broken = evaluate(pairs)
+        broken[rate] = 1.0 if expected is None else None
+        with pytest.raises(ValueError, match=f"{rate} is inconsistent"):
+            lyric_summary(broken, **META)
 
 
 def test_non_dict_report_is_rejected():
@@ -163,8 +164,11 @@ def test_cli_writes_detail_and_summary_separately(tmp_path, monkeypatch):
     assert "pairs" not in written and json.loads(detail.read_text(encoding="utf-8"))["cer"] == 0
 
 
-def test_cli_writes_neither_file_when_the_summary_destination_is_unusable(tmp_path, monkeypatch):
+def test_cli_writes_neither_file_when_the_summary_destination_is_unusable(
+    tmp_path, monkeypatch, capsys
+):
     pairs, detail, _ = cli_args(tmp_path)
+    detail.write_text("previous report", encoding="utf-8")
     blocker = tmp_path / "blocker"
     blocker.write_text("not a directory", encoding="utf-8")
     with pytest.raises(SystemExit) as exit_info:
@@ -176,7 +180,10 @@ def test_cli_writes_neither_file_when_the_summary_destination_is_unusable(tmp_pa
             "--model-version", "1", "--evaluation-kind", "synthetic",
         )  # fmt: skip
     assert exit_info.value.code == 2
-    assert not detail.exists()
+    # 要約の出力先が使えないことが原因で失敗し、既存の詳細レポートは変更されない。
+    assert "blocker" in capsys.readouterr().err
+    assert detail.read_text(encoding="utf-8") == "previous report"
+    assert not list(tmp_path.glob(".*.tmp"))
 
 
 def test_cli_rejects_metadata_without_summary_output(tmp_path, monkeypatch, capsys):

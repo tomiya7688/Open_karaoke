@@ -376,7 +376,19 @@ async fn sse_closes_after_terminal_event() {
         }
         assert!(String::from_utf8_lossy(&body).contains("completed"));
     }
-    assert_eq!(open_events(&router, id).await.status(), StatusCode::OK);
+    // 枠が本当に返っていれば、ループ後も上限ちょうどまで同時に保持でき、33本目だけが拒否される。
+    // 冒頭で読み終えた接続はここで手放す(テスト内のoneshotでは本文を破棄するまで枠が残るため)。
+    drop(stream);
+    let mut held = Vec::new();
+    for _ in 0..32 {
+        let response = open_events(&router, id).await;
+        assert_eq!(response.status(), StatusCode::OK);
+        held.push(response);
+    }
+    assert_eq!(
+        open_events(&router, id).await.status(),
+        StatusCode::TOO_MANY_REQUESTS
+    );
 }
 
 #[tokio::test]

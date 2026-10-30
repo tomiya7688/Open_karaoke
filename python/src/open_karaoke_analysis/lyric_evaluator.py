@@ -3,6 +3,7 @@
 import argparse
 import hashlib
 import json
+import os
 import unicodedata
 from pathlib import Path
 
@@ -105,7 +106,7 @@ def main() -> None:
         1: 評価pairを読み、CER/WERを計算する,
         2: --summary-outputがあれば、参照集合hashとメタデータ付きの集計要約を作る,
         3: 要約のメタデータだけが渡された場合は拒否する,
-        4: 両方の直列化と出力先の準備を済ませてから、詳細レポートと要約を別のfileへ書く,
+        4: 両方を直列化して一時ファイルへ書き終えてから、それぞれの出力先へ置き換える,
         5: 品質ゲート不合格なら終了codeを1にする
       ]
       引数: []
@@ -166,7 +167,9 @@ def main() -> None:
             )
         ):
             raise ValueError("Evaluation metadata requires --summary-output")
-        # 片方だけ書かれた状態を避けるため、直列化と出力先の準備を両方済ませてから書き込む。
+        # 直列化・ディレクトリ作成・書き込みの失敗で片方だけ更新されるのを避けるため、
+        # 両方を一時ファイルへ書き終えてから置き換える。
+        # 置き換え自体(os.replace)の失敗まで含めた、2ファイルの不可分性は保証しない。
         detail_text = json.dumps(report, ensure_ascii=False, indent=2, allow_nan=False) + "\n"
         summary_text = (
             None
@@ -176,9 +179,20 @@ def main() -> None:
         args.output.parent.mkdir(parents=True, exist_ok=True)
         if summary is not None:
             args.summary_output.parent.mkdir(parents=True, exist_ok=True)
-        args.output.write_text(detail_text, encoding="utf-8")
+        pending = [(args.output, detail_text)]
         if summary_text is not None:
-            args.summary_output.write_text(summary_text, encoding="utf-8")
+            pending.append((args.summary_output, summary_text))
+        staged: list[tuple[Path, Path]] = []
+        try:
+            for target, text in pending:
+                temporary = target.with_name(f".{target.name}.tmp")
+                staged.append((temporary, target))
+                temporary.write_text(text, encoding="utf-8")
+            for temporary, target in staged:
+                os.replace(temporary, target)
+        finally:
+            for temporary, _ in staged:
+                temporary.unlink(missing_ok=True)
     except (OSError, UnicodeError, ValueError) as error:
         parser.error(str(error))
     if report["passed"] is False:
