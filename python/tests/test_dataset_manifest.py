@@ -150,12 +150,52 @@ def test_hash_mismatch_and_malformed_digest_are_rejected(tmp_path):
         validate_manifest(manifest(tmp_path, [bad]))
 
 
-@pytest.mark.parametrize("raw", ["../outside.wav", "/abs.wav", "a\\b.wav", "./a.wav", "sub//x"])
+@pytest.mark.parametrize(
+    "raw", ["../outside.wav", "/abs.wav", "a\\b.wav", "./a.wav", "sub//x", "C:x", "C:/x"]
+)
 def test_paths_must_stay_below_manifest_directory(tmp_path, raw):
     entry = sample(tmp_path, "a")
     entry["audio"]["path"] = raw
-    with pytest.raises(ValueError, match="manifest directory"):
+    # 実体の有無で落ちる別エラーではなく、path形式そのものの拒否であることを確かめる。
+    with pytest.raises(ValueError, match=r"audio\.path must stay below the manifest directory"):
         validate_manifest(manifest(tmp_path, [entry]))
+
+
+@pytest.mark.parametrize(
+    "raw", ["../outside.json", "/abs.json", "a\\b.json", "./a.json", "sub//x", "C:x", "C:/x"]
+)
+def test_annotation_paths_must_also_stay_below_manifest_directory(tmp_path, raw):
+    entry = sample(tmp_path, "a")
+    entry["annotation"]["path"] = raw
+    with pytest.raises(
+        ValueError, match=r"annotation\.path must stay below the manifest directory"
+    ):
+        validate_manifest(manifest(tmp_path, [entry]))
+
+
+def test_files_in_a_subdirectory_are_accepted(tmp_path):
+    entry = sample(tmp_path, "a")
+    (tmp_path / "sub").mkdir()
+    (tmp_path / "a.wav").replace(tmp_path / "sub" / "a.wav")
+    entry["audio"]["path"] = "sub/a.wav"
+    assert validate_manifest(manifest(tmp_path, [entry]))["samples"] == 1
+
+
+def test_a_symlink_that_escapes_the_manifest_directory_is_rejected(tmp_path):
+    root = tmp_path / "root"
+    root.mkdir()
+    outside = tmp_path / "outside.wav"
+    outside.write_bytes(
+        b"a"
+    )  # sample() の音声内容(識別子と同じ)と一致させ、SHA-256 は合う状態にする
+    entry = sample(root, "a")
+    (root / "a.wav").unlink()
+    try:
+        (root / "a.wav").symlink_to(outside)
+    except (OSError, NotImplementedError):
+        pytest.skip("symbolic links are not permitted in this environment")
+    with pytest.raises(ValueError, match="regular file below the manifest directory"):
+        validate_manifest(manifest(root, [entry]))
 
 
 def test_missing_or_directory_target_is_rejected(tmp_path):
@@ -195,18 +235,33 @@ def test_annotation_envelope_must_bind_to_sample_and_audio(tmp_path, override, m
 
 
 @pytest.mark.parametrize(
-    "segment",
+    ("segment", "message"),
     [
-        {"id": "s1", "text": "x", "start_sample": 0, "end_sample": DURATION + 1},
-        {"id": "s1", "text": "x", "start_sample": 5, "end_sample": 5},
-        {"id": "s1", "text": "x", "start_sample": True, "end_sample": 10},
-        {"id": "s1", "text": " ", "start_sample": 0, "end_sample": 10},
+        (
+            {"id": "s1", "text": "x", "start_sample": 0, "end_sample": DURATION + 1},
+            "sample duration",
+        ),
+        ({"id": "s1", "text": "x", "start_sample": 5, "end_sample": 5}, "sample duration"),
+        ({"id": "s1", "text": "x", "start_sample": 10, "end_sample": 5}, "sample duration"),
+        ({"id": "s1", "text": "x", "start_sample": -1, "end_sample": 10}, "sample duration"),
+        ({"id": "s1", "text": "x", "start_sample": True, "end_sample": 10}, "sample duration"),
+        ({"id": "s1", "text": " ", "start_sample": 0, "end_sample": 10}, "nonempty"),
     ],
 )
-def test_lyric_segments_must_fit_the_audio_duration(tmp_path, segment):
+def test_lyric_segments_must_fit_the_audio_duration(tmp_path, segment, message):
     entry = sample(tmp_path, "a", payload={"reference_segments": [segment]})
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match=message):
         validate_manifest(manifest(tmp_path, [entry]))
+
+
+def test_lyric_segment_boundaries_and_overlaps_are_accepted(tmp_path):
+    # 半開区間 [0, DURATION) 全体と、開始が昇順で重なる区間は有効(仕様は重なりを禁止しない)。
+    segments = [
+        {"id": "s1", "text": "a", "start_sample": 0, "end_sample": DURATION},
+        {"id": "s2", "text": "b", "start_sample": 100, "end_sample": 200},
+    ]
+    entry = sample(tmp_path, "a", payload={"reference_segments": segments})
+    assert validate_manifest(manifest(tmp_path, [entry]))["samples"] == 1
 
 
 def test_lyric_segments_reject_duplicate_ids_and_unordered_starts(tmp_path):
@@ -245,3 +300,16 @@ def test_language_none_cannot_have_reference_lyrics(tmp_path):
     instrumental = sample(tmp_path, "b", payload={"reference_segments": []})
     instrumental["strata"]["language"] = "none"
     assert validate_manifest(manifest(tmp_path, [instrumental]))["samples"] == 1
+
+
+def test_numbers_that_overflow_to_infinity_in_an_annotation_are_rejected(tmp_path):
+    entry = sample(tmp_path, "a")
+    audio_sha = entry["audio"]["sha256"]
+    # 1e999 は "Infinity" の綴りを使わずに float('inf') になる。
+    raw = (
+        f'{{"version":1,"sample_id":"a","audio_sha256":"{audio_sha}","sample_rate":48000,'
+        '"duration_samples":48000,"kind":"pitch","payload":{"hz":1e999}}'
+    ).encode()
+    entry["annotation"] = write_file(tmp_path, "a.json", raw)
+    with pytest.raises(ValueError, match="Non-finite JSON value"):
+        validate_manifest(manifest(tmp_path, [entry]))

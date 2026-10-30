@@ -35,7 +35,7 @@ def lyric_summary(
       責務: [lyric_summary: 歌詞評価レポートを、モデル比較用の集計だけの版付き要約へ変換する]
       処理: [
         1: dataset・model・SHA-256・評価種別のメタデータを検証する,
-        2: 歌詞評価レポートの種別・版・指標・品質ゲート・集計値・正規化を検証する,
+        2: 歌詞評価レポートの種別・版・指標・品質ゲート・集計値(率との整合を含む)・正規化を検証する,
         3: 個別の歌詞を含めず、集計値と設定だけの要約を組み立てる
       ]
       引数: [
@@ -107,9 +107,29 @@ def lyric_summary(
         type(totals.get(key)) is not int or totals[key] < 0 for key in required_counts
     ):
         raise ValueError("Invalid lyric evaluation totals")
+    # 率は集計値で決まる(分母0は誤りも0なら0.0、それ以外はnull)。矛盾した要約を作らない。
+    for rate, errors, count in (
+        ("cer", "char_errors", "reference_chars"),
+        ("wer", "word_errors", "reference_words"),
+    ):
+        if totals[count]:
+            expected = totals[errors] / totals[count]
+        else:
+            expected = 0.0 if totals[errors] == 0 else None
+        actual = metrics[rate]
+        if (expected is None) != (actual is None) or (
+            expected is not None and abs(actual - expected) > 1e-9
+        ):
+            raise ValueError(f"{rate} is inconsistent with the lyric evaluation totals")
     insertions = report.get("empty_reference_insertions")
-    if type(insertions) is not int or insertions < 0:
+    # 空の参照への挿入は文字誤りの一部なので、総数を超えない(lyric_regressionと同じ不変条件)。
+    if type(insertions) is not int or not 0 <= insertions <= totals["char_errors"]:
         raise ValueError("Invalid empty-reference insertion count")
+    if applied:
+        # 評価器の合否の定義: CERが閾値以下で、空の参照への挿入がないこと。
+        cer = metrics["cer"]
+        if passed is not (cer is not None and cer <= threshold and insertions == 0):
+            raise ValueError("Quality gate result is inconsistent with the lyric metrics")
     if report.get("normalization") not in ("NFKC+casefold+remove-punctuation", "none"):
         raise ValueError("Invalid lyric normalization")
     if report.get("wer_tokenizer") != "whitespace" or report.get("cer_whitespace") != "removed":

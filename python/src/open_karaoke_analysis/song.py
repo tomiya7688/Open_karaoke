@@ -8,9 +8,9 @@ import re
 from pathlib import Path
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, Field
 
-from .adapters import AdapterRegistry, AnalysisContext, resolve_artifact
+from .adapters import AdapterRegistry, AnalysisContext, resolve_artifact, validate_adapter_options
 from .contracts import ModelInfo, Role, ServiceError
 
 RATE = 48_000
@@ -159,19 +159,35 @@ class SongAdapter:
         self.registry = registry
 
     def validate_options(self, options: dict[str, Any]) -> dict[str, Any]:
-        try:
-            parsed = SongOptions.model_validate(options)
-            if not parsed.title.strip():
-                raise ValueError("Empty title")
-            for model in parsed.models.values():
-                if not model or len(model) > 128:
-                    raise ValueError("Invalid model ID")
-            for values in parsed.stage_options.values():
-                if any(name.endswith("_artifact") or name == "analysis_version" for name in values):
-                    raise ValueError("Pipeline-owned wiring cannot be overridden")
-            return parsed.model_dump()
-        except (ValidationError, ValueError) as error:
-            raise ServiceError("invalid_options", "Invalid full-song options") from error
+        """
+        {
+          責務: [validate_options: 全曲解析の設定を検証する]
+          処理: [
+            1: スキーマ検証を共通関数 validate_adapter_options へ委譲する,
+            2: 空のタイトル・不正なモデルID・パイプラインが所有する設定の上書きを拒否する
+          ]
+          引数: [options: 利用者が指定した設定]
+          戻り値: [検証済みの設定dict]
+          エラー: [ServiceError: invalid_options。設定が契約を満たさない]
+        }
+        """
+        message = "Invalid full-song options"
+        parsed = validate_adapter_options(SongOptions, options, message)
+        reason = None
+        if not parsed["title"].strip():
+            reason = "Empty title"
+        elif any(not model or len(model) > 128 for model in parsed["models"].values()):
+            reason = "Invalid model ID"
+        elif any(
+            name.endswith("_artifact") or name == "analysis_version"
+            for values in parsed["stage_options"].values()
+            for name in values
+        ):
+            reason = "Pipeline-owned wiring cannot be overridden"
+        if reason is not None:
+            # 利用者向けの文言は役割共通のまま、原因は例外連鎖に残す(変更前と同じ扱い)。
+            raise ServiceError("invalid_options", message) from ValueError(reason)
+        return parsed
 
     def analyze(self, context: AnalysisContext, options: dict[str, Any]) -> list[str]:
         options = self.validate_options(options)

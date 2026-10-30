@@ -3,6 +3,8 @@
 import argparse
 import hashlib
 import json
+import os
+import shutil
 import unicodedata
 from pathlib import Path
 
@@ -105,7 +107,8 @@ def main() -> None:
         1: 評価pairを読み、CER/WERを計算する,
         2: --summary-outputがあれば、参照集合hashとメタデータ付きの集計要約を作る,
         3: 要約のメタデータだけが渡された場合は拒否する,
-        4: 詳細レポートと要約を別のfileへ書き、品質ゲート不合格なら終了codeを1にする
+        4: 両方を直列化して一時ファイルへ書き終えてから、それぞれの出力先へ置き換える,
+        5: 品質ゲート不合格なら終了codeを1にする
       ]
       引数: []
       戻り値: []
@@ -165,17 +168,42 @@ def main() -> None:
             )
         ):
             raise ValueError("Evaluation metadata requires --summary-output")
-        args.output.parent.mkdir(parents=True, exist_ok=True)
-        args.output.write_text(
-            json.dumps(report, ensure_ascii=False, indent=2, allow_nan=False) + "\n",
-            encoding="utf-8",
+        # 直列化・ディレクトリ作成・書き込みの失敗で片方だけ更新されるのを避けるため、
+        # 両方を一時ファイルへ書き終えてから置き換える。
+        # 置き換え自体(os.replace)の失敗まで含めた、2ファイルの不可分性は保証しない。
+        detail_text = json.dumps(report, ensure_ascii=False, indent=2, allow_nan=False) + "\n"
+        summary_text = (
+            None
+            if summary is None
+            else json.dumps(summary, ensure_ascii=False, indent=2, allow_nan=False) + "\n"
         )
+        args.output.parent.mkdir(parents=True, exist_ok=True)
         if summary is not None:
             args.summary_output.parent.mkdir(parents=True, exist_ok=True)
-            args.summary_output.write_text(
-                json.dumps(summary, ensure_ascii=False, indent=2, allow_nan=False) + "\n",
-                encoding="utf-8",
-            )
+        pending = [(args.output, detail_text)]
+        if summary_text is not None:
+            pending.append((args.summary_output, summary_text))
+        staged: list[tuple[Path, Path]] = []
+        try:
+            for target, text in pending:
+                temporary = target.with_name(f".{target.name}.tmp")
+                staged.append((temporary, target))
+                # 前回の残骸(緩い権限やsymlink)は使わず、新しいファイルとして作り直す。
+                # 既存レポートがあれば所有者限定で作ってから書き込み、その権限を引き継ぐ
+                # (既存より緩い権限で置き換えない)。新規なら従来どおりumaskに従う。
+                temporary.unlink(missing_ok=True)
+                existing = target.exists()
+                flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_BINARY", 0)
+                descriptor = os.open(temporary, flags, 0o600 if existing else 0o666)
+                with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
+                    stream.write(text)
+                if existing:
+                    shutil.copymode(target, temporary)
+            for temporary, target in staged:
+                os.replace(temporary, target)
+        finally:
+            for temporary, _ in staged:
+                temporary.unlink(missing_ok=True)
     except (OSError, UnicodeError, ValueError) as error:
         parser.error(str(error))
     if report["passed"] is False:

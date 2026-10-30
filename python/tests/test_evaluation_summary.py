@@ -1,4 +1,5 @@
 import json
+import os
 import sys
 
 import pytest
@@ -73,6 +74,10 @@ def test_invalid_metadata_is_rejected(field, value):
         lambda r: r.update(empty_reference_insertions=-1),
         lambda r: r.update(normalization="other"),
         lambda r: r.update(wer_tokenizer="morphology"),
+        lambda r: r.update(cer=0.99),
+        lambda r: r.update(wer=0.0),
+        lambda r: r.update(cer=None),
+        lambda r: r["totals"].update(reference_chars=r["totals"]["reference_chars"] + 1),
     ],
 )
 def test_inconsistent_reports_are_rejected(mutate):
@@ -80,6 +85,59 @@ def test_inconsistent_reports_are_rejected(mutate):
     mutate(broken)
     with pytest.raises(ValueError):
         lyric_summary(broken, **META)
+
+
+@pytest.mark.parametrize(("max_cer", "passed"), [(0.1, False), (0.5, True)])
+def test_gate_result_must_match_the_metrics(max_cer, passed):
+    honest = report(max_cer=max_cer)
+    assert honest["passed"] is passed
+    assert lyric_summary(honest, **META)["gate"]["passed"] is passed
+    forged = report(max_cer=max_cer)
+    forged["passed"] = not passed
+    with pytest.raises(ValueError, match="inconsistent with the lyric metrics"):
+        lyric_summary(forged, **META)
+
+
+def test_a_gate_fails_when_an_empty_reference_received_insertions():
+    honest = evaluate(
+        [
+            {"id": "a", "reference": "青い空", "hypothesis": "青い空"},
+            {"id": "b", "reference": "", "hypothesis": "あ"},
+        ],
+        max_cer=1.0,
+    )
+    assert honest["passed"] is False and honest["empty_reference_insertions"] == 1
+    assert lyric_summary(honest, **META)["gate"]["passed"] is False
+    honest["passed"] = True
+    with pytest.raises(ValueError, match="inconsistent with the lyric metrics"):
+        lyric_summary(honest, **META)
+
+
+def test_insertions_cannot_exceed_the_character_errors():
+    # 空の参照への挿入は文字誤りに含まれるため、総数を超える報告はあり得ない。
+    impossible = report()
+    impossible["empty_reference_insertions"] = impossible["totals"]["char_errors"] + 1
+    with pytest.raises(ValueError, match="insertion count"):
+        lyric_summary(impossible, **META)
+
+
+@pytest.mark.parametrize(
+    ("pairs", "cer", "wer"),
+    [
+        # 分母0で誤りも0 -> 0.0
+        ([{"reference": "", "hypothesis": ""}], 0.0, 0.0),
+        # 分母0で誤りがある(空の参照への挿入) -> null
+        ([{"reference": "", "hypothesis": "あ"}], None, None),
+    ],
+)
+def test_rates_with_an_empty_reference_follow_the_evaluator_definition(pairs, cer, wer):
+    summary = lyric_summary(evaluate(pairs), **META)
+    assert summary["metrics"]["cer"] == cer and summary["metrics"]["wer"] == wer
+    for rate, expected in (("cer", cer), ("wer", wer)):
+        broken = evaluate(pairs)
+        broken[rate] = 1.0 if expected is None else None
+        with pytest.raises(ValueError, match=f"{rate} is inconsistent"):
+            lyric_summary(broken, **META)
 
 
 def test_non_dict_report_is_rejected():
@@ -115,6 +173,28 @@ def test_cli_writes_detail_and_summary_separately(tmp_path, monkeypatch):
     assert "pairs" not in written and json.loads(detail.read_text(encoding="utf-8"))["cer"] == 0
 
 
+def test_cli_writes_neither_file_when_the_summary_destination_is_unusable(
+    tmp_path, monkeypatch, capsys
+):
+    pairs, detail, _ = cli_args(tmp_path)
+    detail.write_text("previous report", encoding="utf-8")
+    blocker = tmp_path / "blocker"
+    blocker.write_text("not a directory", encoding="utf-8")
+    with pytest.raises(SystemExit) as exit_info:
+        run_cli(
+            monkeypatch,
+            pairs,
+            "--output", detail, "--summary-output", blocker / "sum.json",
+            "--dataset-id", "d", "--dataset-version", "1", "--model-name", "m",
+            "--model-version", "1", "--evaluation-kind", "synthetic",
+        )  # fmt: skip
+    assert exit_info.value.code == 2
+    # 要約の出力先が使えないことが原因で失敗し、既存の詳細レポートは変更されない。
+    assert "blocker" in capsys.readouterr().err
+    assert detail.read_text(encoding="utf-8") == "previous report"
+    assert not list(tmp_path.glob(".*.tmp"))
+
+
 def test_cli_rejects_metadata_without_summary_output(tmp_path, monkeypatch, capsys):
     pairs, detail, _ = cli_args(tmp_path)
     with pytest.raises(SystemExit) as exit_info:
@@ -138,3 +218,31 @@ def test_cli_rejects_summary_path_overwriting_input_or_detail(tmp_path, monkeypa
         assert exit_info.value.code == 2
         assert "Summary path must differ" in capsys.readouterr().err
     assert pairs.read_bytes() == original
+
+
+@pytest.mark.skipif(os.name != "posix", reason="POSIX permission bits")
+def test_cli_keeps_the_permissions_of_an_existing_report(tmp_path, monkeypatch):
+    # umaskを固定し、新規作成の権限(0644)と偶然一致しない値で引き継ぎそのものを確かめる。
+    pairs, detail, summary = cli_args(tmp_path)
+    for target in (detail, summary):
+        target.write_text("previous report\n", encoding="utf-8")
+        target.chmod(0o640)
+    # 前回の残骸がsymlinkでも、その参照先へは書き込まない。
+    outside = tmp_path / "outside.txt"
+    outside.write_text("untouched\n", encoding="utf-8")
+    (tmp_path / f".{summary.name}.tmp").symlink_to(outside)
+    previous = os.umask(0o022)
+    try:
+        run_cli(
+            monkeypatch,
+            pairs, "--output", detail, "--summary-output", summary,
+            "--dataset-id", "d", "--dataset-version", "1", "--model-name", "m",
+            "--model-version", "1", "--evaluation-kind", "synthetic",
+        )  # fmt: skip
+    finally:
+        os.umask(previous)
+    for target in (detail, summary):
+        assert target.read_text(encoding="utf-8") != "previous report\n"
+        assert target.stat().st_mode & 0o777 == 0o640
+    assert outside.read_text(encoding="utf-8") == "untouched\n"
+    assert not list(tmp_path.glob(".*.tmp"))

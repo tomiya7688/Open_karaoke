@@ -1,7 +1,8 @@
 import argparse
 import hashlib
 import json
-from pathlib import Path, PurePosixPath
+import math
+from pathlib import Path, PurePosixPath, PureWindowsPath
 
 
 def _unique_object(pairs: list[tuple[str, object]]) -> dict:
@@ -35,6 +36,22 @@ def _invalid_constant(value: str) -> None:
     raise ValueError(f"Non-finite JSON value: {value}")
 
 
+def _finite_float(text: str) -> float:
+    """
+    {
+      責務: [_finite_float: JSONの小数を読み、"1e999" のようにinfになる値を拒否する]
+      処理: [1: floatへ変換する, 2: 有限でなければエラーにする]
+      引数: [text: JSONの数値表記]
+      戻り値: [有限のfloat]
+      エラー: [ValueError: 非有限の値]
+    }
+    """
+    value = float(text)
+    if not math.isfinite(value):
+        raise ValueError(f"Non-finite JSON value: {text}")
+    return value
+
+
 def _load_json(data: bytes) -> object:
     """
     {
@@ -45,7 +62,12 @@ def _load_json(data: bytes) -> object:
       エラー: [ValueError: JSONが不正、重複キー、または非有限値]
     }
     """
-    return json.loads(data, object_pairs_hook=_unique_object, parse_constant=_invalid_constant)
+    return json.loads(
+        data,
+        object_pairs_hook=_unique_object,
+        parse_constant=_invalid_constant,
+        parse_float=_finite_float,
+    )
 
 
 def _object(value: object, keys: set[str], label: str) -> dict:
@@ -119,7 +141,7 @@ def _verified_file(root: Path, file: object, label: str) -> tuple[Path, str]:
       責務: [_verified_file: manifest配下のファイルを開き、記載されたSHA-256と照合する]
       処理: [
         1: pathとsha256のobjectを検証する,
-        2: 絶対パス・親参照・バックスラッシュを拒否する,
+        2: 絶対パス・ドライブ指定・空や親の参照・バックスラッシュを拒否する,
         3: manifest配下の通常ファイルか確認する,
         4: 1MiB単位でSHA-256を計算して照合する
       ]
@@ -133,8 +155,9 @@ def _verified_file(root: Path, file: object, label: str) -> tuple[Path, str]:
     relative = PurePosixPath(raw_path)
     if (
         relative.is_absolute()
+        or PureWindowsPath(raw_path).drive
         or "\\" in raw_path
-        or any(part in {".", ".."} for part in raw_path.split("/"))
+        or any(part in {"", ".", ".."} for part in raw_path.split("/"))
         or not relative.parts
     ):
         raise ValueError(f"{label}.path must stay below the manifest directory")
