@@ -1,8 +1,247 @@
 <Application
     x:Class="OpenKaraoke.Gui.App"
     xmlns="https://github.com/avaloniaui"
-    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    RequestedThemeVariant="Default">
+  <!--
+    デザインの正本: 色・角丸・文字の階層をここで定義し、画面側は名前付きのクラスとリソースだけを使う。
+    RequestedThemeVariant="Default" でOSのライト/ダーク設定に追従する。
+  -->
+  <Application.Resources>
+    <ResourceDictionary>
+      <!-- ブランド色(バイオレット)。Fluentのアクセント色を上書きし、主ボタン・選択中タブ・進捗に使う。 -->
+      <Color x:Key="SystemAccentColor">#7C4DFF</Color>
+      <Color x:Key="SystemAccentColorDark1">#6A3DE8</Color>
+      <Color x:Key="SystemAccentColorDark2">#5A2FD0</Color>
+      <Color x:Key="SystemAccentColorDark3">#4A22B8</Color>
+      <Color x:Key="SystemAccentColorLight1">#9670FF</Color>
+      <Color x:Key="SystemAccentColorLight2">#AE90FF</Color>
+      <Color x:Key="SystemAccentColorLight3">#C6B1FF</Color>
+
+      <FontFamily x:Key="OkFontFamily">avares://Avalonia.Fonts.Inter/Assets#Inter, Yu Gothic UI, Meiryo UI, Hiragino Sans, Noto Sans CJK JP</FontFamily>
+      <FontFamily x:Key="OkMonoFontFamily">Cascadia Mono, Consolas, Menlo, DejaVu Sans Mono</FontFamily>
+      <CornerRadius x:Key="OkCardRadius">12</CornerRadius>
+      <CornerRadius x:Key="OkControlRadius">8</CornerRadius>
+
+      <ResourceDictionary.ThemeDictionaries>
+        <ResourceDictionary x:Key="Light">
+          <SolidColorBrush x:Key="OkWindowBackground" Color="#F4F4F9" />
+          <SolidColorBrush x:Key="OkAppBarBackground" Color="#FFFFFF" />
+          <SolidColorBrush x:Key="OkCardBackground" Color="#FFFFFF" />
+          <SolidColorBrush x:Key="OkCardBorder" Color="#E3E3EE" />
+          <SolidColorBrush x:Key="OkForeground" Color="#1B1B24" />
+          <SolidColorBrush x:Key="OkMutedForeground" Color="#5B5E6E" />
+          <SolidColorBrush x:Key="OkCodeBackground" Color="#F0F0F6" />
+          <SolidColorBrush x:Key="OkNeutral" Color="#6B6E80" />
+          <SolidColorBrush x:Key="OkNeutralSubtle" Color="#EDEDF3" />
+          <SolidColorBrush x:Key="OkSuccess" Color="#176B39" />
+          <SolidColorBrush x:Key="OkSuccessSubtle" Color="#E4F3EA" />
+          <SolidColorBrush x:Key="OkWarning" Color="#8A4F00" />
+          <SolidColorBrush x:Key="OkWarningSubtle" Color="#FFF2DC" />
+          <SolidColorBrush x:Key="OkDanger" Color="#B42318" />
+          <SolidColorBrush x:Key="OkDangerSubtle" Color="#FDECEA" />
+          <SolidColorBrush x:Key="OkInfoSubtle" Color="#EFEAFF" />
+          <SolidColorBrush x:Key="OkInfoBorder" Color="#C6B1FF" />
+        </ResourceDictionary>
+        <ResourceDictionary x:Key="Dark">
+          <SolidColorBrush x:Key="OkWindowBackground" Color="#121218" />
+          <SolidColorBrush x:Key="OkAppBarBackground" Color="#191921" />
+          <SolidColorBrush x:Key="OkCardBackground" Color="#1D1D26" />
+          <SolidColorBrush x:Key="OkCardBorder" Color="#2D2D3A" />
+          <SolidColorBrush x:Key="OkForeground" Color="#ECECF3" />
+          <SolidColorBrush x:Key="OkMutedForeground" Color="#A3A6B8" />
+          <SolidColorBrush x:Key="OkCodeBackground" Color="#25252F" />
+          <SolidColorBrush x:Key="OkNeutral" Color="#9C9FB2" />
+          <SolidColorBrush x:Key="OkNeutralSubtle" Color="#282833" />
+          <SolidColorBrush x:Key="OkSuccess" Color="#6CCB8F" />
+          <SolidColorBrush x:Key="OkSuccessSubtle" Color="#18301F" />
+          <SolidColorBrush x:Key="OkWarning" Color="#FFC266" />
+          <SolidColorBrush x:Key="OkWarningSubtle" Color="#3A2B10" />
+          <SolidColorBrush x:Key="OkDanger" Color="#FF8A80" />
+          <SolidColorBrush x:Key="OkDangerSubtle" Color="#3C1D1E" />
+          <SolidColorBrush x:Key="OkInfoSubtle" Color="#2A2346" />
+          <SolidColorBrush x:Key="OkInfoBorder" Color="#4A3A8A" />
+        </ResourceDictionary>
+      </ResourceDictionary.ThemeDictionaries>
+    </ResourceDictionary>
+  </Application.Resources>
+
   <Application.Styles>
     <FluentTheme />
+
+    <!-- 基本 -->
+    <Style Selector="Window">
+      <Setter Property="FontFamily" Value="{StaticResource OkFontFamily}" />
+      <Setter Property="Background" Value="{DynamicResource OkWindowBackground}" />
+      <Setter Property="Foreground" Value="{DynamicResource OkForeground}" />
+    </Style>
+
+    <!-- 文字の階層 -->
+    <Style Selector="TextBlock.appTitle">
+      <Setter Property="FontSize" Value="18" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+    </Style>
+    <Style Selector="TextBlock.cardTitle">
+      <Setter Property="FontSize" Value="16" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+    </Style>
+    <Style Selector="TextBlock.body">
+      <Setter Property="FontSize" Value="14" />
+      <Setter Property="TextWrapping" Value="Wrap" />
+      <Setter Property="LineHeight" Value="21" />
+    </Style>
+    <Style Selector="TextBlock.caption">
+      <Setter Property="FontSize" Value="12.5" />
+      <Setter Property="Foreground" Value="{DynamicResource OkMutedForeground}" />
+      <Setter Property="TextWrapping" Value="Wrap" />
+    </Style>
+    <Style Selector="TextBlock.fieldLabel">
+      <Setter Property="FontSize" Value="13" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+    </Style>
+    <Style Selector="TextBlock.metric">
+      <Setter Property="FontSize" Value="26" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+    </Style>
+    <Style Selector="SelectableTextBlock.mono">
+      <Setter Property="FontFamily" Value="{StaticResource OkMonoFontFamily}" />
+      <Setter Property="FontSize" Value="12.5" />
+      <Setter Property="TextWrapping" Value="Wrap" />
+    </Style>
+
+    <!-- 面 -->
+    <Style Selector="Border.appBar">
+      <Setter Property="Background" Value="{DynamicResource OkAppBarBackground}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource OkCardBorder}" />
+      <Setter Property="BorderThickness" Value="0,0,0,1" />
+      <Setter Property="Padding" Value="24,12" />
+    </Style>
+    <Style Selector="Border.card">
+      <Setter Property="Background" Value="{DynamicResource OkCardBackground}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource OkCardBorder}" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="CornerRadius" Value="{StaticResource OkCardRadius}" />
+      <Setter Property="Padding" Value="20" />
+    </Style>
+    <Style Selector="Border.codeBox">
+      <Setter Property="Background" Value="{DynamicResource OkCodeBackground}" />
+      <Setter Property="CornerRadius" Value="6" />
+      <Setter Property="Padding" Value="10,6" />
+    </Style>
+    <Style Selector="Border.logo">
+      <Setter Property="Width" Value="34" />
+      <Setter Property="Height" Value="34" />
+      <Setter Property="CornerRadius" Value="10" />
+      <Setter Property="Background">
+        <LinearGradientBrush StartPoint="0%,0%" EndPoint="100%,100%">
+          <GradientStop Offset="0" Color="#9670FF" />
+          <GradientStop Offset="1" Color="#E0479E" />
+        </LinearGradientBrush>
+      </Setter>
+    </Style>
+    <Style Selector="Border.badge">
+      <Setter Property="Background" Value="{DynamicResource OkNeutralSubtle}" />
+      <Setter Property="CornerRadius" Value="6" />
+      <Setter Property="Padding" Value="8,2" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+    </Style>
+
+    <!-- 接続状態の表示(丸印+文字)。状態ごとに色を変える。 -->
+    <Style Selector="Border.statusPill">
+      <Setter Property="Background" Value="{DynamicResource OkNeutralSubtle}" />
+      <Setter Property="CornerRadius" Value="999" />
+      <Setter Property="Padding" Value="12,6" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+    </Style>
+    <Style Selector="Border.statusPill Ellipse">
+      <Setter Property="Fill" Value="{DynamicResource OkNeutral}" />
+    </Style>
+    <Style Selector="Border.statusPill.connected">
+      <Setter Property="Background" Value="{DynamicResource OkSuccessSubtle}" />
+    </Style>
+    <Style Selector="Border.statusPill.connected Ellipse">
+      <Setter Property="Fill" Value="{DynamicResource OkSuccess}" />
+    </Style>
+    <Style Selector="Border.statusPill.connected TextBlock">
+      <Setter Property="Foreground" Value="{DynamicResource OkSuccess}" />
+    </Style>
+    <Style Selector="Border.statusPill.busy">
+      <Setter Property="Background" Value="{DynamicResource OkWarningSubtle}" />
+    </Style>
+    <Style Selector="Border.statusPill.busy Ellipse">
+      <Setter Property="Fill" Value="{DynamicResource OkWarning}" />
+    </Style>
+    <Style Selector="Border.statusPill.busy TextBlock">
+      <Setter Property="Foreground" Value="{DynamicResource OkWarning}" />
+    </Style>
+
+    <!-- 通知バー(エラー・案内) -->
+    <Style Selector="Border.infoBar">
+      <Setter Property="CornerRadius" Value="{StaticResource OkControlRadius}" />
+      <Setter Property="Padding" Value="14,10" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="Background" Value="{DynamicResource OkInfoSubtle}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource OkInfoBorder}" />
+    </Style>
+    <Style Selector="Border.infoBar.error">
+      <Setter Property="Background" Value="{DynamicResource OkDangerSubtle}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource OkDanger}" />
+    </Style>
+    <Style Selector="TextBlock.infoTitle">
+      <Setter Property="FontWeight" Value="SemiBold" />
+      <Setter Property="FontSize" Value="13" />
+    </Style>
+    <Style Selector="Border.infoBar.error TextBlock.infoTitle">
+      <Setter Property="Foreground" Value="{DynamicResource OkDanger}" />
+    </Style>
+
+    <!-- 操作部品 -->
+    <Style Selector="Button">
+      <Setter Property="CornerRadius" Value="{StaticResource OkControlRadius}" />
+      <Setter Property="Padding" Value="16,8" />
+      <Setter Property="MinHeight" Value="36" />
+      <Setter Property="FontWeight" Value="Medium" />
+    </Style>
+    <!-- 破壊的な操作(Coreの終了・Jobのキャンセル)は赤の線で区別する -->
+    <Style Selector="Button.danger">
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="BorderBrush" Value="{DynamicResource OkDanger}" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="Foreground" Value="{DynamicResource OkDanger}" />
+    </Style>
+    <Style Selector="Button.danger:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+      <Setter Property="Background" Value="{DynamicResource OkDangerSubtle}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource OkDanger}" />
+      <Setter Property="Foreground" Value="{DynamicResource OkDanger}" />
+    </Style>
+    <Style Selector="Button.danger:pressed /template/ ContentPresenter#PART_ContentPresenter">
+      <Setter Property="Background" Value="{DynamicResource OkDangerSubtle}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource OkDanger}" />
+      <Setter Property="Foreground" Value="{DynamicResource OkDanger}" />
+    </Style>
+    <Style Selector="TextBox">
+      <Setter Property="CornerRadius" Value="{StaticResource OkControlRadius}" />
+      <Setter Property="MinHeight" Value="36" />
+      <Setter Property="Padding" Value="10,7" />
+    </Style>
+    <Style Selector="ProgressBar.slim">
+      <Setter Property="MinHeight" Value="8" />
+      <Setter Property="Height" Value="8" />
+      <Setter Property="CornerRadius" Value="4" />
+      <Setter Property="Background" Value="{DynamicResource OkNeutralSubtle}" />
+    </Style>
+    <Style Selector="Expander">
+      <Setter Property="CornerRadius" Value="{StaticResource OkControlRadius}" />
+      <Setter Property="HorizontalAlignment" Value="Stretch" />
+    </Style>
+
+    <!-- タブ: Fluent既定の大きな見出しを、画面上部のナビゲーションとして控えめにする -->
+    <Style Selector="TabItem">
+      <Setter Property="FontSize" Value="15" />
+      <Setter Property="FontWeight" Value="Medium" />
+      <Setter Property="MinHeight" Value="40" />
+      <Setter Property="Padding" Value="12,0" />
+      <Setter Property="Margin" Value="0,0,4,0" />
+    </Style>
   </Application.Styles>
 </Application>

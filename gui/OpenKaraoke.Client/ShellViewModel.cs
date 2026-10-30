@@ -47,6 +47,23 @@ public sealed class ShellViewModel : INotifyPropertyChanged, IAsyncDisposable
     public bool CanRun => !_disposed && _connection is not null && !_submitting && (_job is null || _job.IsTerminal);
     public bool CanCancel => !_disposed && _connection is not null && _job is not null && !_job.IsTerminal && !_cancelling;
 
+    // 画面の見た目(状態色・表示切替)専用の派生値。状態の正本は上のフィールドで、ここでは保持しない。
+    public bool IsConnected => _connection is not null && !_connecting && !_disconnecting;
+    public bool IsTransitioning => _connecting || _disconnecting;
+    public bool HasError => _error.Length > 0;
+    public bool HasJob => _job is not null;
+    public string ProgressText => _job is null ? "—" : $"{Progress:0}%";
+    public string JobStatusLabel => _job?.Status switch
+    {
+        null => "まだJobを実行していません",
+        "queued" => "待機中",
+        "running" => "実行中",
+        "completed" => "完了",
+        "failed" => "失敗",
+        "cancelled" => "キャンセル済み",
+        var other => other,
+    };
+
     public async Task ConnectAsync()
     {
         if (!CanConnect) return;

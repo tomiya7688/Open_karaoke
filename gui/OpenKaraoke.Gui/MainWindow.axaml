@@ -5,53 +5,179 @@
     xmlns:client="clr-namespace:OpenKaraoke.Client;assembly=OpenKaraoke.Client"
     x:DataType="client:ShellViewModel"
     Title="Open Karaoke — 開発版"
-    Width="1024" Height="720" MinWidth="780" MinHeight="580">
-  <Grid RowDefinitions="Auto,*,Auto" Margin="28" RowSpacing="20">
-    <StackPanel Spacing="10">
-      <TextBlock FontSize="28" FontWeight="SemiBold" Text="Open Karaoke" />
-      <StackPanel Orientation="Horizontal" Spacing="12">
-        <Button Content="Coreに接続" IsEnabled="{Binding CanConnect}" Click="ConnectClick" />
-        <Button Content="切断・Coreを終了" IsEnabled="{Binding CanDisconnect}" Click="DisconnectClick" />
-        <TextBlock VerticalAlignment="Center" Text="{Binding ConnectionStatus}" />
-      </StackPanel>
-      <TextBlock Text="{Binding Models}" />
-    </StackPanel>
-    <TabControl Grid.Row="1">
+    Width="1080" Height="740" MinWidth="780" MinHeight="580"
+    WindowStartupLocation="CenterScreen">
+  <!--
+    画面構成: 上部バー(ブランド・接続状態・接続操作) / エラー通知 / タブ(Job・設定) / 下部の注意書き。
+    見た目の定義は App.axaml のクラスとリソースに置き、ここでは構造だけを書く。
+    GUIスモークテストはボタンの文言、TabControl・ProgressBarが各1つ、設定タブの入力欄が3つであることに依存する。
+  -->
+  <Grid RowDefinitions="Auto,Auto,*,Auto">
+
+    <!-- 上部バー -->
+    <Border Classes="appBar">
+      <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="16">
+        <StackPanel Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
+          <Border Classes="logo">
+            <TextBlock Text="♪" Foreground="White" AutomationProperties.AccessibilityView="Raw" FontSize="18" FontWeight="Bold"
+                       HorizontalAlignment="Center" VerticalAlignment="Center" />
+          </Border>
+          <TextBlock Classes="appTitle" Text="Open Karaoke" VerticalAlignment="Center" />
+          <Border Classes="badge">
+            <TextBlock Text="開発版" FontSize="11.5" Foreground="{DynamicResource OkMutedForeground}" />
+          </Border>
+        </StackPanel>
+        <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
+          <Border Classes="statusPill"
+                  Classes.connected="{Binding IsConnected}"
+                  Classes.busy="{Binding IsTransitioning}">
+            <StackPanel Orientation="Horizontal" Spacing="8">
+              <Ellipse Width="8" Height="8" VerticalAlignment="Center" />
+              <TextBlock Text="{Binding ConnectionStatus}" FontSize="13" FontWeight="Medium"
+                         VerticalAlignment="Center" MaxWidth="200" TextTrimming="CharacterEllipsis"
+                         ToolTip.Tip="{Binding ConnectionStatus}" />
+            </StackPanel>
+          </Border>
+          <Button Classes="accent" Content="Coreに接続"
+                  IsEnabled="{Binding CanConnect}" Click="ConnectClick" />
+          <Button Classes="danger" Content="切断・Coreを終了"
+                  IsEnabled="{Binding CanDisconnect}" Click="DisconnectClick" />
+        </StackPanel>
+      </Grid>
+    </Border>
+
+    <!-- エラー通知: エラーがある間だけ表示し、全文を選択・コピーできるようにする -->
+    <Border Grid.Row="1" Classes="infoBar error" Margin="24,16,24,0" IsVisible="{Binding HasError}">
+      <Grid ColumnDefinitions="Auto,*" ColumnSpacing="12">
+        <Border Width="22" Height="22" CornerRadius="11" VerticalAlignment="Top"
+                Background="{DynamicResource OkDanger}">
+          <TextBlock Text="!" FontWeight="Bold" AutomationProperties.AccessibilityView="Raw" Foreground="{DynamicResource OkDangerSubtle}"
+                     HorizontalAlignment="Center" VerticalAlignment="Center" />
+        </Border>
+        <StackPanel Grid.Column="1" Spacing="2">
+          <TextBlock Classes="infoTitle" Text="エラーが発生しました" />
+          <ScrollViewer MaxHeight="96">
+            <SelectableTextBlock Text="{Binding Error}" TextWrapping="Wrap" FontSize="13" />
+          </ScrollViewer>
+        </StackPanel>
+      </Grid>
+    </Border>
+
+    <!-- 本文 -->
+    <TabControl Grid.Row="2" Margin="24,8,24,0">
       <TabItem Header="解析・Job">
         <ScrollViewer>
-          <StackPanel Margin="0,20,0,0" Spacing="14">
-            <TextBlock FontSize="20" Text="Core接続とJobの確認" />
-            <TextBlock TextWrapping="Wrap" Text="この画面のテストJobは通信・進捗・キャンセルの確認用です。楽曲の解析やカラオケ再生ではありません。全曲解析・再生・採点画面は別Issueで実装します。" />
-            <StackPanel Orientation="Horizontal" Spacing="12">
-              <Button Content="接続テストJobを開始" IsEnabled="{Binding CanRun}" Click="RunClick" />
-              <Button Content="キャンセル" IsEnabled="{Binding CanCancel}" Click="CancelClick" />
-            </StackPanel>
-            <TextBlock Text="{Binding JobStatus}" />
-            <ProgressBar Minimum="0" Maximum="100" Value="{Binding Progress}" Height="18" />
-            <TextBlock Text="Job ID" FontWeight="SemiBold" />
-            <SelectableTextBlock Text="{Binding JobId}" />
-            <TextBlock Text="セッションID（認証情報ではありません）" FontWeight="SemiBold" />
-            <SelectableTextBlock Text="{Binding SessionId}" />
+          <StackPanel Spacing="16" Margin="0,12,0,20">
+
+            <!-- 接続テストJob -->
+            <Border Classes="card">
+              <StackPanel Spacing="16">
+                <Grid ColumnDefinitions="*,Auto" ColumnSpacing="16">
+                  <StackPanel Spacing="4">
+                    <TextBlock Classes="cardTitle" Text="接続テストJob" />
+                    <TextBlock Classes="caption"
+                               Text="Coreとの通信・進捗表示・キャンセルを確かめるためのJobです。楽曲の解析やカラオケ再生は行いません。" />
+                  </StackPanel>
+                  <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Top">
+                    <Button Classes="accent" Content="接続テストJobを開始"
+                            IsEnabled="{Binding CanRun}" Click="RunClick" />
+                    <Button Classes="danger" Content="キャンセル"
+                            IsEnabled="{Binding CanCancel}" Click="CancelClick" />
+                  </StackPanel>
+                </Grid>
+                <Grid ColumnDefinitions="*,Auto">
+                  <StackPanel Spacing="2" VerticalAlignment="Bottom">
+                    <TextBlock Classes="caption" Text="状態" />
+                    <TextBlock Text="{Binding JobStatusLabel}" FontSize="15" FontWeight="SemiBold" />
+                  </StackPanel>
+                  <TextBlock Grid.Column="1" Classes="metric" Text="{Binding ProgressText}" IsVisible="{Binding HasJob}"
+                             VerticalAlignment="Bottom" />
+                </Grid>
+                <ProgressBar Classes="slim" Minimum="0" Maximum="100" Value="{Binding Progress}"
+                             AutomationProperties.Name="Jobの進捗" />
+              </StackPanel>
+            </Border>
+
+            <!-- 接続情報 -->
+            <Border Classes="card">
+              <StackPanel Spacing="14">
+                <TextBlock Classes="cardTitle" Text="接続情報" />
+                <Grid ColumnDefinitions="Auto,*" RowDefinitions="Auto,Auto" ColumnSpacing="24" RowSpacing="10">
+                  <TextBlock Classes="caption" Text="接続状態" VerticalAlignment="Center" />
+                  <TextBlock Grid.Column="1" Text="{Binding ConnectionStatus}" TextWrapping="Wrap" />
+                  <TextBlock Grid.Row="1" Classes="caption" Text="利用可能なモデル" VerticalAlignment="Center" />
+                  <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding Models}" TextWrapping="Wrap" />
+                </Grid>
+                <Expander Header="技術情報(Job ID・セッションID)">
+                  <StackPanel Spacing="10">
+                    <TextBlock Classes="fieldLabel" Text="Job ID" />
+                    <Border Classes="codeBox">
+                      <SelectableTextBlock Classes="mono" Text="{Binding JobId}" />
+                    </Border>
+                    <TextBlock Classes="fieldLabel" Text="Coreが返したJobの状態" />
+                    <Border Classes="codeBox">
+                      <SelectableTextBlock Classes="mono" Text="{Binding JobStatus}" />
+                    </Border>
+                    <TextBlock Classes="fieldLabel" Text="セッションID" />
+                    <TextBlock Classes="caption" Text="認証情報ではありません。問題を報告するときの識別に使えます。" />
+                    <Border Classes="codeBox">
+                      <SelectableTextBlock Classes="mono" Text="{Binding SessionId}" />
+                    </Border>
+                  </StackPanel>
+                </Expander>
+              </StackPanel>
+            </Border>
+
+            <Border Classes="infoBar">
+              <TextBlock Classes="body"
+                         Text="楽曲の解析・カラオケ再生・採点の画面は今後追加します。現在の画面はCoreとの接続確認用です。" />
+            </Border>
           </StackPanel>
         </ScrollViewer>
       </TabItem>
+
       <TabItem Header="設定">
         <ScrollViewer>
-          <StackPanel Margin="0,20,0,0" Spacing="10" IsEnabled="{Binding CanConnect}">
-            <TextBlock Text="Core実行ファイルの絶対パス" />
-            <TextBox Text="{Binding CoreExecutable, Mode=TwoWay}" />
-            <TextBlock Text="Python実行ファイルの絶対パス（同梱版または既定を使う場合は空欄）" TextWrapping="Wrap" />
-            <TextBox Text="{Binding PythonExecutable, Mode=TwoWay}" />
-            <TextBlock Text="データ保存先の絶対パス" />
-            <TextBox Text="{Binding DataDirectory, Mode=TwoWay}" />
-            <TextBlock TextWrapping="Wrap" Text="設定はこの起動中だけ保持します。開発環境では先にCoreをビルドし、Python解析パッケージをインストールしてください。一般ユーザー向けランタイム同梱は未実装です。" />
+          <StackPanel Spacing="16" Margin="0,12,0,20" MaxWidth="820" HorizontalAlignment="Left">
+            <Border Classes="card">
+              <StackPanel Spacing="18">
+                <StackPanel Spacing="4">
+                  <TextBlock Classes="cardTitle" Text="実行環境" />
+                  <TextBlock Classes="caption" Text="Coreに接続していない間だけ変更できます。すべて絶対パスで指定します。" />
+                </StackPanel>
+                <StackPanel Spacing="6" IsEnabled="{Binding CanConnect}">
+                  <TextBlock Classes="fieldLabel" Text="Core実行ファイル" />
+                  <TextBox Text="{Binding CoreExecutable, Mode=TwoWay}"
+                           Watermark="例: C:\OpenKaraoke\open-karaoke-core.exe"
+                           AutomationProperties.Name="Core実行ファイルの絶対パス" />
+                </StackPanel>
+                <StackPanel Spacing="6" IsEnabled="{Binding CanConnect}">
+                  <TextBlock Classes="fieldLabel" Text="Python実行ファイル" />
+                  <TextBox Text="{Binding PythonExecutable, Mode=TwoWay}"
+                           Watermark="空欄なら同梱版または既定のPythonを使います"
+                           AutomationProperties.Name="Python実行ファイルの絶対パス" />
+                </StackPanel>
+                <StackPanel Spacing="6" IsEnabled="{Binding CanConnect}">
+                  <TextBlock Classes="fieldLabel" Text="データ保存先" />
+                  <TextBox Text="{Binding DataDirectory, Mode=TwoWay}"
+                           Watermark="例: D:\OpenKaraoke\data"
+                           AutomationProperties.Name="データ保存先の絶対パス" />
+                </StackPanel>
+              </StackPanel>
+            </Border>
+            <Border Classes="infoBar">
+              <TextBlock Classes="body"
+                         Text="設定はこの起動中だけ保持します。開発環境では先にCoreをビルドし、Python解析パッケージをインストールしてください。一般向けのランタイム同梱は未実装です。" />
+            </Border>
           </StackPanel>
         </ScrollViewer>
       </TabItem>
     </TabControl>
-    <StackPanel Grid.Row="2" Spacing="8">
-      <TextBlock Text="{Binding Error}" TextWrapping="Wrap" MaxHeight="100" />
-      <TextBlock Text="接続はローカル端末内のみ。終了時に、この画面から起動したCoreを停止します。" FontSize="12" TextWrapping="Wrap" />
-    </StackPanel>
+
+    <!-- 下部の注意書き -->
+    <Border Grid.Row="3" Padding="24,8,24,14">
+      <TextBlock Classes="caption"
+                 Text="通信はこの端末内だけで行います。終了時には、この画面から起動したCoreを停止します。" />
+    </Border>
   </Grid>
 </Window>
