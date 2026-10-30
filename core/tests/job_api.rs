@@ -279,8 +279,9 @@ async fn open_events(router: &Router, id: Uuid) -> axum::response::Response {
 ///   責務: [`sse_connection_budget_limits_and_recovers`: SSE同時接続の上限と枠の返却を確認する]
 ///   処理: [
 ///     1: 実行中Jobへ32接続して全て受理されることを確認する,
-///     2: 33件目が429になることを確認する,
-///     3: 1接続を切断して新しい接続が再び受理されることを確認する
+///     2: 33件目が429になり、本文がJSONのエラーであることを確認する,
+///     3: 別のJobへの接続も429になり、上限が全Job合計であることを確認する,
+///     4: 1接続を切断すると受理され、再び満杯になると429に戻ることを確認する
 ///   ]
 ///   引数: []
 ///   戻り値: []
@@ -289,6 +290,7 @@ async fn open_events(router: &Router, id: Uuid) -> axum::response::Response {
 async fn sse_connection_budget_limits_and_recovers() {
     let router = app(AppState::new());
     let id = create(&router, json!({"kind": "test", "steps": 100})).await;
+    let other = create(&router, json!({"kind": "test", "steps": 100})).await;
 
     let mut open = Vec::new();
     for _ in 0..32 {
@@ -296,17 +298,33 @@ async fn sse_connection_budget_limits_and_recovers() {
         assert_eq!(response.status(), StatusCode::OK);
         open.push(response);
     }
+    let rejected = open_events(&router, id).await;
+    assert_eq!(rejected.status(), StatusCode::TOO_MANY_REQUESTS);
+    let body = axum::body::to_bytes(rejected.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let error: Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(error["error"], "Too many SSE connections");
+    assert_eq!(
+        open_events(&router, other).await.status(),
+        StatusCode::TOO_MANY_REQUESTS,
+        "the budget is shared by every job"
+    );
+
+    // 本文を破棄すると接続枠が返り、次の接続を受け付ける。返した1枠だけが再利用される。
+    drop(open.pop());
+    let reconnected = open_events(&router, other).await;
+    assert_eq!(reconnected.status(), StatusCode::OK);
+    open.push(reconnected);
     assert_eq!(
         open_events(&router, id).await.status(),
         StatusCode::TOO_MANY_REQUESTS
     );
 
-    // 本文を破棄すると接続枠が返り、次の接続を受け付ける。
-    drop(open.pop());
-    assert_eq!(open_events(&router, id).await.status(), StatusCode::OK);
-
-    let (status, _) = call(&router, "POST", &format!("/jobs/{id}/cancel"), Value::Null).await;
-    assert_eq!(status, StatusCode::OK);
+    for job in [id, other] {
+        let (status, _) = call(&router, "POST", &format!("/jobs/{job}/cancel"), Value::Null).await;
+        assert_eq!(status, StatusCode::OK);
+    }
 }
 
 /// {
@@ -343,17 +361,20 @@ async fn sse_closes_after_terminal_event() {
         "stream must end after the terminal event"
     );
 
-    // 32件を完了済みJobへ繰り返し接続しても、終端で閉じるため枠が尽きない。
+    // 上限(32)を超える40回、完了済みJobへ接続しては読み終えて閉じる。毎回200で終端snapshotを受け取り、
+    // 閉じた接続の枠が返るので上限に達しない。
     for _ in 0..40 {
-        let mut stream = open_events(&router, id)
-            .await
-            .into_body()
-            .into_data_stream();
-        while timeout(Duration::from_secs(2), stream.next())
+        let response = open_events(&router, id).await;
+        assert_eq!(response.status(), StatusCode::OK);
+        let mut stream = response.into_body().into_data_stream();
+        let mut body = Vec::new();
+        while let Some(chunk) = timeout(Duration::from_secs(2), stream.next())
             .await
             .unwrap()
-            .is_some()
-        {}
+        {
+            body.extend_from_slice(&chunk.unwrap());
+        }
+        assert!(String::from_utf8_lossy(&body).contains("completed"));
     }
     assert_eq!(open_events(&router, id).await.status(), StatusCode::OK);
 }
