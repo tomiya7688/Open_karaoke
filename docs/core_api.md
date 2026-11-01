@@ -76,6 +76,14 @@ ASR/分離の入力はCore artifact root配下へ置き、`analysis.input_artifa
 - 認証欠落・不正・重複Authorizationは401。`WWW-Authenticate: Bearer` を返す。
 - 認証対象ルートのOriginまたはSec-Fetch-Siteは403。CORSは許可しない。
 - 認証済み要求には数値loopbackのHostが必要。不正・重複は400。
+- `analysis.input_artifact` はJob受付前にCoreが構文を検査する。`/` 区切りの正規化済み相対パス
+  （空・`.`・`..` セグメント不可）、`\`・`:`・制御文字不可、1024文字まで。違反は400で、
+  `error` は `invalid_artifact_ref:` または `artifact_ref_too_long:` で始まる（パス本文は含めない）。
+  存在・symlink・root外への解決はworkerが従来どおり検査し、Job失敗として返す。
+  `options` 内の参照（`lyrics_artifact` など）はworkerのAdapter契約で検査する。
+- 完了した解析Jobが公開するartifact参照は256件まで、各参照は上と同じ構文規則。
+  workerの結果が違反した場合、Coreは参照を公開せずJobを `failed`
+  （`analysis_protocol: too_many_artifacts:` / `invalid_artifact_ref:` / `artifact_ref_too_long:`）にする。
 - JSON本文は64KiBまで（超過413）。未完了Job16件、保持履歴512件（受付超過429）。
 - Coreが同時に処理するHTTP要求は全ルート合計64件まで（超過429）。応答生成後に枠を返す。
 - `/jobs/{id}/events` の同時SSE接続は全Job合計32件まで（超過429）。切断または終端Jobイベント送信後に接続を閉じて枠を返す。
