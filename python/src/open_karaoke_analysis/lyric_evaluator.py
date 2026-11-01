@@ -135,7 +135,6 @@ def main() -> None:
         if not isinstance(pairs, list) or any(not isinstance(p, dict) for p in pairs):
             raise ValueError("Expected a JSON array of evaluation pairs")
         report = evaluate(pairs, normalized=not args.exact, max_cer=args.max_cer)
-        summary = None
         if args.summary_output is not None:
             if args.summary_output.resolve() in (args.output.resolve(), args.pairs.resolve()):
                 raise ValueError("Summary path must differ from input and detailed output")
@@ -145,18 +144,6 @@ def main() -> None:
             reference_bytes = json.dumps(
                 references, ensure_ascii=True, separators=(",", ":")
             ).encode("ascii")
-            summary = lyric_summary(
-                report,
-                dataset_id=args.dataset_id,
-                dataset_version=args.dataset_version,
-                dataset_sha256=hashlib.sha256(data).hexdigest(),
-                model_name=args.model_name,
-                model_version=args.model_version,
-                evaluation_kind=args.evaluation_kind,
-                reference_sha256=hashlib.sha256(
-                    b"open-karaoke-lyric-reference-v1\0" + reference_bytes
-                ).hexdigest(),
-            )
         elif any(
             value is not None
             for value in (
@@ -170,15 +157,29 @@ def main() -> None:
             raise ValueError("Evaluation metadata requires --summary-output")
         # 直列化・ディレクトリ作成・書き込みの失敗で片方だけ更新されるのを避けるため、
         # 両方を一時ファイルへ書き終えてから置き換える。
-        # 置き換え自体(os.replace)の失敗まで含めた、2ファイルの不可分性は保証しない。
+        # 置き換え自体(os.replace)の失敗までの不可分性は保証できないため、詳細→要約の順に置き換え、
+        # 要約(検証用ハッシュを持つ)を最後のコミット点にする。中断は検証側で検出する。
         detail_text = json.dumps(report, ensure_ascii=False, indent=2, allow_nan=False) + "\n"
-        summary_text = (
-            None
-            if summary is None
-            else json.dumps(summary, ensure_ascii=False, indent=2, allow_nan=False) + "\n"
-        )
+        summary_text = None
+        if args.summary_output is not None:
+            # 詳細レポートのSHA-256を要約へ記録する。置き換えの途中で失敗して
+            # 「新しい詳細+古い要約」が残っても、読み手がハッシュ不一致で検出できる。
+            summary = lyric_summary(
+                report,
+                dataset_id=args.dataset_id,
+                dataset_version=args.dataset_version,
+                dataset_sha256=hashlib.sha256(data).hexdigest(),
+                model_name=args.model_name,
+                model_version=args.model_version,
+                evaluation_kind=args.evaluation_kind,
+                reference_sha256=hashlib.sha256(
+                    b"open-karaoke-lyric-reference-v1\0" + reference_bytes
+                ).hexdigest(),
+                detail_sha256=hashlib.sha256(detail_text.encode("utf-8")).hexdigest(),
+            )
+            summary_text = json.dumps(summary, ensure_ascii=False, indent=2, allow_nan=False) + "\n"
         args.output.parent.mkdir(parents=True, exist_ok=True)
-        if summary is not None:
+        if summary_text is not None:
             args.summary_output.parent.mkdir(parents=True, exist_ok=True)
         pending = [(args.output, detail_text)]
         if summary_text is not None:
@@ -195,7 +196,8 @@ def main() -> None:
                 existing = target.exists()
                 flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_BINARY", 0)
                 descriptor = os.open(temporary, flags, 0o600 if existing else 0o666)
-                with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
+                # 改行変換を避け、要約に記録したSHA-256と書き出しバイトを一致させる。
+                with os.fdopen(descriptor, "w", encoding="utf-8", newline="") as stream:
                     stream.write(text)
                 if existing:
                     shutil.copymode(target, temporary)

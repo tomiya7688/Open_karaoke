@@ -5,6 +5,7 @@ from pathlib import Path
 import pytest
 
 from open_karaoke_analysis import lyric_evaluator, lyric_regression
+from open_karaoke_analysis.evaluation_summary import verify_detail_binding
 
 FIXTURES = Path(__file__).parent / "fixtures"
 
@@ -55,6 +56,11 @@ def test_ci_baseline_and_reports(tmp_path, monkeypatch, case):
         lyric_evaluator.main()
         actual = json.loads(candidate.read_text(encoding="utf-8"))
         baseline = json.loads((FIXTURES / "lyric_ci_baseline.json").read_text(encoding="utf-8"))
+        # 詳細レポートのhashは固定baselineには含めず、書き出した詳細と一致することを確かめる。
+        detail_sha256 = actual.pop("detail_sha256")
+        verify_detail_binding(
+            {"detail_sha256": detail_sha256}, (tmp_path / "detail.json").read_bytes()
+        )
         assert actual == baseline
         assert actual["metrics"]["reference_chars"] == 17
         assert actual["metrics"]["reference_words"] == 5
