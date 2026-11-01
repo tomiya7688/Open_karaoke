@@ -38,12 +38,15 @@ $logDir = Join-Path $repo 'artifacts/check_local'
 
 # Pythonモジュール名の先頭語 → テスト接頭辞。docs/ai_workflow.md の Task routes と対応する。
 $pythonTestAlias = @{
-    whisper = 'lyric'
-    ctc     = 'alignment'
-    notes   = 'note'
-    lyrics  = 'lyric'
-    stems   = 'stem'
+    whisper    = @('lyric')
+    ctc        = @('alignment')
+    notes      = @('note')
+    lyrics     = @('lyric')
+    stems      = @('stem')
+    evaluation = @('evaluation', 'lyric_evaluator', 'lyric_reference_snapshot')
 }
+# pytestへ引き継がない実モデル・実Core試験のopt-in。重い試験はCIに残す。
+$pytestOptInPattern = '^OPEN_KARAOKE_(REAL_\w+|TEST_CORE|TEST_PYTHON)$'
 # 変更されたら Python 全体を検査する共有契約・パッケージ設定。
 $pythonSharedFiles = @(
     'python/pyproject.toml',
@@ -60,6 +63,14 @@ function New-Check {
     [pscustomobject]@{ Id = $Id; Title = $Title; Required = $Required; Run = $Run; Rerun = $Rerun; Data = $Data; After = $After }
 }
 
+function Get-GitPath {
+    # -z のNUL区切りで読み、改行や引用符を含むパスもそのまま扱う。
+    $out = (git @args) -join "
+"
+    if ($LASTEXITCODE -ne 0) { throw "git $($args -join ' ') が失敗しました" }
+    @($out -split "`0" | Where-Object { $_ })
+}
+
 function Get-ChangedFileSet {
     param([string]$BaseRef)
     $null = git rev-parse --verify --quiet "$BaseRef^{commit}"
@@ -67,9 +78,10 @@ function Get-ChangedFileSet {
         throw "比較元 '$BaseRef' が見つかりません。'git fetch origin' 後に再実行するか -Base を指定してください。"
     }
     $mergeBase = git merge-base HEAD $BaseRef
-    $committed = @(git -c core.quotepath=false diff --name-only "$mergeBase" HEAD)
-    $worktree = @(git -c core.quotepath=false diff --name-only HEAD)
-    $untracked = @(git -c core.quotepath=false ls-files --others --exclude-standard)
+    if ($LASTEXITCODE -ne 0 -or -not $mergeBase) { throw "HEAD と '$BaseRef' の共通祖先を取得できません（shallow clone なら履歴を取得してください）。" }
+    $committed = Get-GitPath diff --name-only -z $mergeBase HEAD
+    $worktree = Get-GitPath diff --name-only -z HEAD
+    $untracked = Get-GitPath ls-files --others --exclude-standard -z
     [pscustomobject]@{
         MergeBase = $mergeBase
         Files     = @($committed + $worktree + $untracked | Where-Object { $_ } | Sort-Object -Unique)
@@ -87,8 +99,8 @@ function Get-PythonTestFile {
         if ($file -eq 'scripts/check_python_trust.py') { [void]$tests.Add('python/tests/test_python_trust.py'); continue }
         if ($file -match '^python/src/open_karaoke_analysis/([^/]+)\.py$') {
             $head = ($Matches[1] -split '_')[0]
-            if ($pythonTestAlias.ContainsKey($head)) { $head = $pythonTestAlias[$head] }
-            $found = @(Get-ChildItem -Path $TestRoot -Filter "test_$head*.py" -File -ErrorAction SilentlyContinue)
+            $prefixes = if ($pythonTestAlias.ContainsKey($head)) { $pythonTestAlias[$head] } else { @($head) }
+            $found = @(foreach ($prefix in $prefixes) { Get-ChildItem -Path $TestRoot -Filter "test_$prefix*.py" -File -ErrorAction SilentlyContinue })
             if ($found.Count -eq 0) { $needAll = $true; continue }
             foreach ($f in $found) { [void]$tests.Add("python/tests/$($f.Name)") }
             continue
@@ -109,20 +121,22 @@ function Get-CheckPlan {
     $plan.Add((New-Check 'diff-check' 'git diff --check（空白・競合マーカー）' $true { param($d)
                 $out = @()
                 if ($d.MergeBase) { $out += @(git diff --check $d.MergeBase 2>&1) }
-                foreach ($u in $d.Untracked) {
+                foreach ($u in $d.Untracked + $d.Unbased) {
                     $out += @(git diff --no-index --check -- /dev/null $u 2>&1 | Where-Object { $_ -notmatch '^warning:' })
                 }
                 $out = @($out | Where-Object { $_ })
                 if ($out.Count) { $out; throw '空白エラーまたは競合マーカーがあります' }
-            } 'git diff --check' @{ MergeBase = $MergeBase; Untracked = $Untracked }))
+            } 'git diff --check' @{ MergeBase = $MergeBase; Untracked = $Untracked; Unbased = $(if ($MergeBase) { @() } else { $existing }) }))
 
     $py = @($existing | Where-Object { $_ -like '*.py' })
+    # Ruff設定（required-versionを含む）の変更はpython配下全体へ適用する。
+    if ($Files -contains 'python/pyproject.toml') { $py = @(@('python') + @($py | Where-Object { $_ -notlike 'python/*' })) }
     if ($py.Count) {
-        $py | ForEach-Object { [void]$covered.Add($_) }
-        $plan.Add((New-Check 'py-lint' "ruff check（$($py.Count)ファイル）" $true { param($d)
+        $Files | Where-Object { $_ -like '*.py' -or $_ -eq 'python/pyproject.toml' } | ForEach-Object { [void]$covered.Add($_) }
+        $plan.Add((New-Check 'py-lint' "ruff check（$($py -join ', ')）" $true { param($d)
                     Invoke-Python (@('-m', 'ruff', 'check') + $d)
                 } 'python -m ruff check <files>' $py))
-        $plan.Add((New-Check 'py-format' "ruff format --check（$($py.Count)ファイル）" $true { param($d)
+        $plan.Add((New-Check 'py-format' "ruff format --check（$($py -join ', ')）" $true { param($d)
                     Invoke-Python (@('-m', 'ruff', 'format', '--check') + $d)
                 } 'python -m ruff format --check <files>' $py))
     }
@@ -130,7 +144,10 @@ function Get-CheckPlan {
     if ($pyTests.Count) {
         $Files | Where-Object { $_ -like 'python/*' } | ForEach-Object { [void]$covered.Add($_) }
         $plan.Add((New-Check 'py-test' "pytest（$($pyTests -join ', ')）" $true { param($d)
-                    Invoke-Python (@('-m', 'pytest', '-q', '-p', 'no:cacheprovider', "--basetemp=$logDir/pytest-tmp") + $d)
+                    Invoke-Python (@('-m', 'pytest', '-q', '-p', 'no:cacheprovider', "--basetemp=$logDir/pytest-tmp") + $d) -Hermetic |
+                        Tee-Object -Variable out
+                    $last = @($out | ForEach-Object { "$_" } | Where-Object { $_ -match '\d+ (passed|failed|skipped|error)' })[-1]
+                    if ($last -notmatch '\d+ passed') { throw "UNVERIFIED: 実行されたテストがありません（$last）。opt-in試験はCIで確認" }
                 } "python -m pytest -q $($pyTests -join ' ')" $pyTests))
     }
 
@@ -189,8 +206,9 @@ function Get-CheckPlan {
                     $bad = foreach ($f in $d) {
                         $dir = Split-Path -Parent (Join-Path $repo $f)
                         $text = Get-Content -LiteralPath (Join-Path $repo $f) -Raw
-                        foreach ($m in [regex]::Matches($text, '\]\(([^)\s]+)\)')) {
-                            $target = ($m.Groups[1].Value -split '#')[0]
+                        $pattern = '\]\(\s*<?([^)\s>]+)>?(?:\s+(?:"[^"]*"|''[^'']*''|\([^)]*\)))?\s*\)|(?m)^ {0,3}\[[^\]]+\]:\s*<?([^\s>]+)>?'
+                        foreach ($m in [regex]::Matches($text, $pattern)) {
+                            $target = (($m.Groups[1].Value + $m.Groups[2].Value) -split '#')[0]
                             if (-not $target -or $target -match '^[a-zA-Z][a-zA-Z0-9+.-]*:') { continue }
                             $target = [uri]::UnescapeDataString($target)
                             if (-not (Test-Path -LiteralPath (Join-Path $dir $target))) { "${f}: リンク先なし $target" }
@@ -241,12 +259,22 @@ function Invoke-Tool {
 }
 
 function Invoke-Python {
-    param([string[]]$ToolArgs)
+    param([string[]]$ToolArgs, [switch]$Hermetic)
+    $saved = @{}
+    if ($Hermetic) {
+        foreach ($name in @(Get-ChildItem env: | Where-Object Name -Match $pytestOptInPattern).Name) {
+            $saved[$name] = [Environment]::GetEnvironmentVariable($name)
+            [Environment]::SetEnvironmentVariable($name, $null)
+        }
+    }
     # worktreeでも作業中のsourceを読み込むよう、python/src を先頭に置く。
     $previous = $env:PYTHONPATH
     $env:PYTHONPATH = (@((Join-Path $repo 'python/src'), $previous) | Where-Object { $_ }) -join [IO.Path]::PathSeparator
     try { Invoke-Tool $script:pythonExe $ToolArgs }
-    finally { $env:PYTHONPATH = $previous }
+    finally {
+        $env:PYTHONPATH = $previous
+        foreach ($name in $saved.Keys) { [Environment]::SetEnvironmentVariable($name, $saved[$name]) }
+    }
 }
 
 function Test-PythonTooling {
@@ -257,7 +285,7 @@ function Test-PythonTooling {
 }
 
 function Invoke-Plan {
-    param([object[]]$Plan)
+    param([object[]]$Plan, [switch]$Quiet)
     New-Item -ItemType Directory -Force $logDir | Out-Null
     $done = @{}
     $results = foreach ($check in $Plan) {
@@ -279,7 +307,7 @@ function Invoke-Plan {
         }
         $watch.Stop()
         $done[$check.Id] = $status
-        if ($status -eq 'FAIL') {
+        if ($status -eq 'FAIL' -and -not $Quiet) {
             Write-Host "---- $($check.Id) の末尾ログ ($log)" -ForegroundColor Red
             Get-Content -LiteralPath $log -Tail 30 | Write-Host
         }
@@ -326,6 +354,10 @@ function Invoke-SelfTest {
     if ($pitchTests -notcontains 'python/tests/test_pitch.py' -or $pitchTests -contains 'python/tests') {
         $failures.Add("pitch_fusion の対象テストが不正: $($pitchTests -join ',')")
     }
+    $summaryTests = @(Get-PythonTestFile -Files @('python/src/open_karaoke_analysis/evaluation_summary.py') -TestRoot (Join-Path $repo 'python/tests'))
+    if ($summaryTests -notcontains 'python/tests/test_lyric_evaluator.py') { $failures.Add("evaluation_summary の対象テストが不足: $($summaryTests -join ',')") }
+    $ruffAll = @(Get-CheckPlan -Files @('python/pyproject.toml') -Untracked @() -MergeBase '' -Everything $false | Where-Object Id -EQ 'py-lint')
+    if (-not $ruffAll -or $ruffAll[0].Data -notcontains 'python') { $failures.Add('pyproject.toml の変更で ruff が python 全体にならない') }
     $shared = @(Get-PythonTestFile -Files @('python/src/open_karaoke_analysis/contracts.py') -TestRoot (Join-Path $repo 'python/tests'))
     if ($shared -join ',' -ne 'python/tests') { $failures.Add("共有契約の変更でPython全体にならない: $($shared -join ',')") }
 
@@ -335,7 +367,7 @@ function Invoke-SelfTest {
     New-Item -ItemType Directory -Force $fixture | Out-Null
     Set-Content (Join-Path $fixture 'bad.ps1') 'function Broken {' -Encoding utf8
     Set-Content (Join-Path $fixture 'test_selftest_fail.py') "def test_fails():`n    assert 1 == 2`n" -Encoding utf8
-    Set-Content (Join-Path $fixture 'bad.md') '[x](missing-file.md)' -Encoding utf8
+    Set-Content (Join-Path $fixture 'bad.md') @('[x](missing-file.md)', '[y](missing-titled.md "Title")', '[r]: missing-ref.md') -Encoding utf8
     $rel = [IO.Path]::GetRelativePath($repo, $fixture) -replace '\\', '/'
     $injected = @(
         (New-Check 'ps-syntax' 'inject ps' $true { param($d)
@@ -348,8 +380,13 @@ function Invoke-SelfTest {
             } '' @($fixture, $rel))
     )
     $injected += @(Get-CheckPlan -Files @("$rel/bad.md") -Untracked @() -MergeBase '' -Everything $false | Where-Object Id -EQ 'md-links')
-    $res = @(Invoke-Plan $injected)
+    $res = @(Invoke-Plan $injected -Quiet)
     foreach ($r in $res) { if ($r.Status -ne 'FAIL') { $failures.Add("失敗注入が検出されない: $($r.Check) => $($r.Status)") } }
+    # 依存不足などで注入自体が実行されなかった場合はPASSにしない。
+    if (-not (Select-String -LiteralPath (Join-Path $logDir 'py-test.log') -Pattern 'test_fails' -Quiet)) { $failures.Add('pytest注入が実行されていない（依存不足の可能性）') }
+    foreach ($name in 'missing-file.md', 'missing-titled.md', 'missing-ref.md') {
+        if (-not (Select-String -LiteralPath (Join-Path $logDir 'md-links.log') -SimpleMatch $name -Quiet)) { $failures.Add("リンク切れ未検出: $name") }
+    }
     Remove-Item -Recurse -Force $fixture -ErrorAction SilentlyContinue
 
     if ($failures.Count) { $failures | ForEach-Object { Write-Host "SELFTEST FAIL: $_" -ForegroundColor Red }; exit 1 }

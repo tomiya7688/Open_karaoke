@@ -66,9 +66,9 @@ untracked changes, then selects the checks automatically:
 
 | Changed | Checks |
 |---|---|
-| any | `git diff --check` (also untracked files) |
-| `*.py` | `ruff check` / `ruff format --check` on the changed files |
-| `python/**` | matching `python/tests/test_<module>*.py`; shared contracts, fixtures or unmatched modules run all of `python/tests` |
+| any | `git diff --check` (also untracked files; with `-All` / `-ChangedFiles` the selected files) |
+| `*.py`, `python/pyproject.toml` | `ruff check` / `ruff format --check` on the changed files (all of `python` when `pyproject.toml` changes) |
+| `python/**` | matching `python/tests/test_<module>*.py`; shared contracts, fixtures or unmatched modules run all of `python/tests`. Real-model/live-Core opt-in variables are cleared; a run where nothing passed is `UNVERIFIED` |
 | `core/**`, `Cargo.*` | `cargo fmt --check`, `cargo clippy --offline -D warnings`, `cargo test --offline` (no `--ignored`) |
 | `gui/**` | `dotnet build --no-restore`, `dotnet format --verify-no-changes`, `OpenKaraoke.Client.Tests --unit` |
 | `*.ps1` / `*.md` | PowerShell parse, relative Markdown links |

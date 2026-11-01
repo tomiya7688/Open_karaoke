@@ -9,8 +9,10 @@ description: Open Karaokeで1つのIssue/PRを最小の読込量で進める手�
 
 ## 1. 開始（1回のコマンドにまとめる）
 
+パスはこのPCの配置（メインcheckout `E:\projects\Open_karaoke`、worktreeは `E:/projects/worktrees/`）。別環境ではcheckoutの場所に読み替える。
+
 ```powershell
-cd E:\projects\Open_karaoke
+cd <メインcheckout>
 git fetch -q; git status -sb; git worktree list
 gh issue list --state open --limit 40 --json number,title --jq '.[]|"\(.number) \(.title)"'
 gh pr list --json number,headRefName,title --jq '.[]|"\(.number) \(.headRefName) \(.title)"'
@@ -19,6 +21,7 @@ gh pr list --json number,headRefName,title --jq '.[]|"\(.number) \(.headRefName)
 - メインcheckoutのdirty（AGENTS.md / CLAUDE.md / QWEN.md / .gitignore の方針配布差分）は他者作業。触らない・commitしない。
 - 作業は必ず `git worktree add -b <branch> E:/projects/worktrees/<topic>/Open_karaoke origin/main`。Cドライブ・repo内 `tmp/` に作らない。
 - 対象Issueは `gh issue view <n> --json body --jq .body` だけ読む。コメントは必要時のみ。
+- 着手時にIssueへ「担当ツール・ブランチ名・実装単位」をコメントする（`docs/collaboration.md` §1）。ブランチ名は `<type>/issue-<番号>-<要約>`。
 
 ## 2. 読む範囲
 
@@ -39,10 +42,10 @@ gh pr list --json number,headRefName,title --jq '.[]|"\(.number) \(.headRefName)
 
 1. commit（末尾に `Co-Authored-By`）→ `git push -u origin <branch>` → `gh pr create`（本文末尾に Claude Code の署名行、`Closes #n` か `Refs #n`）。
 2. Handoff形式（Goal / Base→Head / Changed / Verified / Unverified / Next）をPR本文に書く。
-3. 外部レビューは `multi-ai-review` skill（`C:\Users\tomiy\.claude\skills\multi-ai-review`）に従う。証跡は `E:\projects\.review-work\Open_karaoke\<task>\`。
+3. 外部レビューはユーザーレベルの `multi-ai-review` skill に従う（無ければ `E:/projects/REVIEW_OPERATIONS.md`）。証跡は `E:\projects\.review-work\Open_karaoke\<task>\`。
 4. CIは `gh pr checks <n> --watch` ではなく、Monitor/バックグラウンドで待つ。全SUCCESS＋自己レビューOKなら
    `gh pr merge <n> --squash --delete-branch --match-head-commit <SHA>`。
-5. マージ後: `git worktree remove <path>`、Issueのチェック項目と `docs/current_status.md` の該当行だけ更新。
+5. マージ後: `git worktree remove <path>`。Issueのチェック項目はGitHub上で更新。`docs/current_status.md` を直す場合も `origin/main` からのブランチとPRで行う（メインcheckoutのdirtyと混ぜない）。
 
 ## 5. 報告
 
