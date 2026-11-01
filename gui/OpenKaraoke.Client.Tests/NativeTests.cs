@@ -38,7 +38,8 @@ internal static class NativeTests
 
                 var job = await connection.Api.CreateJobAsync(new CreateJobRequest("analysis.mock", new
                 {
-                    model_id = "mock-v1", options = new { steps = 2, delay_ms = 10 },
+                    model_id = "mock-v1",
+                    options = new { steps = 2, delay_ms = 10 },
                 }), token);
                 previousJob = job.Id;
                 var completed = await TerminalAsync(connection.Api, job.Id, token);
@@ -49,14 +50,16 @@ internal static class NativeTests
 
                 var longJob = await connection.Api.CreateJobAsync(new CreateJobRequest("analysis.mock", new
                 {
-                    model_id = "mock-v1", options = new { steps = 100, delay_ms = 100 },
+                    model_id = "mock-v1",
+                    options = new { steps = 100, delay_ms = 100 },
                 }), token);
                 await connection.Api.CancelJobAsync(longJob.Id, token);
                 Program.Check((await TerminalAsync(connection.Api, longJob.Id, token)).Status == "cancelled", "Cancellation did not reach Python.");
 
                 var failing = await connection.Api.CreateJobAsync(new CreateJobRequest("analysis.mock", new
                 {
-                    model_id = "mock-v1", options = new { fail = true },
+                    model_id = "mock-v1",
+                    options = new { fail = true },
                 }), token);
                 var failed = await TerminalAsync(connection.Api, failing.Id, token);
                 Program.Check(failed.Status == "failed" && !string.IsNullOrEmpty(failed.Error), "Worker failure was not exposed.");
