@@ -150,13 +150,18 @@ def _transport(monkeypatch, replies):
 )
 def test_authenticated_messages_and_minimal_snapshots(monkeypatch, status, origin, host):
     """{
-    責務: [sessionを一度照合し正しいJob・認証・API版だけを使うことを確認]
+    責務: [照合をキャッシュし、副作用のあるJob作成前だけ再照合して正しい認証・API版を使う]
     処理: [1: 作成・取得応答を設定, 2: 公開message送信, 3: 状態と送信先を確認]
     引数: [monkeypatch: transport置換, status: 全状態, origin: 数値URL, host: 期待host]
     戻り値: []
     }"""
     snapshot = {**SNAPSHOT, "status": status, "artifacts": ["private/path"], "error": "private"}
-    replies = [_response(SESSION), _response(snapshot, 202), _response(snapshot)]
+    replies = [
+        _response(SESSION),
+        _response(SESSION),
+        _response(snapshot, 202),
+        _response(snapshot),
+    ]
     connection, factory = _transport(monkeypatch, replies)
     monkeypatch.setenv("HTTP_PROXY", "http://invalid.proxy:1")
     client = api.CoreJobClient(origin, TOKEN, INSTANCE)
@@ -166,17 +171,18 @@ def test_authenticated_messages_and_minimal_snapshots(monkeypatch, status, origi
     created = client.create_job({"kind": "framework-smoke", "steps": 1})
     assert created == client.get_job(JOB) == api.JobSnapshot(JOB, "framework-smoke", status, 0.0)
     assert not hasattr(created, "artifacts") and not hasattr(created, "error")
-    assert factory.call_count == connection.close.call_count == 3
+    assert factory.call_count == connection.close.call_count == 4
     for reply in replies:
         reply.read.assert_called_once_with(1_048_577)
     factory.assert_called_with(host, 12345, timeout=5)
     calls = connection.request.call_args_list
     assert [(c.args[0], c.args[1]) for c in calls] == [
         ("GET", "/session"),
+        ("GET", "/session"),
         ("POST", "/jobs"),
         ("GET", f"/jobs/{JOB}"),
     ]
-    assert json.loads(calls[1].kwargs["body"]) == {"kind": "framework-smoke", "steps": 1}
+    assert json.loads(calls[2].kwargs["body"]) == {"kind": "framework-smoke", "steps": 1}
     assert all(
         c.kwargs["headers"]["Authorization"] == f"Bearer {TOKEN}"
         and c.kwargs["headers"]["X-Open-Karaoke-Api-Version"] == "1"
@@ -402,3 +408,157 @@ def test_invalid_session_json_never_submits_job(monkeypatch, raw):
         )
     assert TOKEN not in str(failure.value)
     assert connection.request.call_count == connection.close.call_count == 1
+
+
+RESTARTED = {"instance_id": "33333333-3333-4333-8333-333333333333", "api_version": 1}
+MOCK_JOB = {"kind": "framework-smoke"}
+
+
+def _lost_client_never_reconnects(client, connection, code):
+    """{
+    責務: [喪失したsessionの以後の操作が通信なしで同じ分類になることを確認する]
+    処理: [1: 要求数を記録, 2: 照合・取得・作成を試す, 3: 分類と通信なしを確認]
+    引数: [client: 喪失済み接続, connection: 接続mock, code: 期待分類]
+    戻り値: []
+    }"""
+    before = connection.request.call_count
+    for operation in (
+        client.verify_session,
+        lambda: client.get_job(JOB),
+        lambda: client.create_job(MOCK_JOB),
+    ):
+        with pytest.raises(api.CoreJobError) as failure:
+            operation()
+        assert failure.value.code == code and failure.value.requires_rebootstrap
+    assert connection.request.call_count == before
+
+
+def test_restart_with_reused_token_turns_old_job_404_into_session_mismatch(monkeypatch):
+    """{
+    責務: [Core再起動後の旧Job 404を別instanceとして識別し、旧sessionを再利用しない]
+    処理: [1: Job作成, 2: 再起動後に旧IDの404と新instanceを返す,
+      3: session_mismatchと再bootstrap要求を確認, 4: 以後通信しないことを確認]
+    引数: [monkeypatch: transport置換]
+    戻り値: []
+    補足: [tokenの再利用は起動元の規則違反だが、最悪条件として扱う]
+    }"""
+    replies = [
+        _response(SESSION),
+        _response(SNAPSHOT, 202),
+        _response({"error": "job not found"}, 404),
+        _response(RESTARTED),
+    ]
+    connection, _ = _transport(monkeypatch, replies)
+    client = api.CoreJobClient("http://127.0.0.1:12345", TOKEN, INSTANCE)
+    client.create_job(MOCK_JOB)
+    with pytest.raises(api.CoreJobError) as failure:
+        client.get_job(JOB)
+    assert failure.value.code == "session_mismatch" and failure.value.requires_rebootstrap
+    assert [c.args[:2] for c in connection.request.call_args_list] == [
+        ("GET", "/session"),
+        ("POST", "/jobs"),
+        ("GET", f"/jobs/{JOB}"),
+        ("GET", "/session"),
+    ]
+    _lost_client_never_reconnects(client, connection, "session_mismatch")
+
+
+def test_unknown_job_in_same_session_is_job_not_found_and_client_stays_usable(monkeypatch):
+    """{
+    責務: [同じinstance内の未知Jobを再起動と区別し、接続を失効させない]
+    処理: [1: 404後の再照合で同じinstanceを返す, 2: job_not_found確認, 3: 次の取得が成功]
+    引数: [monkeypatch: transport置換]
+    戻り値: []
+    }"""
+    replies = [
+        _response(SESSION),
+        _response({"error": "job not found"}, 404),
+        _response(SESSION),
+        _response(SNAPSHOT),
+    ]
+    connection, _ = _transport(monkeypatch, replies)
+    client = api.CoreJobClient("http://127.0.0.1:12345", TOKEN, INSTANCE)
+    with pytest.raises(api.CoreJobError) as failure:
+        client.get_job(JOB)
+    assert failure.value.code == "job_not_found" and not failure.value.requires_rebootstrap
+    assert client.get_job(JOB).id == JOB
+    assert connection.request.call_count == 4
+
+
+@pytest.mark.parametrize("operation", ["get", "create"])
+def test_restart_with_new_token_is_unauthorized_and_requires_rebootstrap(monkeypatch, operation):
+    """{
+    責務: [新tokenで再起動したCoreの401を再bootstrap要求として扱い再送しない]
+    処理: [1: 照合後に401を返す, 2: unauthorized確認, 3: 以後通信しないことを確認]
+    引数: [monkeypatch: transport置換, operation: 401を受ける操作]
+    戻り値: []
+    }"""
+    unauthorized = _response({"error": "Core session authorization required"}, 401)
+    connection, _ = _transport(monkeypatch, [_response(SESSION), unauthorized])
+    client = api.CoreJobClient("http://127.0.0.1:12345", TOKEN, INSTANCE)
+    with pytest.raises(api.CoreJobError) as failure:
+        if operation == "get":
+            client.get_job(JOB)
+        else:
+            client.verify_session()
+            client.create_job(MOCK_JOB)
+    assert failure.value.code == "unauthorized" and failure.value.requires_rebootstrap
+    assert TOKEN not in str(failure.value)
+    _lost_client_never_reconnects(client, connection, "unauthorized")
+
+
+def test_job_creation_rechecks_identity_after_cached_verification(monkeypatch):
+    """{
+    責務: [照合済みでも再起動後のCoreへJobを作成しない]
+    処理: [1: 照合をキャッシュ, 2: 作成前の再照合で新instanceを返す, 3: POSTなしを確認]
+    引数: [monkeypatch: transport置換]
+    戻り値: []
+    }"""
+    connection, _ = _transport(monkeypatch, [_response(SESSION), _response(RESTARTED)])
+    client = api.CoreJobClient("http://127.0.0.1:12345", TOKEN, INSTANCE)
+    client.verify_session()
+    with pytest.raises(api.CoreJobError) as failure:
+        client.create_job(MOCK_JOB)
+    assert failure.value.code == "session_mismatch"
+    assert [c.args[:2] for c in connection.request.call_args_list] == [
+        ("GET", "/session"),
+        ("GET", "/session"),
+    ]
+
+
+@pytest.mark.parametrize(
+    "reply,code",
+    [
+        (ConnectionRefusedError("private"), "transport"),
+        (TimeoutError("private"), "transport"),
+        (_response({"error": "Unsupported Core API version"}, 426), "api_version"),
+        (_response({}, 429), "http_status"),
+        (_response({}, 503), "http_status"),
+        (_response(b"not JSON"), "invalid_response"),
+        (_response({**SNAPSHOT, "status": "unknown"}), "invalid_response"),
+    ],
+)
+def test_failure_codes_are_distinguishable_and_do_not_lose_session(monkeypatch, reply, code):
+    """{
+    責務: [通信・版・資源上限・応答不正を区別し、session喪失と誤判定しない]
+    処理: [1: 照合後に失敗応答, 2: 分類と再bootstrap不要を確認]
+    引数: [monkeypatch: transport置換, reply: 失敗応答または例外, code: 期待分類]
+    戻り値: []
+    補足: [停止したCoreへの接続はtransportで、期限内に失敗する。再起動判定は起動元が所有する]
+    }"""
+    _transport(monkeypatch, [_response(SESSION), reply])
+    with pytest.raises(api.CoreJobError) as failure:
+        api.CoreJobClient("http://127.0.0.1:12345", TOKEN, INSTANCE).get_job(JOB)
+    assert failure.value.code == code and not failure.value.requires_rebootstrap
+    assert "private" not in str(failure.value)
+
+
+def test_unknown_error_code_is_rejected():
+    """{
+    責務: [分類の集合外の値を例外に持たせない]
+    処理: [1: 未知分類で生成, 2: ValueError確認]
+    引数: []
+    戻り値: []
+    }"""
+    with pytest.raises(ValueError):
+        api.CoreJobError("x", "unknown")

@@ -448,7 +448,8 @@ def test_linux_crashed_leader_does_not_leave_running_descendant():
 def test_real_core_job_and_restart(tmp_path):
     """{
     責務: [実Core・Python workerで認証Job、EOF終了と新規sessionを確認する]
-    処理: [1: 起動してmock解析Jobを終端まで観測, 2: EOF終了, 3: 再起動して旧IDを拒否]
+    処理: [1: 起動してmock解析Jobを終端まで観測, 2: EOF終了, 3: 再起動して旧IDを
+      job_not_foundで拒否, 4: 旧clientが期限内に失敗し新sessionへ届かないことを確認]
     引数: [tmp_path: test専用データ場所]
     戻り値: []
     補足: [解析はmock-v1であり実モデル精度・GUI・benchmarkの検証ではない]
@@ -463,8 +464,19 @@ def test_real_core_job_and_restart(tmp_path):
         with api.OwnedCore.start(core, tmp_path, python) as owner:
             clients.append(owner.client)
             if old_id is not None:
-                with pytest.raises(CoreJobError, match="404"):
+                # New session: old Job IDs are unknown in this instance, not a restart signal.
+                with pytest.raises(CoreJobError, match="404") as unknown:
                     owner.client.get_job(old_id)
+                assert unknown.value.code == "job_not_found"
+                assert not unknown.value.requires_rebootstrap
+                # The client of the stopped Core fails within its socket budget and never
+                # reaches the new session (new port, or 401 if the OS reused the port).
+                started = time.monotonic()
+                with pytest.raises(CoreJobError) as stale:
+                    clients[0].get_job(old_id)
+                assert stale.value.code in ("transport", "unauthorized")
+                assert time.monotonic() - started < 10
+                assert clients[0]._instance_id != clients[1]._instance_id
             job = owner.client.create_job(
                 {
                     "kind": "analysis.mock",
