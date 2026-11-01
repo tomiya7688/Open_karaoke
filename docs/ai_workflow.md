@@ -125,6 +125,8 @@ Issue #12の入口。GUIは関与せず、`core/src/audio_engine.rs`のcallback�
 
 ## Validation
 
+PR前の標準入口は `pwsh scripts/check_local.ps1` の1コマンド。下表はその内部で選ばれる検査の対応と、手動で範囲を広げるときの目安。
+
 開発依存は[development.md](development.md)の手順で準備する。毎回の局所修正で再installしない。
 依存の追加・更新時は必要なinstall/lockfile更新を行う。以下は作業中の入口であり、CI削減の許可ではない。
 

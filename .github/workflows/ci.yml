@@ -88,6 +88,9 @@ jobs:
       - name: Check Rust, Python, process integration and Avalonia build
         shell: pwsh
         run: ./scripts/check.ps1
+      - name: Self-test local pre-PR check selection and failure detection
+        shell: pwsh
+        run: ./scripts/check_local.ps1 -SelfTest
       - name: Build dependency inventory
         shell: pwsh
         run: ./scripts/dependency-inventory.ps1

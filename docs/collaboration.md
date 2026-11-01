@@ -48,7 +48,7 @@ git pull --ff-only origin main
 
 作業が終わったら、必ずPRを作成する。放置したローカル変更やpush済みで未PRのブランチを残さない。
 
-1. ローカルで[Validation](ai_workflow.md#validation)の該当手順(format / lint / テスト)を実行して通す。
+1. ローカルで `pwsh scripts/check_local.ps1` を実行し、FAILが無いことを確認する（[Local pre-PR check](development.md#local-pre-pr-check)）。要約のUNVERIFIED/SKIPはPRのUnverifiedへ書く。
 2. `git fetch`し、`origin/main`が進んでいれば取り込み、再検証する。
 3. pushしてPRを作る。タイトルはコミットと同じ形式。本文は次のテンプレートを埋める。
    完了したIssueには`Closes #N`、受け入れ条件が一部未達なら`Refs #N`を使う(未達のIssueを閉じない)。
