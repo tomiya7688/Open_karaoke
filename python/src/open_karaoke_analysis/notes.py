@@ -2,14 +2,13 @@
 
 from __future__ import annotations
 
-import json
 import math
-from pathlib import Path
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from .adapters import AnalysisContext, resolve_artifact, validate_adapter_options
+from .adapters import AnalysisContext, validate_adapter_options
+from .artifact_io import read_json_object
 from .contracts import ModelInfo, Role, ServiceError
 from .note_candidates import HOP_SAMPLES, RATE, build_note_candidates
 from .note_optimizer import TemporalDynamicProgrammingOptimizer, estimate_key
@@ -462,10 +461,6 @@ def generate_score_documents(
     return notes_document, candidate_document, evidence_document
 
 
-def _reject_constant(value: str):
-    raise ValueError(f"Non-finite JSON constant: {value}")
-
-
 def _read_json(
     context: AnalysisContext,
     relative: str,
@@ -473,21 +468,7 @@ def _read_json(
     max_bytes: int,
     error_code: str,
 ) -> dict:
-    path: Path = resolve_artifact(context.root, relative, must_exist=True)
-    try:
-        if path.stat().st_size > max_bytes:
-            raise ServiceError(error_code, "Artifact exceeds size limit")
-        value = json.loads(
-            path.read_text(encoding="utf-8"),
-            parse_constant=_reject_constant,
-        )
-    except ServiceError:
-        raise
-    except (OSError, UnicodeError, ValueError, RecursionError) as error:
-        raise ServiceError(error_code, "Artifact is not valid JSON") from error
-    if not isinstance(value, dict):
-        raise ServiceError(error_code, "Artifact root must be an object")
-    return value
+    return read_json_object(context.root, relative, max_bytes=max_bytes, error_code=error_code)
 
 
 class NotesAdapter:

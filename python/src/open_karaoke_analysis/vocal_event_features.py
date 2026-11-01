@@ -2,22 +2,17 @@
 
 from __future__ import annotations
 
-import hashlib
-import json
 import math
 from pathlib import Path
 
-from .adapters import AnalysisContext, resolve_artifact
+from .adapters import AnalysisContext
+from .artifact_io import hash_file, read_json_object
 from .contracts import ServiceError
 
 RATE = 48_000
 WINDOW_SAMPLES = 1_920
 HOP_SAMPLES = 480
 MAX_DURATION_SAMPLES = 30 * 60 * RATE
-
-
-def _reject_constant(value: str):
-    raise ValueError(f"Non-finite JSON constant: {value}")
 
 
 def read_json_artifact(
@@ -27,30 +22,22 @@ def read_json_artifact(
     max_bytes: int,
     error_code: str,
 ) -> dict:
-    path = resolve_artifact(context.root, relative, must_exist=True)
-    try:
-        if path.stat().st_size > max_bytes:
-            raise ServiceError(error_code, "Evidence artifact exceeds size limit")
-        raw = json.loads(path.read_bytes(), parse_constant=_reject_constant)
-    except ServiceError:
-        raise
-    except (OSError, ValueError, UnicodeError, RecursionError) as error:
-        raise ServiceError(error_code, "Evidence artifact is not valid JSON") from error
-    if not isinstance(raw, dict):
-        raise ServiceError(error_code, "Evidence artifact root must be an object")
-    return raw
+    return read_json_object(
+        context.root,
+        relative,
+        max_bytes=max_bytes,
+        error_code=error_code,
+        size_message="Evidence artifact exceeds size limit",
+        invalid_message="Evidence artifact is not valid JSON",
+        root_message="Evidence artifact root must be an object",
+    )
 
 
 def sha256_file(context: AnalysisContext, path: Path) -> str:
-    digest = hashlib.sha256()
     try:
-        with path.open("rb") as stream:
-            while block := stream.read(1024 * 1024):
-                context.checkpoint()
-                digest.update(block)
+        return hash_file(path, checkpoint=context.checkpoint)[0]
     except OSError as error:
         raise ServiceError("artifact_io", "Could not hash vocal-event input", 500) from error
-    return digest.hexdigest()
 
 
 def _normalize_positive(values):

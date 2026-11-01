@@ -10,6 +10,7 @@ import urllib.request
 from pathlib import Path
 
 from .adapters import AnalysisContext, resolve_artifact
+from .artifact_io import hash_file
 from .contracts import ServiceError
 
 WHISPER_VERSION = "20250625"
@@ -24,13 +25,7 @@ MAX_WEIGHT_BYTES = 4_000_000_000
 
 
 def sha256_file(path: Path, context: AnalysisContext) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as stream:
-        while block := stream.read(1024 * 1024):
-            context.checkpoint()
-            digest.update(block)
-    context.checkpoint()
-    return digest.hexdigest()
+    return hash_file(path, checkpoint=context.checkpoint, final_checkpoint=True)[0]
 
 
 def verified_checkpoint(context: AnalysisContext, name: str, allow_download: bool) -> Path:
