@@ -41,7 +41,7 @@ jobs:
           $PSNativeCommandUseErrorActionPreference = $true
           cargo build --locked --release -p open-karaoke-core
           dotnet publish gui/OpenKaraoke.Gui/OpenKaraoke.Gui.csproj --configuration Release --output artifacts/publish/gui
-          python -m pip install "build>=1.2.2,<2"
+          python -m pip install "build==1.3.0"
           python -m build python --outdir artifacts/dist
           Compress-Archive -Path target/release/open-karaoke-core.exe -DestinationPath artifacts/dist/open-karaoke-core-windows-x64.zip
           Compress-Archive -Path artifacts/publish/gui/* -DestinationPath artifacts/dist/open-karaoke-gui-windows-x64.zip
@@ -73,9 +73,14 @@ jobs:
         working-directory: dist
         run: |
           set -euo pipefail
-          shopt -s nullglob
-          files=(*)
-          [ "${#files[@]}" -ge 4 ] || { echo "::error::expected 4 outputs, got ${#files[@]}"; exit 1; }
+          files=(open-karaoke-core-windows-x64.zip open-karaoke-gui-windows-x64.zip
+                 open_karaoke_analysis-*-py3-none-any.whl open_karaoke_analysis-*.tar.gz)
+          # Exactly the four expected regular files, nothing else may be attested.
+          all=(*)
+          [ "${#all[@]}" -eq 4 ] || { echo "::error::expected 4 outputs, got: ${all[*]}"; exit 1; }
+          for f in "${files[@]}"; do
+            [ -f "$f" ] || { echo "::error::missing expected output $f"; exit 1; }
+          done
           sha256sum -- "${files[@]}" > "$RUNNER_TEMP/SHA256SUMS"
           mv "$RUNNER_TEMP/SHA256SUMS" SHA256SUMS
           cat SHA256SUMS
@@ -101,7 +106,7 @@ jobs:
           SIGNER: ${{ github.repository }}/.github/workflows/distribution.yml
         run: |
           set -euo pipefail
-          f="$(cd dist && ls | grep -vx SHA256SUMS | head -n1)"
+          f=open-karaoke-core-windows-x64.zip
           mkdir -p "$RUNNER_TEMP/tamper"
           cp "dist/$f" "$RUNNER_TEMP/tamper/$f"
           printf 'x' >> "$RUNNER_TEMP/tamper/$f"
