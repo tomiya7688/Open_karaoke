@@ -19,6 +19,7 @@
 | Workflow | 対象 | 確認するもの |
 |---|---|---|
 | [CI](../.github/workflows/ci.yml) | push/PR等 | Rust/Python lint・format・テスト、Core/Pythonプロセス統合、Avaloniaビルド、依存inventory |
+| [Distribution provenance](../.github/workflows/distribution.yml) | push/同一repo PR/手動 | 配布候補（Core/GUI zip、wheel/sdist）のSHA-256 manifest、Artifact Attestation生成・検証、改ざん拒否（Authenticode署名は未実施） |
 | [Audio clock synthetic evaluator](../.github/workflows/ci.yml) | 同じCIのRust test後 | sample-level drift/latency/epoch契約を数値レポートへ出力（物理機材は未計測） |
 | [Stem model integration](../.github/workflows/stem-model.yml) | 該当PR/手動 | UMX-HQの重み・推論・cacheとsynthetic smoke |
 | [Lyric transcription](../.github/workflows/lyric-model.yml) | 該当PR/手動 | Whisper関連contract・実モデルsmoke |
