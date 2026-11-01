@@ -190,6 +190,24 @@ def test_same_tick_note_on_before_note_off_keeps_both_notes() -> None:
     result = import_smf(zero)
     assert spans(result) == [(500, 1_000, 61)]
     assert result.evidence_document["counts"]["zero_length_dropped"] == 1
+    # An orphan note-off written before a same-tick note-on must not cancel the new note.
+    orphan = smf(
+        [
+            track(
+                [
+                    (0, on(0, 60)),
+                    (0, on(0, 60)),
+                    (480, off(0, 60)),
+                    (480, off(0, 60)),
+                    (0, on(0, 60)),
+                    (480, off(0, 60)),
+                ]
+            )
+        ]
+    )
+    result = import_smf(orphan)
+    assert spans(result) == [(0, 24_000, 60), (48_000, 72_000, 60)]
+    assert result.evidence_document["counts"]["orphan_note_off"] == 1
 
 
 def test_sustain_pedal_policy() -> None:
@@ -277,6 +295,7 @@ def test_time_signature_is_recorded_without_changing_timing() -> None:
         (smf([track([]) + b"\x00\x90\x3c\x40"]), "midi_malformed"),
         (smf([track([(0, on(0, 60))]) + b"MTrk\x00\x00\x00\x00"]), "midi_malformed"),
         (smf([track([(0, meta(0x2F, b"")), (0, on(0, 60))], end=False)]), "midi_malformed"),
+        (smf([track([(0, meta(0x2F, b"x"))], end=False)]), "midi_malformed"),
         (smf([track([])]), "midi_no_notes"),
     ],
 )
@@ -300,9 +319,15 @@ def test_event_and_size_limits_are_enforced() -> None:
 
 @pytest.mark.parametrize(
     "options",
-    [{"track": True}, {"unknown": 1}, {"sustain": "maybe"}, {"note_id_prefix": "bad id"}],
+    [
+        {"track": True},
+        {"unknown": 1},
+        {"sustain": "maybe"},
+        {"note_id_prefix": "bad id"},
+        ["track"],
+    ],
 )
-def test_invalid_options_are_rejected(options: dict) -> None:
+def test_invalid_options_are_rejected(options: object) -> None:
     data = smf([track([(0, on(0, 60)), (480, off(0, 60))])])
     with pytest.raises(ServiceError) as error:
         import_smf(data, options)

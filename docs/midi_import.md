@@ -22,6 +22,7 @@ Issue #37. 既存の譜面データ（Standard MIDI File）を採点用の正規
 - 上限: file 16 MiB、track 256、保持event 500,000、note 100,000、lyric event 100,000、
   出力の最終終端は30分（48 kHz × 1800 s）。解析ループはすべて入力bytesを消費して進むため有界。
 - 未知のchunkは読み飛ばす。MTrk数はheaderと一致しなければならない。
+- End of Trackは長さ0でなければならず、その後に同じMTrk内のbytes（padding含む）があれば`midi_malformed`。
 
 ## 時間変換（tempo map）
 
@@ -41,12 +42,13 @@ Issue #37. 既存の譜面データ（Standard MIDI File）を採点用の正規
 - note on velocity 0はnote offとして扱う。running status、sysex、metaを解釈する。
 - 対応は(track, channel, key)単位。同じtick内では、(1) 既に鳴っているnoteへのoffとCC64、
   (2) note on、(3) 同じtickで始まったnoteへのoff、の順で処理する。これにより「次のnote onが
-  前のnote offより先に書かれた」同tickの連続同音も2音として取り込む。同tickのon→offは0長として捨てる。
+  前のnote offより先に書かれた」同tickの連続同音も2音として取り込む。同tickでonより後に書かれたoffは0長として捨て、onより前に書かれた対応のないoffはorphanとして無視する。
 - 同じkeyのnote onが重複した場合は、前のnoteを新しいonの位置で閉じる（retrigger）。
 - 対応するonのないoffは無視して`orphan_note_off`へ数える。終了しないnoteはtrack終端
   （End of Trackまたは最後のevent）で閉じ、`unterminated`へ数える。End of Track欠落は許容し件数を記録。
 - sustain（CC64、値64以上でdown）: 既定`ignore`はnote offの位置を使う。`extend`はpedal中のoffを
-  pedal解放、同keyの再打鍵、track終端のいずれか早い位置まで延長する。
+  pedal解放、同keyの再打鍵、track終端のいずれか早い位置まで延長する。pedal状態は
+  (track, channel)単位で、別trackのCC64は適用しない。
 
 ## Track選択
 
@@ -66,7 +68,7 @@ Issue #37. 既存の譜面データ（Standard MIDI File）を採点用の正規
 - sample丸めで0長になったnoteは捨てる（`rounding_dropped`）。
 - 同じstart sampleの和音は**最高音だけ**を残す（`chord_dropped`）。
 - 前のnoteの終了より前に次のnoteが始まる場合は、前のnoteの終了を次の開始へ切り詰める
-  （`overlap_truncated`）。`overlap: "error"`なら`midi_overlap`で拒否する。
+  （`overlap_truncated`）。前のnoteは後続noteの後で再開しない（内包された短いnoteの後の残り区間は捨てる）。`overlap: "error"`なら`midi_overlap`で拒否する。
 
 ## 出力
 

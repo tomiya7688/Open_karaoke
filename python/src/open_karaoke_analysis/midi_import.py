@@ -228,6 +228,8 @@ def _parse_track(data: bytes, start: int, end: int, index: int, budget: list[int
             meta = reader.u8("meta type")
             payload = reader.take(reader.vlq("meta length"), "meta data")
             if meta == 0x2F:
+                if payload:
+                    raise _fail("midi_malformed", f"Track {index} has a non-empty End of Track")
                 track.has_end_of_track = True
             elif meta == 0x51:
                 if len(payload) != 3:
@@ -408,7 +410,7 @@ def _pair_notes(
       処理: [
         1: tickごとに、既存noteのoffとCC64を先に適用する,
         2: 同じtickのnote onを適用し、同一keyの重複onは前のnoteを閉じる,
-        3: 同じtickで始まったnoteへのoffを0長noteとして捨てる,
+        3: 同tickのonより後に書かれたoffは0長として捨て、前のoffはorphanとする,
         4: 未終了noteをtrack終端で閉じる
       ]
       引数: [track: 解析済みtrack, sustain: ignore/extend, budget: 残りnote数]
@@ -445,8 +447,9 @@ def _pair_notes(
         while group_end < len(events) and events[group_end][0] == tick:
             group_end += 1
         group = events[position:group_end]
-        late_offs: list[tuple[int, int]] = []
-        for _, _, kind, channel, first, _ in group:
+        late_offs: list[tuple[tuple[int, int], int]] = []
+        started: dict[tuple[int, int], int] = {}
+        for _, seq, kind, channel, first, _ in group:
             key = (channel, first)
             if kind == "off":
                 if key in active and active[key][0] < tick:
@@ -457,14 +460,14 @@ def _pair_notes(
                     else:
                         close(key, begun, tick)
                 else:
-                    late_offs.append(key)
+                    late_offs.append((key, seq))
             elif kind == "sustain":
                 down = first >= 64
                 if pedal[channel] and not down:
                     for held_key in sorted(k for k in held if k[0] == channel):
                         close(held_key, held.pop(held_key), tick)
                 pedal[channel] = down
-        for _, _, kind, channel, first, second in group:
+        for _, seq, kind, channel, first, second in group:
             if kind != "on":
                 continue
             key = (channel, first)
@@ -474,8 +477,11 @@ def _pair_notes(
             if key in held:
                 close(key, held.pop(key), tick)
             active[key] = (tick, second)
-        for key in late_offs:
-            if key in active and active[key][0] == tick:
+            started[key] = seq
+        # Only an off written after the same-tick on cancels it; an earlier orphan off must
+        # not discard a note that starts at this tick.
+        for key, seq in late_offs:
+            if key in active and active[key][0] == tick and seq > started[key]:
                 active.pop(key)
                 stats["zero_length_dropped"] += 1
             else:
@@ -611,6 +617,8 @@ def import_smf(data: bytes, options: Mapping[str, Any] | None = None) -> Importe
       ]
     }
     """
+    if not isinstance(options, Mapping | None):
+        raise _fail("invalid_options", "MIDI import options must be a mapping")
     settings = validate_adapter_options(
         MidiImportOptions, dict(options or {}), "Invalid MIDI import options"
     )

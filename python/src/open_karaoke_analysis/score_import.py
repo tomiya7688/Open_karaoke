@@ -45,7 +45,7 @@ class ScoreImporter(Protocol):
         """
         {
           責務: [sniff: 先頭bytesがこの形式らしいかを副作用なしで判定する]
-          処理: [1: magic等の固定長の印だけを確認する]
+          処理: [1: magic等の固定長の印だけを確認する（例外を送出せず、短い入力はFalse）]
           引数: [data: 取込対象ファイルのbytes]
           戻り値: [この形式として扱えるならTrue]
         }
