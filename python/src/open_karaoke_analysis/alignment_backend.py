@@ -12,6 +12,7 @@ from pathlib import Path
 from urllib.parse import urljoin, urlsplit
 
 from .adapters import atomic_json, resolve_artifact
+from .artifact_io import hash_file
 from .contracts import ServiceError
 
 MODEL_ID = "jonatasgrosman/wav2vec2-large-xlsr-53-japanese"
@@ -107,12 +108,14 @@ DOWNLOAD_POLICY = DownloadPolicy()
 def digest_file(path: Path, context, limit: int) -> str:
     if not path.is_file() or path.stat().st_size > limit:
         raise ServiceError("model_integrity", "Invalid cached alignment-model file")
-    digest = hashlib.sha256()
-    with path.open("rb") as stream:
-        while block := stream.read(1024 * 1024):
-            context.checkpoint()
-            digest.update(block)
-    return digest.hexdigest()
+    return hash_file(
+        path,
+        checkpoint=context.checkpoint,
+        max_bytes=limit,
+        oversize_error=lambda: ServiceError(
+            "model_integrity", "Invalid cached alignment-model file"
+        ),
+    )[0]
 
 
 def _within_declared_limit(declared: str, limit: int) -> bool:

@@ -11,6 +11,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 from .adapters import AdapterRegistry, AnalysisContext, resolve_artifact, validate_adapter_options
+from .artifact_io import hash_file, read_json_object
 from .contracts import ModelInfo, Role, ServiceError
 
 RATE = 48_000
@@ -39,32 +40,27 @@ class SongOptions(BaseModel):
 
 
 def _json(context: AnalysisContext, relative: str, limit: int = 256 * 1024 * 1024) -> dict:
-    path = resolve_artifact(context.root, relative, must_exist=True)
-    try:
-        with path.open("rb") as stream:
-            data = stream.read(limit + 1)
-        if len(data) > limit:
-            raise ValueError("JSON size limit")
-        value = json.loads(data)
-        if not isinstance(value, dict):
-            raise ValueError("JSON root")
-        # Disallow NaN/infinity, including values buried inside evidence.
-        json.dumps(value, allow_nan=False)
-        return value
-    except (OSError, ValueError, UnicodeError, RecursionError) as error:
-        raise ServiceError("invalid_song_artifact", "Invalid or oversized stage JSON") from error
+    message = "Invalid or oversized stage JSON"
+    return read_json_object(
+        context.root,
+        relative,
+        max_bytes=limit,
+        error_code="invalid_song_artifact",
+        size_message=message,
+        invalid_message=message,
+        root_message=message,
+    )
 
 
 def _digest(path: Path, context: AnalysisContext, limit: int = MAX_AUDIO_BYTES) -> tuple[str, int]:
-    digest, size = hashlib.sha256(), 0
-    with path.open("rb") as source:
-        while block := source.read(1024 * 1024):
-            context.checkpoint()
-            size += len(block)
-            if size > limit:
-                raise ServiceError("song_size_limit", "Song artifact exceeds its size limit")
-            digest.update(block)
-    return digest.hexdigest(), size
+    return hash_file(
+        path,
+        checkpoint=context.checkpoint,
+        max_bytes=limit,
+        oversize_error=lambda: ServiceError(
+            "song_size_limit", "Song artifact exceeds its size limit"
+        ),
+    )
 
 
 def _snapshot(context: AnalysisContext, source: Path, name: str, limit: int) -> str:
