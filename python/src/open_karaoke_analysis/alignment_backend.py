@@ -1,14 +1,15 @@
 """Lazy Japanese Wav2Vec2 acoustic backend, isolated from the alignment algorithm."""
 
 import hashlib
+import http.client
 import importlib.metadata
 import json
 import os
+import ssl
 import tempfile
-import urllib.error
-import urllib.request
+from dataclasses import dataclass
 from pathlib import Path
-from urllib.parse import urlsplit
+from urllib.parse import urljoin, urlsplit
 
 from .adapters import atomic_json, resolve_artifact
 from .contracts import ServiceError
@@ -17,6 +18,7 @@ MODEL_ID = "jonatasgrosman/wav2vec2-large-xlsr-53-japanese"
 REVISION = "cf031e020336460d15a417eba710bbc5bb43be9a"
 WEIGHT_SHA256 = "4f6821dcd79770fcd4c11487c4ee5c040b3a7e1863425224014ba5ea8fbc1b67"
 TRANSFORMERS_VERSION = "4.57.1"
+REDIRECT_STATUSES = frozenset({301, 302, 303, 307, 308})
 FILES = {
     "config.json": 131_072,
     "preprocessor_config.json": 16_384,
@@ -25,11 +27,81 @@ FILES = {
 }
 
 
-class HttpsRedirect(urllib.request.HTTPRedirectHandler):
-    def redirect_request(self, req, fp, code, msg, headers, newurl):
-        if urlsplit(newurl).scheme != "https":
-            raise ServiceError("model_download", "Insecure alignment-model redirect", 502)
-        return super().redirect_request(req, fp, code, msg, headers, newurl)
+@dataclass(frozen=True)
+class DownloadPolicy:
+    """Explicit HTTP policy; redirects are followed here, never by a framework handler."""
+
+    max_redirects: int = 5
+    timeout: float = 60.0
+    allowed_hosts: tuple[str, ...] | None = None  # None: any host; entries match suffixes
+
+    def check_url(self, url: str) -> None:
+        parts = urlsplit(url)
+        if parts.scheme != "https" or not parts.hostname:
+            raise ServiceError("model_download", "Insecure alignment-model URL", 502)
+        host = parts.hostname.lower()
+        if self.allowed_hosts is not None and not any(
+            host == allowed or host.endswith("." + allowed) for allowed in self.allowed_hosts
+        ):
+            raise ServiceError("model_download", "Alignment-model host is not allowed", 502)
+
+
+class HttpsTransport:
+    """Single request, no redirect following. Returns an http.client response."""
+
+    def __call__(self, url: str, timeout: float, headers: dict):
+        parts = urlsplit(url)
+        connection = http.client.HTTPSConnection(
+            parts.hostname, parts.port, timeout=timeout, context=ssl.create_default_context()
+        )
+        path = (parts.path or "/") + (f"?{parts.query}" if parts.query else "")
+        try:
+            connection.request("GET", path, headers=headers)
+            response = connection.getresponse()
+        except BaseException:
+            connection.close()
+            raise
+        response.closer = connection  # closed together with the response by open_download
+        return response
+
+
+def open_download(policy: DownloadPolicy, url: str, transport=None):
+    """Return a 200 response after validating every hop BEFORE it is requested."""
+    transport = transport or HttpsTransport()
+    headers = {"User-Agent": "OpenKaraoke/0.1"}
+    for _hop in range(policy.max_redirects + 1):
+        policy.check_url(url)
+        response = transport(url, policy.timeout, headers)
+        status = response.status
+        if status == 200:
+            return response
+        location = response.getheader("Location") if status in REDIRECT_STATUSES else None
+        close_response(response)
+        if status in REDIRECT_STATUSES:
+            if not location:
+                raise ServiceError("model_download", "Alignment-model redirect lacks Location", 502)
+            url = urljoin(url, location)
+            continue
+        retryable = status == 429 or status >= 500
+        raise ServiceError(
+            "model_download",
+            f"Alignment model download rejected (HTTP {status})",
+            503 if retryable else 502,
+            retryable,
+        )
+    raise ServiceError("model_download", "Too many alignment-model redirects", 502)
+
+
+def close_response(response) -> None:
+    try:
+        response.close()
+    finally:
+        closer = getattr(response, "closer", None)
+        if closer is not None:
+            closer.close()
+
+
+DOWNLOAD_POLICY = DownloadPolicy()
 
 
 def digest_file(path: Path, context, limit: int) -> str:
@@ -43,19 +115,25 @@ def digest_file(path: Path, context, limit: int) -> str:
     return digest.hexdigest()
 
 
-def download_file(context, directory: Path, name: str, limit: int) -> str:
+def _within_declared_limit(declared: str, limit: int) -> bool:
+    # ASCII digits only, and bounded length so int() never hits the str->int digit limit.
+    value = declared.strip()
+    return value.isascii() and value.isdigit() and len(value) <= 20 and int(value) <= limit
+
+
+def download_file(context, directory: Path, name: str, limit: int, transport=None) -> str:
     """Only fixed upstream names/revision; downloads publish by atomic replacement."""
     url = f"https://huggingface.co/{MODEL_ID}/resolve/{REVISION}/{name}"
-    opener = urllib.request.build_opener(HttpsRedirect())
     fd, temporary = tempfile.mkstemp(prefix=".download-", dir=directory)
     digest, size = hashlib.sha256(), 0
     try:
         with os.fdopen(fd, "wb") as output:
-            request = urllib.request.Request(url, headers={"User-Agent": "OpenKaraoke/0.1"})
             try:
-                with opener.open(request, timeout=60) as response:
-                    if urlsplit(response.url).scheme != "https":
-                        raise ServiceError("model_download", "Insecure model response", 502)
+                response = open_download(DOWNLOAD_POLICY, url, transport)
+                try:
+                    declared = response.getheader("Content-Length")
+                    if declared is not None and not _within_declared_limit(declared, limit):
+                        raise ServiceError("model_integrity", "Alignment-model file too large")
                     while block := response.read(1024 * 1024):
                         context.checkpoint()
                         size += len(block)
@@ -63,7 +141,9 @@ def download_file(context, directory: Path, name: str, limit: int) -> str:
                             raise ServiceError("model_integrity", "Alignment-model file too large")
                         digest.update(block)
                         output.write(block)
-            except (urllib.error.URLError, TimeoutError) as error:
+                finally:
+                    close_response(response)
+            except (OSError, http.client.HTTPException) as error:
                 raise ServiceError(
                     "model_download", "Alignment model download failed", 503, True
                 ) from error
