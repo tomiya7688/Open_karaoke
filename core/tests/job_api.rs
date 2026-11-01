@@ -548,12 +548,17 @@ async fn windows_venv_redirector_python_completes_a_job() {
         .unwrap();
     let purelib = String::from_utf8(purelib.stdout).unwrap();
     let source = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../python/src");
+    // Venv site-packages are processed only when the worker really runs as this venv, so the
+    // recorded prefix proves `__PYVENV_LAUNCHER__` took effect. Rust's `{:?}` string escaping is a
+    // valid Python literal, including paths with quotes or apostrophes.
+    let prefix_file = root.path().join("worker-prefix.txt");
     std::fs::write(
         venv.join("Lib/site-packages/open_karaoke_dev.pth"),
         format!(
-            "import site; site.addsitedir(r'{}')\n{}\n",
+            "import site; site.addsitedir({:?})\n{}\nimport sys, pathlib; pathlib.Path({:?}).write_text(sys.prefix)\n",
             purelib.trim(),
-            source.display()
+            source.display(),
+            prefix_file.to_string_lossy()
         ),
     )
     .unwrap();
@@ -568,4 +573,9 @@ async fn windows_venv_redirector_python_completes_a_job() {
     let job = create(&router, json!({"kind":"analysis.mock"})).await;
     assert_eq!(terminal(&router, job).await.status, JobStatus::Completed);
     service.shutdown().await;
+    let prefix = std::fs::read_to_string(&prefix_file).unwrap();
+    assert_eq!(
+        std::fs::canonicalize(prefix.trim()).unwrap(),
+        std::fs::canonicalize(&venv).unwrap()
+    );
 }
