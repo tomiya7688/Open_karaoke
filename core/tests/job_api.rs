@@ -136,6 +136,46 @@ async fn invalid_requests_and_unknown_jobs() {
 }
 
 #[tokio::test]
+async fn input_artifact_references_are_validated_before_admission() {
+    // No worker is configured, so a syntactically valid reference reaches the
+    // worker lease (503) while invalid ones are rejected first (400).
+    let router = app(AppState::new());
+    let too_long = "a".repeat(1025);
+    for (reference, code) in [
+        ("../outside.wav", "invalid_artifact_ref"),
+        ("C:/Users/x.wav", "invalid_artifact_ref"),
+        ("https://example.invalid/a.wav", "invalid_artifact_ref"),
+        ("inputs\\a.wav", "invalid_artifact_ref"),
+        ("/abs.wav", "invalid_artifact_ref"),
+        ("", "invalid_artifact_ref"),
+        (too_long.as_str(), "artifact_ref_too_long"),
+    ] {
+        let (status, body) = call(
+            &router,
+            "POST",
+            "/jobs",
+            json!({"kind":"analysis.stems","analysis":{"input_artifact":reference}}),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{reference:?}");
+        let error = body["error"].as_str().unwrap();
+        assert!(error.starts_with(code), "{error}");
+        assert!(
+            !error.contains(reference) || reference.is_empty(),
+            "{error}"
+        );
+    }
+    let (status, _) = call(
+        &router,
+        "POST",
+        "/jobs",
+        json!({"kind":"analysis.stems","analysis":{"input_artifact":"inputs/song.wav"}}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
+}
+
+#[tokio::test]
 async fn api_version_and_browser_origin_rejections() {
     let router = app(AppState::new());
     for (name, value, expected) in [

@@ -1,6 +1,7 @@
 //! Product Core APIs. Audio/DSP never depend on the offline analysis process.
 
 pub mod analysis_service;
+pub mod artifact_ref;
 pub mod audio_clock;
 pub mod audio_device;
 pub mod audio_engine;
@@ -363,6 +364,10 @@ async fn create_job(
             "Invalid job kind or step range".to_owned(),
         ));
     }
+    if let Some(reference) = request.analysis.input_artifact.as_deref() {
+        artifact_ref::validate_ref(reference)
+            .map_err(|error| ApiError(StatusCode::BAD_REQUEST, error.to_string()))?;
+    }
     state.ensure_running()?;
     let import_work = prepare_import(&state, &request).await?;
     if let Some(role) = request.kind.strip_prefix("analysis.") {
@@ -560,6 +565,9 @@ async fn apply_remote(state: &AppState, id: Uuid, remote: &RemoteJob) -> Result<
     match remote.status.as_str() {
         "queued" | "running" => Ok(false),
         "completed" => {
+            // A worker result is untrusted input to the public Job snapshot.
+            artifact_ref::validate_job_artifacts(&remote.artifacts)
+                .map_err(|error| format!("analysis_protocol: {error}"))?;
             state
                 .update(id, |job| {
                     job.artifacts.clone_from(&remote.artifacts);
@@ -648,5 +656,88 @@ impl ApiError {
 impl IntoResponse for ApiError {
     fn into_response(self) -> axum::response::Response {
         (self.0, Json(serde_json::json!({"error": self.1}))).into_response()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    async fn running_job(state: &AppState) -> Uuid {
+        let id = Uuid::new_v4();
+        let (events, _) = broadcast::channel(4);
+        let snapshot = Job {
+            id,
+            kind: "analysis.stems".to_owned(),
+            status: JobStatus::Running,
+            progress: 0.0,
+            stage: "running".to_owned(),
+            created_at: Utc::now(),
+            started_at: Some(Utc::now()),
+            finished_at: None,
+            error: None,
+            artifacts: Vec::new(),
+            imported_song: None,
+        };
+        state.jobs.write().await.insert(
+            id,
+            JobRecord {
+                snapshot,
+                cancelled: false,
+                import_control: None,
+                events,
+            },
+        );
+        id
+    }
+
+    fn completed_remote(artifacts: Vec<String>) -> RemoteJob {
+        RemoteJob {
+            id: Uuid::new_v4(),
+            instance_id: Uuid::new_v4(),
+            status: "completed".to_owned(),
+            progress: 1.0,
+            stage: "completed".to_owned(),
+            error: None,
+            artifacts,
+        }
+    }
+
+    #[tokio::test]
+    async fn worker_artifacts_within_limits_are_published() {
+        let state = AppState::new();
+        let id = running_job(&state).await;
+        let remote = completed_remote(vec!["jobs/x/stems/vocals.wav".to_owned()]);
+        assert_eq!(apply_remote(&state, id, &remote).await, Ok(true));
+        let job = state.snapshot(id).await.unwrap();
+        assert_eq!(job.status, JobStatus::Completed);
+        assert_eq!(job.artifacts, remote.artifacts);
+    }
+
+    #[tokio::test]
+    async fn oversized_or_malformed_worker_artifacts_are_not_published() {
+        for (artifacts, code) in [
+            (
+                vec!["jobs/x/a.json".to_owned(); artifact_ref::MAX_JOB_ARTIFACTS + 1],
+                "too_many_artifacts",
+            ),
+            (vec!["../escape.wav".to_owned()], "invalid_artifact_ref"),
+            (vec!["C:/abs.wav".to_owned()], "invalid_artifact_ref"),
+            (vec!["a".repeat(1025)], "artifact_ref_too_long"),
+        ] {
+            let state = AppState::new();
+            let id = running_job(&state).await;
+            let error = apply_remote(&state, id, &completed_remote(artifacts))
+                .await
+                .unwrap_err();
+            assert!(
+                error.starts_with(&format!("analysis_protocol: {code}")),
+                "{error}"
+            );
+            let job = state.snapshot(id).await.unwrap();
+            // run_job turns the Err into a failed terminal snapshot.
+            assert_eq!(job.status, JobStatus::Running);
+            assert_eq!(job.artifacts, Vec::<String>::new());
+        }
     }
 }
