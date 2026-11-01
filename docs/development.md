@@ -112,6 +112,47 @@ not certifi, so the OS certificate update state must be checked separately. Whet
 affected certificate chain is still trusted has to be confirmed against the real CA bundle in
 use; passing this check only proves the minimum versions and shows which bundle is read.
 
+## Distribution provenance and verification (#67)
+
+Inventory (2026-11-02): the repository has **no GitHub Release and no published installer**.
+Other workflows upload only test reports, metrics, screenshots and dependency inventories;
+those are review evidence, not deliverables. The only distributable outputs are produced by
+[`distribution.yml`](../.github/workflows/distribution.yml) (push to `main`, same-repo PRs,
+manual run):
+
+| File | Content |
+|---|---|
+| `open-karaoke-core-windows-x64.zip` | `open-karaoke-core.exe` (Rust, `--release --locked`) |
+| `open-karaoke-gui-windows-x64.zip` | `dotnet publish` output of `OpenKaraoke.Gui` (framework-dependent .NET 8) |
+| `open_karaoke_analysis-*.whl` / `.tar.gz` | Python Analysis Service wheel and sdist |
+| `SHA256SUMS` | SHA-256 of the four files above |
+
+Each file, including `SHA256SUMS`, gets a GitHub keyless Artifact Attestation (SLSA build
+provenance signed through Sigstore with the workflow's OIDC identity; no key is stored in the
+repository). The `attest` job verifies every checksum and attestation, checks that a tampered
+copy is rejected, and only then uploads the `open-karaoke-distribution` artifact. A failed
+verification fails the job, so nothing unverified is uploaded. Fork PRs have no OIDC token and
+produce no distribution.
+
+To verify a downloaded `open-karaoke-distribution` artifact (extract the outer zip that GitHub
+wraps around the artifact first; the attested subjects are the files inside it):
+
+```powershell
+gh attestation verify <file> --repo tomiya7688/Open_karaoke `
+  --signer-workflow tomiya7688/Open_karaoke/.github/workflows/distribution.yml
+Get-FileHash -Algorithm SHA256 <file>   # compare with the line in SHA256SUMS
+```
+
+On Linux/macOS use `sha256sum -c SHA256SUMS`. Verify `SHA256SUMS` with the same
+`gh attestation verify` command before trusting it. The attestation proves which repository,
+workflow, commit and GitHub-hosted runner built the file; it is not a code-signing certificate.
+
+**Unverified / blocked:** the `.exe`/`.dll` files are **not Authenticode-signed** and carry no
+RFC 3161 timestamp, so Windows shows the publisher as Unknown. This needs a trusted code
+signing certificate (or a signing service such as Azure Trusted Signing) provided by the
+maintainer as a CI secret; no placeholder key is committed. Until then these outputs are CI
+build candidates, not a public release. macOS, Android and container outputs are not produced.
+
 ## Run Core and GUI
 
 From the repository root:

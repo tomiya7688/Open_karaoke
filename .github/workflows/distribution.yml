@@ -1,0 +1,122 @@
+name: Distribution provenance
+
+# Builds the distributable outputs (Core exe zip, GUI zip, Python wheel/sdist), writes a
+# SHA-256 manifest, creates GitHub keyless Artifact Attestations (Sigstore, OIDC) for every
+# file including the manifest, and verifies them. Only verified files are uploaded as
+# `open-karaoke-distribution`. Windows Authenticode/RFC 3161 signing is NOT done here (#67).
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: distribution-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: ./.github/actions/python-trust
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - name: Build and package release outputs
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $true
+          cargo build --locked --release -p open-karaoke-core
+          dotnet publish gui/OpenKaraoke.Gui/OpenKaraoke.Gui.csproj --configuration Release --output artifacts/publish/gui
+          python -m pip install "build>=1.2.2,<2"
+          python -m build python --outdir artifacts/dist
+          Compress-Archive -Path target/release/open-karaoke-core.exe -DestinationPath artifacts/dist/open-karaoke-core-windows-x64.zip
+          Compress-Archive -Path artifacts/publish/gui/* -DestinationPath artifacts/dist/open-karaoke-gui-windows-x64.zip
+          Get-ChildItem artifacts/dist | Format-Table Name, Length
+      - name: Upload unverified build outputs (internal hand-off only)
+        uses: actions/upload-artifact@v4
+        with:
+          name: unverified-build-outputs
+          path: artifacts/dist
+          if-no-files-found: error
+          retention-days: 1
+
+  attest:
+    needs: build
+    # Fork PRs get no OIDC token; their outputs are never published as a distribution.
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: unverified-build-outputs
+          path: dist
+      - name: Write SHA-256 manifest
+        working-directory: dist
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          files=(*)
+          [ "${#files[@]}" -ge 4 ] || { echo "::error::expected 4 outputs, got ${#files[@]}"; exit 1; }
+          sha256sum -- "${files[@]}" > "$RUNNER_TEMP/SHA256SUMS"
+          mv "$RUNNER_TEMP/SHA256SUMS" SHA256SUMS
+          cat SHA256SUMS
+      - name: Attest build provenance (files and manifest)
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: dist/*
+      - name: Verify checksums and attestations
+        working-directory: dist
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SIGNER: ${{ github.repository }}/.github/workflows/distribution.yml
+        run: |
+          set -euo pipefail
+          sha256sum --strict -c SHA256SUMS
+          for f in *; do
+            gh attestation verify "$f" --repo "$GITHUB_REPOSITORY" \
+              --signer-workflow "$SIGNER" --deny-self-hosted-runners
+          done
+      - name: Tampered output must fail verification
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SIGNER: ${{ github.repository }}/.github/workflows/distribution.yml
+        run: |
+          set -euo pipefail
+          f="$(cd dist && ls | grep -vx SHA256SUMS | head -n1)"
+          mkdir -p "$RUNNER_TEMP/tamper"
+          cp "dist/$f" "$RUNNER_TEMP/tamper/$f"
+          printf 'x' >> "$RUNNER_TEMP/tamper/$f"
+          grep -F "  $f" dist/SHA256SUMS > "$RUNNER_TEMP/tamper/SHA256SUMS"
+          if (cd "$RUNNER_TEMP/tamper" && sha256sum --strict -c SHA256SUMS); then
+            echo "::error::tampered $f passed the checksum check"; exit 1
+          fi
+          if gh attestation verify "$RUNNER_TEMP/tamper/$f" --repo "$GITHUB_REPOSITORY" \
+              --signer-workflow "$SIGNER" --deny-self-hosted-runners; then
+            echo "::error::tampered $f passed attestation verification"; exit 1
+          fi
+          echo "tampered $f was rejected by both checks"
+      - name: Upload verified distribution
+        uses: actions/upload-artifact@v4
+        with:
+          name: open-karaoke-distribution
+          path: dist
+          if-no-files-found: error
