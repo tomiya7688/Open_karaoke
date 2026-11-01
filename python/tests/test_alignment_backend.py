@@ -178,7 +178,7 @@ def test_bad_response_status(status, retryable):
     assert response.closed_by_caller
 
 
-@pytest.mark.parametrize("header", ["101", "abc", "-1"])
+@pytest.mark.parametrize("header", ["101", "abc", "-1", "9" * 5000, "\u00b2", "1" * 21])
 def test_declared_length_over_limit_or_malformed(context, header):
     response = Response(b"x" * 10, headers={"Content-Length": header})
     transport = Transport({start_url("config.json"): response})

@@ -115,6 +115,12 @@ def digest_file(path: Path, context, limit: int) -> str:
     return digest.hexdigest()
 
 
+def _within_declared_limit(declared: str, limit: int) -> bool:
+    # ASCII digits only, and bounded length so int() never hits the str->int digit limit.
+    value = declared.strip()
+    return value.isascii() and value.isdigit() and len(value) <= 20 and int(value) <= limit
+
+
 def download_file(context, directory: Path, name: str, limit: int, transport=None) -> str:
     """Only fixed upstream names/revision; downloads publish by atomic replacement."""
     url = f"https://huggingface.co/{MODEL_ID}/resolve/{REVISION}/{name}"
@@ -126,7 +132,7 @@ def download_file(context, directory: Path, name: str, limit: int, transport=Non
                 response = open_download(DOWNLOAD_POLICY, url, transport)
                 try:
                     declared = response.getheader("Content-Length")
-                    if declared is not None and (not declared.isdigit() or int(declared) > limit):
+                    if declared is not None and not _within_declared_limit(declared, limit):
                         raise ServiceError("model_integrity", "Alignment-model file too large")
                     while block := response.read(1024 * 1024):
                         context.checkpoint()
