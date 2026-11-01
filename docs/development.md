@@ -75,8 +75,9 @@ untracked changes, then selects the checks automatically:
 | `.github/**`, others | reported as `UNVERIFIED` (CI only / no light check) |
 
 The summary lists `PASS` / `FAIL` / `SKIP` / `UNVERIFIED` with the reason and the rerun command.
-Exit code `0` means every required check passed, `1` means a failure, and `2` means no changed
-files were found (never reported as PASS; use `-All` to check everything). Missing tools or
+Exit code `0` means every required check passed, `1` means a failure, `2` means no changed
+files were found, and `3` means a required check could not be verified (for example all selected
+tests were skipped). None of them is reported as PASS; use `-All` to check everything. Missing tools or
 dependencies are failures; the script never installs packages, restores NuGet, fixes files or
 touches the git index. Logs go to `artifacts/check_local/`. Python is resolved from `-Python`,
 `OPEN_KARAOKE_DEV_PYTHON`, `.venv` in the checkout, then `.venv` of the main checkout (for

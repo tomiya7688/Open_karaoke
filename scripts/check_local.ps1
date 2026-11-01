@@ -9,7 +9,7 @@ PASS / FAIL / SKIP / UNVERIFIED を1つの要約で表示する。
 読み取り専用・ネットワーク不要。依存の導入・自動修正・git add/reset は行わない。
 ログは artifacts/check_local/ にだけ書く。完全な検査は CI と scripts/check.ps1。
 
-終了コード: 0 = 必須検査がすべてPASS、1 = FAILあり、2 = 検査対象0件（PASS扱いにしない）。
+終了コード: 0 = 必須検査がすべてPASS、1 = FAILあり、2 = 検査対象0件、3 = 必須検査が未確認（いずれもPASS扱いにしない）。
 
 .EXAMPLE
 pwsh scripts/check_local.ps1
@@ -79,9 +79,9 @@ function Get-ChangedFileSet {
     }
     $mergeBase = git merge-base HEAD $BaseRef
     if ($LASTEXITCODE -ne 0 -or -not $mergeBase) { throw "HEAD と '$BaseRef' の共通祖先を取得できません（shallow clone なら履歴を取得してください）。" }
-    $committed = Get-GitPath diff --name-only -z $mergeBase HEAD
-    $worktree = Get-GitPath diff --name-only -z HEAD
-    $untracked = Get-GitPath ls-files --others --exclude-standard -z
+    $committed = @(Get-GitPath diff --name-only -z $mergeBase HEAD)
+    $worktree = @(Get-GitPath diff --name-only -z HEAD)
+    $untracked = @(Get-GitPath ls-files --others --exclude-standard -z)
     [pscustomobject]@{
         MergeBase = $mergeBase
         Files     = @($committed + $worktree + $untracked | Where-Object { $_ } | Sort-Object -Unique)
@@ -313,7 +313,7 @@ function Invoke-Plan {
         }
         [pscustomobject]@{
             Status = $status; Check = $check.Title; Seconds = [math]::Round($watch.Elapsed.TotalSeconds, 1)
-            Reason = $reason; Rerun = $check.Rerun
+            Reason = $reason; Rerun = $check.Rerun; Required = $check.Required
         }
     }
     $results
@@ -333,6 +333,7 @@ function Write-Summary {
     }
     $open = @($Results | Where-Object Status -In 'SKIP', 'UNVERIFIED').Count
     if ($Results.Status -contains 'FAIL') { Write-Host '結果: FAIL' -ForegroundColor Red }
+    elseif (@($Results | Where-Object { $_.Required -and $_.Status -ne 'PASS' }).Count) { Write-Host '結果: 未確認（必須検査を実行できず。終了コード3）' -ForegroundColor Yellow }
     elseif ($open) { Write-Host "結果: 必須検査はPASS。SKIP/UNVERIFIED $open 件は未確認として PR の Unverified に書く" -ForegroundColor Yellow }
     else { Write-Host '結果: PASS' -ForegroundColor Green }
     Write-Host 'ローカル対象外（CIで確認）: job_apiの--ignored実プロセス試験、Client.Tests/Gui.Smokeの実Core結合試験、実モデル、GUI目視、Linux/複数OS、配布物。'
@@ -350,6 +351,9 @@ function Invoke-SelfTest {
     Assert-Plan @('gui/OpenKaraoke.Gui/App.axaml') @('gui-build', 'gui-format', 'gui-unit') @('py-test')
     Assert-Plan @('.github/workflows/ci.yml') @('ci-config') @('rust-test')
     Assert-Plan @('LICENSE') @('uncovered') @()
+    # 単一ファイルの取得結果が文字列連結されないこと（Get-GitPathの戻り値）。
+    $joined = @(@(Get-GitPath ls-files -z -- LICENSE) + @(Get-GitPath ls-files -z -- README.md))
+    if ($joined.Count -ne 2) { $failures.Add("単一パスの結合が配列にならない: $($joined -join '|')") }
     $pitchTests = @(Get-PythonTestFile -Files @('python/src/open_karaoke_analysis/pitch_fusion.py') -TestRoot (Join-Path $repo 'python/tests'))
     if ($pitchTests -notcontains 'python/tests/test_pitch.py' -or $pitchTests -contains 'python/tests') {
         $failures.Add("pitch_fusion の対象テストが不正: $($pitchTests -join ',')")
@@ -421,6 +425,8 @@ try {
     $results = @(Invoke-Plan $plan)
     Write-Summary $results
     if ($results.Status -contains 'FAIL') { exit 1 }
+    # 必須検査がUNVERIFIED（例: 選択テストが全件skip）なら成功終了しない。
+    if (@($results | Where-Object { $_.Required -and $_.Status -ne 'PASS' }).Count) { exit 3 }
     exit 0
 }
 finally {
