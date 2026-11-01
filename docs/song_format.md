@@ -5,6 +5,7 @@
 Open_karaoke内部ではJSONベースの独自Song Data Formatを使用する。
 
 外部形式をそのまま正本にはせず、MIDIや既存カラオケ形式はImport / Exportで内部形式へ変換する。
+SMFの取込方針（tempo map、変拍子、重複note、track選択）は[MIDI import](midi_import.md)を参照。
 
 時間の正本は48kHz基準の整数sample indexとする。Rust実装では `u64` を使用し、浮動小数秒は保存しない。
 

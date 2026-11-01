@@ -69,6 +69,7 @@ GitHub connectorだけの環境では対象Issue、対象PRのhead/base SHA、�
 | F0 / Pitch #9 | [Pitch task](#pitch-task) | `docs/pitch_analysis.md`、`python/tests/test_pitch*.py` |
 | Vocal Event #10 | [Vocal Event task](#vocal-event-task) | `docs/vocal_events.md`、`python/tests/test_vocal_event*.py` |
 | Score generation #11 | [Score generation task](#score-generation-task) | `docs/score_generation.md`、`python/tests/test_note*.py` |
+| MIDI/譜面取込 #37 | `python/src/open_karaoke_analysis/score_import.py`（Importer API）、`midi_import.py`（SMF） | `python/tests/test_midi_import.py`、`docs/midi_import.md`。tempo/拍子/重なり/track選択の方針 |
 | Audio engine #12 | [Audio engine task](#audio-engine-task) | `docs/audio_engine.md`、`core/src/audio_*.rs`、`core/examples/wasapi_smoke.rs` |
 | GUI | `gui/OpenKaraoke.Gui/`の対象view/code-behind | `gui/OpenKaraoke.sln`、`docs/architecture.md`。現在はbootstrap shell |
 | Build / CI | 対象manifest、`scripts/check.ps1`、`.github/workflows/` | `docs/development.md`、`docs/testing.md` |
