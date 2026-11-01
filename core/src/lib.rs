@@ -735,8 +735,9 @@ mod tests {
                 "{error}"
             );
             let job = state.snapshot(id).await.unwrap();
-            assert_ne!(job.status, JobStatus::Completed);
-            assert!(job.artifacts.is_empty());
+            // run_job turns the Err into a failed terminal snapshot.
+            assert_eq!(job.status, JobStatus::Running);
+            assert_eq!(job.artifacts, Vec::<String>::new());
         }
     }
 }
