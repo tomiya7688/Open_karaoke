@@ -259,6 +259,9 @@ def test_cli_summary_binds_to_the_detail_report(tmp_path, monkeypatch):
     run_cli(monkeypatch, pairs, "--output", detail, "--summary-output", summary, *CLI_META)
     written = json.loads(summary.read_text(encoding="utf-8"))
     verify_detail_binding(written, detail.read_bytes())
+    assert b"\r\n" not in detail.read_bytes()
+    with pytest.raises(ValueError, match="bytes-like"):
+        verify_detail_binding(written, "text")
     with pytest.raises(ValueError, match="mismatched pair"):
         verify_detail_binding(written, detail.read_bytes() + b" ")
 

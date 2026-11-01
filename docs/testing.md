@@ -85,7 +85,7 @@ Linux用のcontract checksや実モデルworkflowは対応するGitHub Actions�
 
 参照集合hashは、ID順に整列した `[id, reference]` の配列を `ensure_ascii=True, separators=(",", ":")` でJSON化し、ASCII化したバイト列の前に `open-karaoke-lyric-reference-v1` と NUL を付けて計算する。ID省略時は詳細評価と同じ配列位置の文字列を使うため、明示IDのある行の並べ替えは同じhash、ID省略時の異なる参照の並べ替えは異なるhashになる。旧 version 1 サマリーや既存の関数呼び出しは `reference_sha256` を持たないことがあり、その結果だけでは参照集合の一致を確認できない。
 
-サマリーの `detail_sha256` は、同時に書いた詳細 JSON の生バイトの SHA-256。詳細→サマリーの順に置き換えるが、2ファイルの置き換えは不可分ではなく、途中の失敗で「新しい詳細+古いサマリー」が残り得る。読み手は `evaluation_summary.verify_detail_binding(summary, 詳細のバイト列)` で不一致を検出し、不一致または `detail_sha256` なし（旧形式）なら組として扱わない。
+サマリーの `detail_sha256` は、同時に書いた詳細 JSON の生バイトの SHA-256。詳細→サマリーの順に置き換えるが、2ファイルの置き換えは不可分ではなく、途中の失敗で「新しい詳細+古いサマリー」が残り得る。読み手は `evaluation_summary.verify_detail_binding(summary, 詳細のバイト列)` で不一致を検出し、不一致または `detail_sha256` なし（旧形式）なら組として扱わない。このhashが束ねるのは詳細の内容だけで、詳細の内容が同一でサマリーのメタデータ（モデル版や入力hash）だけが異なる再実行では、途中失敗後の古いサマリーは検出できない。
 
 モデル間比較では参照集合hashだけでなく、データ名・版、評価種別、評価器と正規化設定の一致も確認する。音源の一致や権利、注釈品質はこのhashでは確認しない。`real_singing` も実行者の申告値である。詳細 JSON と入力データは権利条件に従って非公開で扱う。
 

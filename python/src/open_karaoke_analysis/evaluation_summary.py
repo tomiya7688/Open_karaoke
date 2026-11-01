@@ -180,5 +180,7 @@ def verify_detail_binding(summary: dict, detail_bytes: bytes) -> None:
     expected = summary.get("detail_sha256") if isinstance(summary, dict) else None
     if not isinstance(expected, str) or re.fullmatch(r"[0-9a-f]{64}", expected) is None:
         raise ValueError("Summary does not record the detail report hash")
+    if not isinstance(detail_bytes, (bytes, bytearray, memoryview)):
+        raise ValueError("detail_bytes must be bytes-like")
     if hashlib.sha256(detail_bytes).hexdigest() != expected:
         raise ValueError("Detail report does not match the summary (mismatched pair)")
