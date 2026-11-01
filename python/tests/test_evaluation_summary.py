@@ -4,7 +4,7 @@ import sys
 
 import pytest
 
-from open_karaoke_analysis.evaluation_summary import lyric_summary
+from open_karaoke_analysis.evaluation_summary import lyric_summary, verify_detail_binding
 from open_karaoke_analysis.lyric_evaluator import evaluate, main
 
 SHA = "a" * 64
@@ -246,3 +246,53 @@ def test_cli_keeps_the_permissions_of_an_existing_report(tmp_path, monkeypatch):
         assert target.stat().st_mode & 0o777 == 0o640
     assert outside.read_text(encoding="utf-8") == "untouched\n"
     assert not list(tmp_path.glob(".*.tmp"))
+
+
+CLI_META = (
+    "--dataset-id", "d", "--dataset-version", "1", "--model-name", "m",
+    "--model-version", "1", "--evaluation-kind", "synthetic",
+)  # fmt: skip
+
+
+def test_cli_summary_binds_to_the_detail_report(tmp_path, monkeypatch):
+    pairs, detail, summary = cli_args(tmp_path)
+    run_cli(monkeypatch, pairs, "--output", detail, "--summary-output", summary, *CLI_META)
+    written = json.loads(summary.read_text(encoding="utf-8"))
+    verify_detail_binding(written, detail.read_bytes())
+    with pytest.raises(ValueError, match="mismatched pair"):
+        verify_detail_binding(written, detail.read_bytes() + b" ")
+
+
+def test_mid_replace_failure_leaves_a_detectable_mismatched_pair(tmp_path, monkeypatch, capsys):
+    pairs, detail, summary = cli_args(tmp_path)
+    run_cli(monkeypatch, pairs, "--output", detail, "--summary-output", summary, *CLI_META)
+    old_summary = summary.read_bytes()
+    pairs.write_text(
+        json.dumps([{"reference": "青い空", "hypothesis": "赤い海"}]), encoding="utf-8"
+    )
+    real_replace = os.replace
+
+    def fail_on_summary(source, target):
+        if os.fspath(target) == os.fspath(summary):
+            raise PermissionError("injected failure")
+        real_replace(source, target)
+
+    monkeypatch.setattr(os, "replace", fail_on_summary)
+    with pytest.raises(SystemExit) as exit_info:
+        run_cli(monkeypatch, pairs, "--output", detail, "--summary-output", summary, *CLI_META)
+    assert exit_info.value.code == 2
+    assert "injected failure" in capsys.readouterr().err
+    # 詳細だけ新しく要約は古いまま。読み手はハッシュ不一致で組の不整合を検出できる。
+    assert summary.read_bytes() == old_summary
+    with pytest.raises(ValueError, match="mismatched pair"):
+        verify_detail_binding(json.loads(old_summary), detail.read_bytes())
+    assert not list(tmp_path.glob(".*.tmp"))
+
+
+def test_verify_detail_binding_rejects_summary_without_hash():
+    legacy = lyric_summary(report(), **META)
+    with pytest.raises(ValueError, match="does not record"):
+        verify_detail_binding(legacy, b"{}")
+    with pytest.raises(ValueError, match="detail_sha256"):
+        lyric_summary(report(), detail_sha256="XYZ", **META)
+    assert lyric_summary(report(), detail_sha256=SHA, **META)["detail_sha256"] == SHA

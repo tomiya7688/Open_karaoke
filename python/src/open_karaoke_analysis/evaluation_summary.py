@@ -1,5 +1,6 @@
 """Versioned, aggregate-only evaluation results for comparing model runs."""
 
+import hashlib
 import math
 import re
 
@@ -29,6 +30,7 @@ def lyric_summary(
     model_version: str,
     evaluation_kind: str,
     reference_sha256: str | None = None,
+    detail_sha256: str | None = None,
 ) -> dict:
     """
     {
@@ -46,7 +48,8 @@ def lyric_summary(
         model_name: モデル名,
         model_version: モデルの版,
         evaluation_kind: synthetic または real_singing,
-        reference_sha256: 任意の参照集合hash。省略した旧形式では参照集合を比較できない
+        reference_sha256: 任意の参照集合hash。省略した旧形式では参照集合を比較できない,
+        detail_sha256: 任意。対で書く詳細レポートの生バイトのSHA-256。検証側が組の不整合を検出できる
       ]
       戻り値: [format_version 1の要約dict]
       エラー: [ValueError: メタデータやレポートが契約を満たさない]
@@ -66,6 +69,10 @@ def lyric_summary(
         or re.fullmatch(r"[0-9a-f]{64}", reference_sha256) is None
     ):
         raise ValueError("reference_sha256 must be a lowercase SHA-256 digest")
+    if detail_sha256 is not None and (
+        not isinstance(detail_sha256, str) or re.fullmatch(r"[0-9a-f]{64}", detail_sha256) is None
+    ):
+        raise ValueError("detail_sha256 must be a lowercase SHA-256 digest")
     if evaluation_kind not in ("synthetic", "real_singing"):
         raise ValueError("evaluation_kind must be synthetic or real_singing")
     if not isinstance(report, dict) or report.get("evaluator") != "lyric-transcription":
@@ -137,7 +144,7 @@ def lyric_summary(
     dataset = {"id": dataset_id, "version": dataset_version, "sha256": dataset_sha256}
     if reference_sha256 is not None:
         dataset["reference_sha256"] = reference_sha256
-    return {
+    summary = {
         "format_version": 1,
         "evaluation_kind": evaluation_kind,
         "evaluator": {"name": "lyric-transcription", "version": 1},
@@ -155,3 +162,23 @@ def lyric_summary(
         },
         "gate": {"applied": applied, "passed": passed, "thresholds": {"max_cer": threshold}},
     }
+    if detail_sha256 is not None:
+        summary["detail_sha256"] = detail_sha256
+    return summary
+
+
+def verify_detail_binding(summary: dict, detail_bytes: bytes) -> None:
+    """
+    {
+      責務: [verify_detail_binding: 要約と詳細レポートが同じ実行で書かれた組か検証する]
+      処理: [1: 要約のdetail_sha256を確認する, 2: 詳細レポートの生バイトのSHA-256と照合する]
+      引数: [summary: 保存済みの要約, detail_bytes: 保存済みの詳細レポートの生バイト]
+      戻り値: []
+      エラー: [ValueError: 要約にdetail_sha256がない(旧形式)、または詳細レポートと一致しない]
+    }
+    """
+    expected = summary.get("detail_sha256") if isinstance(summary, dict) else None
+    if not isinstance(expected, str) or re.fullmatch(r"[0-9a-f]{64}", expected) is None:
+        raise ValueError("Summary does not record the detail report hash")
+    if hashlib.sha256(detail_bytes).hexdigest() != expected:
+        raise ValueError("Detail report does not match the summary (mismatched pair)")

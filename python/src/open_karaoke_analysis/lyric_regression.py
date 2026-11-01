@@ -39,6 +39,7 @@ def _validated_summary(value: dict) -> dict:
             dataset_version=dataset["version"],
             dataset_sha256=dataset["sha256"],
             reference_sha256=dataset["reference_sha256"],
+            detail_sha256=value.get("detail_sha256"),
             model_name=model["name"],
             model_version=model["version"],
             evaluation_kind=value["evaluation_kind"],
