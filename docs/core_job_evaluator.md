@@ -20,9 +20,9 @@ current = client.get_job(created.id)
 
 POSTは202、GETは200だけを受理し、認証失敗・429・redirect・不正JSON・ID不一致等は `CoreJobError` にする。例外へtoken、URL、送信本文、サーバーのerror本文を埋め込まない。送信要求は64KiB、応答は1MiB上限。`timeout` は0超30秒以下のsocket I/O予算であり、Job全体の期限ではない。遅い本文の総受信時間や解析全体をこの値だけで制限できるとは扱わない。
 
-`CoreJobError.code` は失敗を区別する固定の分類: `transport`（接続・socket失敗）、`invalid_response`（JSON・snapshot契約違反）、`http_status`（429・503等）、`api_version`（426）、`unauthorized`（401）、`session_mismatch`（`/session` のinstance_idまたはAPI版が起動元のreadyと不一致）、`job_not_found`（同じinstanceで未知のJob）。`requires_rebootstrap` は `unauthorized` / `session_mismatch` で真になり、そのclientは以後通信せず同じ分類で失敗する。利用側は `OwnedCore` を閉じて新しく起動し、旧Jobを自動再送しない。
+`CoreJobError.code` は失敗を区別する固定の分類: `transport`（接続・socket失敗）、`invalid_response`（JSON・snapshot契約違反）、`http_status`（429・503等）、`api_version`（426）、`unauthorized`（401）、`session_mismatch`（`/session` のinstance_idまたはAPI版が起動元のreadyと不一致）、`job_not_found`（Job routeの404。同じinstanceで未知のJob）。`instance_id` はclientが所属するinstanceの識別子（秘密ではない）。`requires_rebootstrap` は `unauthorized` / `session_mismatch` で真になり、そのclientは以後通信せず同じ分類で失敗する。利用側は `OwnedCore` を閉じて新しく起動し、旧Jobを自動再送しない。
 
-照合結果はキャッシュするが、副作用のある `create_job` は毎回 `/session` を再照合してからPOSTする。`get_job` が404を受けた場合も `/session` を一度再照合し、同じinstanceなら `job_not_found`、再起動後の別instanceなら `session_mismatch` にする。停止したCoreへの旧clientは `transport`（OSがportを再利用した場合は新tokenとの不一致で `unauthorized`）になり、socket予算内に失敗する。
+照合結果はキャッシュするが、副作用のある `create_job` は毎回 `/session` を再照合してからPOSTする。`get_job` が404を受けた場合も `/session` を一度再照合し、同じinstanceなら `job_not_found`、再起動後の別instanceなら `session_mismatch` にする。再照合自体が失敗した場合は未知Jobと断定せず、その失敗の分類（`transport` 等）を返す。停止したCoreへの旧clientは `transport`（OSがportを再利用した場合は新tokenとの不一致で `unauthorized`）になり、socket予算内に失敗する。
 
 通信前のURL・token・instance・timeout・作成要求JSON・要求サイズ・取得IDの不正は `ValueError` で拒否する。応答の契約違反と区別する。
 

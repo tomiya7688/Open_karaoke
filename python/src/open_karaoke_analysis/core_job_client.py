@@ -20,7 +20,7 @@ ERROR_CODES = frozenset(
     }
 )
 REBOOTSTRAP_CODES = frozenset({"unauthorized", "session_mismatch"})
-_STATUS_CODES = {401: "unauthorized", 404: "job_not_found", 426: "api_version"}
+_STATUS_CODES = {401: "unauthorized", 426: "api_version"}
 
 
 class CoreJobError(RuntimeError):
@@ -159,6 +159,8 @@ class CoreJobClient:
             if response.status != expected:
                 status = response.status
                 code = _STATUS_CODES.get(status, "http_status")
+                if status == 404 and path.startswith("/jobs"):
+                    code = "job_not_found"  # Only Job routes name a Job; never /session.
                 if code == "unauthorized":
                     self._lose(code)
                 raise CoreJobError(f"Core Job HTTP status {status}", code)
@@ -172,9 +174,19 @@ class CoreJobClient:
         except (OSError, HTTPException):
             raise CoreJobError("Core Job transport failure", "transport") from None
         except (ValueError, RecursionError):
-            raise CoreJobError("Core Job JSON failure") from None
+            raise CoreJobError("Core Job JSON failure", "invalid_response") from None
         finally:
             connection.close()
+
+    @property
+    def instance_id(self) -> str:
+        """{
+        責務: [このclientが所属するCore instanceの識別子を公開する]
+        処理: [1: readyで受けた検証済みUUIDを返す]
+        引数: []
+        戻り値: [正規表記UUID。秘密ではない]
+        }"""
+        return self._instance_id
 
     def _lose(self, code: str) -> None:
         """{

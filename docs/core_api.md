@@ -155,7 +155,7 @@ Jobの識別は `(instance_id, Job id)` の組。`instance_id` はCore起動ご�
 |---|---|---|
 | `/health` | 認証不要、`api_version: 1` | `api_version` はCoreの最上位版。対応版の配列を任意フィールドとして追加する |
 | ready | `api_version: 1` | `/health` と同じ。clientは共通の最上位版を選び、共通版がなければ起動失敗として閉じる |
-| `/session` | 認証済みinstance_idと `api_version` | 要求で解決した版を返す。clientは選んだ版との一致を照合する |
+| `/session` | 認証済みinstance_idと `api_version` | 要求で解決した版を返す（版ヘッダー省略はv1として解決）。clientは選んだ版との一致を照合する |
 | `/jobs` | 本文・snapshot形式はこの文書 | Jobはinstance内のみで永続しないため、版をまたぐ移行データはない。snapshotは読む要求の版で表現する |
 | `/models` | `{"models":[...]}` | 項目追加は互換。項目の形を変える場合はv2 |
 | SSE | data＝v1 snapshot、終端で閉じる | 接続要求の版のsnapshotを送る |

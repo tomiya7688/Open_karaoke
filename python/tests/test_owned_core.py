@@ -465,7 +465,7 @@ def test_real_core_job_and_restart(tmp_path):
             clients.append(owner.client)
             if old_id is not None:
                 # New session: old Job IDs are unknown in this instance, not a restart signal.
-                with pytest.raises(CoreJobError, match="404") as unknown:
+                with pytest.raises(CoreJobError) as unknown:
                     owner.client.get_job(old_id)
                 assert unknown.value.code == "job_not_found"
                 assert not unknown.value.requires_rebootstrap
@@ -476,7 +476,7 @@ def test_real_core_job_and_restart(tmp_path):
                     clients[0].get_job(old_id)
                 assert stale.value.code in ("transport", "unauthorized")
                 assert time.monotonic() - started < 10
-                assert clients[0]._instance_id != clients[1]._instance_id
+                assert clients[0].instance_id != clients[1].instance_id
             job = owner.client.create_job(
                 {
                     "kind": "analysis.mock",

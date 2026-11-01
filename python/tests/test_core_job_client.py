@@ -562,3 +562,38 @@ def test_unknown_error_code_is_rejected():
     }"""
     with pytest.raises(ValueError):
         api.CoreJobError("x", "unknown")
+
+
+def test_not_found_is_job_not_found_only_on_job_routes(monkeypatch):
+    """{
+    責務: [Job routeの404だけをjob_not_foundとし、/sessionの404を未知Jobと誤認しない]
+    処理: [1: /sessionが404, 2: http_status確認, 3: 旧解析Jobを参照するPOSTの404を確認]
+    引数: [monkeypatch: transport置換]
+    戻り値: []
+    }"""
+    missing = _response({"error": "Core route not found"}, 404)
+    _transport(monkeypatch, [missing])
+    client = api.CoreJobClient("http://127.0.0.1:12345", TOKEN, INSTANCE)
+    assert client.instance_id == INSTANCE
+    with pytest.raises(api.CoreJobError) as failure:
+        client.verify_session()
+    assert failure.value.code == "http_status"
+    _transport(monkeypatch, [_response(SESSION), _response({"error": "job not found"}, 404)])
+    request = {"kind": "song.import", "song_import": {"analysis_job_id": JOB}}
+    with pytest.raises(api.CoreJobError) as failure:
+        api.CoreJobClient("http://127.0.0.1:12345", TOKEN, INSTANCE).create_job(request)
+    assert failure.value.code == "job_not_found"
+
+
+def test_failed_recheck_after_404_reports_the_recheck_failure(monkeypatch):
+    """{
+    責務: [404後の再照合が届かない場合は未知Jobと断定せずtransportを返す]
+    処理: [1: 404後の/sessionで接続拒否, 2: transportと再bootstrap不要を確認]
+    引数: [monkeypatch: transport置換]
+    戻り値: []
+    }"""
+    replies = [_response(SESSION), _response({}, 404), ConnectionRefusedError("private")]
+    _transport(monkeypatch, replies)
+    with pytest.raises(api.CoreJobError) as failure:
+        api.CoreJobClient("http://127.0.0.1:12345", TOKEN, INSTANCE).get_job(JOB)
+    assert failure.value.code == "transport" and not failure.value.requires_rebootstrap
