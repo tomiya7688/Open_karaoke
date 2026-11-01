@@ -522,3 +522,50 @@ async fn python_startup_mock_cancel_crash_recovery_shutdown() {
         0
     );
 }
+
+#[cfg(windows)]
+#[tokio::test]
+#[ignore = "Requires installed Python analysis package; explicitly executed in CI"]
+async fn windows_venv_redirector_python_completes_a_job() {
+    // #82: a venv `Scripts\python.exe` re-spawns the base interpreter, so its PID differs.
+    let root = tempfile::tempdir().unwrap();
+    let python = std::env::var_os("OPEN_KARAOKE_PYTHON")
+        .map_or_else(|| PathBuf::from("python"), PathBuf::from);
+    let venv = root.path().join("venv");
+    let created = std::process::Command::new(&python)
+        .args(["-m", "venv", "--without-pip"])
+        .arg(&venv)
+        .status()
+        .unwrap();
+    assert!(created.success());
+    // Reuse the configured interpreter's installed dependencies inside the new venv.
+    let purelib = std::process::Command::new(&python)
+        .args([
+            "-c",
+            "import sysconfig; print(sysconfig.get_paths()['purelib'])",
+        ])
+        .output()
+        .unwrap();
+    let purelib = String::from_utf8(purelib.stdout).unwrap();
+    let source = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../python/src");
+    std::fs::write(
+        venv.join("Lib/site-packages/open_karaoke_dev.pth"),
+        format!(
+            "import site; site.addsitedir(r'{}')\n{}\n",
+            purelib.trim(),
+            source.display()
+        ),
+    )
+    .unwrap();
+    let service = AnalysisService::start(AnalysisConfig {
+        python: venv.join("Scripts/python.exe"),
+        artifact_root: root.path().join("artifacts"),
+        startup_timeout: Duration::from_secs(30),
+    })
+    .await
+    .unwrap();
+    let router = app(AppState::with_analysis(service.client()));
+    let job = create(&router, json!({"kind":"analysis.mock"})).await;
+    assert_eq!(terminal(&router, job).await.status, JobStatus::Completed);
+    service.shutdown().await;
+}
