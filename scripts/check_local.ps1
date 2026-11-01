@@ -31,6 +31,8 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+# 終了コードは各呼出しで判定する。利用者のプロファイル設定に依存させない。
+$PSNativeCommandUseErrorActionPreference = $false
 $repo = Split-Path -Parent $PSScriptRoot
 $logDir = Join-Path $repo 'artifacts/check_local'
 
@@ -301,6 +303,10 @@ function Write-Summary {
             Write-Host "           再実行: $($r.Rerun)"
         }
     }
+    $open = @($Results | Where-Object Status -In 'SKIP', 'UNVERIFIED').Count
+    if ($Results.Status -contains 'FAIL') { Write-Host '結果: FAIL' -ForegroundColor Red }
+    elseif ($open) { Write-Host "結果: 必須検査はPASS。SKIP/UNVERIFIED $open 件は未確認として PR の Unverified に書く" -ForegroundColor Yellow }
+    else { Write-Host '結果: PASS' -ForegroundColor Green }
     Write-Host 'ローカル対象外（CIで確認）: job_apiの--ignored実プロセス試験、Client.Tests/Gui.Smokeの実Core結合試験、実モデル、GUI目視、Linux/複数OS、配布物。'
 }
 
