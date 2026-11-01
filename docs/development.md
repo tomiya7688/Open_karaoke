@@ -53,6 +53,40 @@ The dedicated desktop workflow runs the real process tests and headless GUI work
 Windows and Linux. See [UI validation](desktop_ui_validation.md) for the evidence boundary.
 CI permissions are read-only. Dependency inventories are review inputs, not a completed audit.
 
+## Local pre-PR check
+
+Run one command before opening or updating a PR:
+
+```powershell
+pwsh scripts/check_local.ps1
+```
+
+It compares `origin/main` (no fetch; run `git fetch` yourself) with committed, uncommitted and
+untracked changes, then selects the checks automatically:
+
+| Changed | Checks |
+|---|---|
+| any | `git diff --check` (also untracked files) |
+| `*.py` | `ruff check` / `ruff format --check` on the changed files |
+| `python/**` | matching `python/tests/test_<module>*.py`; shared contracts, fixtures or unmatched modules run all of `python/tests` |
+| `core/**`, `Cargo.*` | `cargo fmt --check`, `cargo clippy --offline -D warnings`, `cargo test --offline` (no `--ignored`) |
+| `gui/**` | `dotnet build --no-restore`, `dotnet format --verify-no-changes`, `OpenKaraoke.Client.Tests --unit` |
+| `*.ps1` / `*.md` | PowerShell parse, relative Markdown links |
+| `.github/**`, others | reported as `UNVERIFIED` (CI only / no light check) |
+
+The summary lists `PASS` / `FAIL` / `SKIP` / `UNVERIFIED` with the reason and the rerun command.
+Exit code `0` means every required check passed, `1` means a failure, and `2` means no changed
+files were found (never reported as PASS; use `-All` to check everything). Missing tools or
+dependencies are failures; the script never installs packages, restores NuGet, fixes files or
+touches the git index. Logs go to `artifacts/check_local/`. Python is resolved from `-Python`,
+`OPEN_KARAOKE_DEV_PYTHON`, `.venv` in the checkout, then `.venv` of the main checkout (for
+worktrees), then `python`; `python/src` of the checkout is put first on `PYTHONPATH`.
+
+`-PlanOnly` prints the selection, `-SelfTest` verifies the selection rules and that an injected
+syntax error, failing test and broken link are reported as FAIL (also run in Windows CI). Heavy
+checks stay in CI: the `--ignored` Core-to-Python process test, desktop live/smoke runs, real
+models, Linux and packaging.
+
 ## Python trust tooling (#66)
 
 Every Python environment that installs project dependencies must use `pip >= 26.2.2` and

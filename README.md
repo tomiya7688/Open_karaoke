@@ -36,7 +36,8 @@ Open_karaoke/
 │
 ├─ scripts/                  開発・CI補助スクリプト
 │  ├─ build.ps1              全体ビルド
-│  ├─ check.ps1              lint / test / static check
+│  ├─ check.ps1              lint / test / static check（CI・全体）
+│  ├─ check_local.ps1        PR前の簡易検査（変更に応じて自動選択）
 │  └─ dependency-inventory.ps1
 │                            依存関係・ライセンス確認
 │
