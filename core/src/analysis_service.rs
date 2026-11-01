@@ -256,6 +256,31 @@ impl Drop for AnalysisService {
     }
 }
 
+/// Environment variable `CPython`'s Windows venv redirector passes to the base interpreter.
+const VENV_LAUNCHER_ENV: &str = "__PYVENV_LAUNCHER__";
+
+/// Base interpreter of a Windows venv `Scripts\python.exe`, read from `<venv>\pyvenv.cfg`.
+/// `None` means `python` is not a resolvable venv redirector and is spawned as configured.
+fn venv_base_interpreter(python: &Path) -> Option<PathBuf> {
+    let scripts = python.parent()?;
+    if !scripts
+        .file_name()?
+        .to_string_lossy()
+        .eq_ignore_ascii_case("Scripts")
+    {
+        return None;
+    }
+    let config = std::fs::read_to_string(scripts.parent()?.join("pyvenv.cfg")).ok()?;
+    let home = config.lines().find_map(|line| {
+        let (key, value) = line.split_once('=')?;
+        key.trim()
+            .eq_ignore_ascii_case("home")
+            .then(|| PathBuf::from(value.trim()))
+    })?;
+    let base = home.join(python.file_name()?);
+    base.is_file().then_some(base)
+}
+
 async fn launch(config: &AnalysisConfig, http: &Client) -> Result<Running, String> {
     let runtime = config.artifact_root.join(".runtime");
     fs::create_dir_all(&runtime)
@@ -263,7 +288,21 @@ async fn launch(config: &AnalysisConfig, http: &Client) -> Result<Running, Strin
         .map_err(|e| e.to_string())?;
     let ready_file = runtime.join(format!("{}.json", Uuid::new_v4()));
     let token = format!("{}{}", Uuid::new_v4(), Uuid::new_v4());
-    let mut child = Command::new(&config.python)
+    // A venv redirector would spawn the base interpreter as a grandchild; start the base directly
+    // as that venv so the handshake PID is our child's PID (#82).
+    let mut command = if let Some(base) = cfg!(windows)
+        .then(|| venv_base_interpreter(&config.python))
+        .flatten()
+    {
+        let mut command = Command::new(base);
+        command.env(VENV_LAUNCHER_ENV, &config.python);
+        command
+    } else {
+        let mut command = Command::new(&config.python);
+        command.env_remove(VENV_LAUNCHER_ENV);
+        command
+    };
+    let mut child = command
         .args(["-m", "open_karaoke_analysis", "--artifact-root"])
         .arg(&config.artifact_root)
         .arg("--ready-file")
@@ -313,8 +352,16 @@ async fn wait_ready(
         if let Ok(bytes) = fs::read(ready_file).await {
             let ready: Ready =
                 serde_json::from_slice(&bytes).map_err(|e| format!("analysis_handshake: {e}"))?;
-            if ready.port == 0 || ready.protocol_version != 1 || Some(ready.pid) != child.id() {
-                return Err("analysis_handshake: invalid port, version or child PID".to_owned());
+            if ready.port == 0 || ready.protocol_version != 1 {
+                return Err("analysis_handshake: invalid port or protocol version".to_owned());
+            }
+            if Some(ready.pid) != child.id() {
+                return Err(format!(
+                    "analysis_handshake: ready PID {} is not the spawned child {:?}; \
+                     set OPEN_KARAOKE_PYTHON to the interpreter itself, not a launcher",
+                    ready.pid,
+                    child.id()
+                ));
             }
             let session = Session {
                 ready,
@@ -396,4 +443,59 @@ async fn supervise(
     }
     *client.session.write().await = None;
     stop_child(&mut running).await;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::venv_base_interpreter;
+    use std::fs;
+
+    fn venv(cfg: Option<&str>) -> (tempfile::TempDir, std::path::PathBuf) {
+        let root = tempfile::tempdir().unwrap();
+        let scripts = root.path().join("venv").join("Scripts");
+        fs::create_dir_all(&scripts).unwrap();
+        fs::create_dir_all(root.path().join("base")).unwrap();
+        fs::write(root.path().join("base").join("python.exe"), b"").unwrap();
+        if let Some(cfg) = cfg {
+            fs::write(root.path().join("venv").join("pyvenv.cfg"), cfg).unwrap();
+        }
+        let python = scripts.join("python.exe");
+        (root, python)
+    }
+
+    #[test]
+    fn venv_redirector_resolves_to_home_interpreter() {
+        let (root, python) = venv(None);
+        let home = root.path().join("base");
+        let cfg = format!(
+            "Home = {}\ninclude-system-site-packages = false\n",
+            home.display()
+        );
+        fs::write(root.path().join("venv").join("pyvenv.cfg"), cfg).unwrap();
+        assert_eq!(
+            venv_base_interpreter(&python),
+            Some(home.join("python.exe"))
+        );
+    }
+
+    #[test]
+    fn non_venv_or_unresolvable_python_is_spawned_as_configured() {
+        let (_root, python) = venv(None);
+        assert_eq!(venv_base_interpreter(&python), None, "no pyvenv.cfg");
+        let (_root, python) = venv(Some("version = 3.12\n"));
+        assert_eq!(venv_base_interpreter(&python), None, "no home key");
+        let (root, python) = venv(None);
+        let missing = root.path().join("missing");
+        let cfg = format!("home = {}\n", missing.display());
+        fs::write(root.path().join("venv").join("pyvenv.cfg"), cfg).unwrap();
+        assert_eq!(
+            venv_base_interpreter(&python),
+            None,
+            "base interpreter missing"
+        );
+        assert_eq!(venv_base_interpreter(std::path::Path::new("python")), None);
+        let (root, _python) = venv(Some("home = x\n"));
+        let elsewhere = root.path().join("venv").join("bin").join("python.exe");
+        assert_eq!(venv_base_interpreter(&elsewhere), None, "not Scripts");
+    }
 }

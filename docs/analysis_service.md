@@ -34,7 +34,10 @@ launch procedure: Core requires its session credential through inherited stdin.
 
 `OPEN_KARAOKE_BIND` defaults to `127.0.0.1:32145`; non-loopback addresses are rejected.
 Core prefers `runtime/python/python.exe` beside its executable on Windows, then a developer
-`python` on PATH, unless `OPEN_KARAOKE_PYTHON` is set. Packaging the runtime and ML models is
+`python` on PATH, unless `OPEN_KARAOKE_PYTHON` is set. On Windows a venv `Scripts\python.exe` is a
+redirector that re-spawns the base interpreter, so Core reads `home` from `<venv>\pyvenv.cfg` and
+starts that interpreter directly as the venv (`__PYVENV_LAUNCHER__`); the handshake still requires
+the spawned child PID and the session token (#82). Packaging the runtime and ML models is
 still release work; no end-user manual Python installation is prescribed by this interface.
 
 The Python child binds `127.0.0.1` on an OS-assigned port before publishing a readiness file.
