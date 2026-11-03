@@ -327,6 +327,14 @@ internal static class SongTests
         }));
         client.Timeout = TimeSpan.FromMilliseconds(200);
         await Throws<TimeoutException>(() => client.ListSongsAsync());
+        // ヘッダーが返らない場合も同じ期限で打ち切る(HttpClient.Timeoutには頼らない)。
+        using var silent = TestClient(async (_, token) =>
+        {
+            await Task.Delay(System.Threading.Timeout.Infinite, token);
+            return new HttpResponseMessage(HttpStatusCode.OK);
+        });
+        silent.Timeout = TimeSpan.FromMilliseconds(200);
+        await Throws<TimeoutException>(() => silent.ListSongsAsync());
     }
 
     /// {

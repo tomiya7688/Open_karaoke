@@ -98,8 +98,8 @@ public sealed class CoreApiClient : ICoreApi, IDisposable
     private static readonly TimeSpan SongDeadline = TimeSpan.FromSeconds(60);
     private readonly HttpClient _http;
     public Uri Endpoint { get; }
-    // テストで短い期限を使うため。最初の要求より前にだけ変更できる(HttpClientの制約)。
-    internal TimeSpan Timeout { get => _http.Timeout; set => _http.Timeout = value; }
+    // 要求から本文の受信完了までの既定の期限。曲データだけSongDeadlineを使う。テストでは短くする。
+    internal TimeSpan Timeout { get; set; } = TimeSpan.FromSeconds(10);
 
     public CoreApiClient(Uri endpoint, string token)
         : this(endpoint, token, new HttpClientHandler
@@ -130,7 +130,9 @@ public sealed class CoreApiClient : ICoreApi, IDisposable
         _http = new HttpClient(handler, disposeHandler: true)
         {
             BaseAddress = endpoint,
-            Timeout = TimeSpan.FromSeconds(10),
+            // HttpClient.Timeoutはヘッダー受信までしか見ず、曲の長い期限も短い方で切ってしまう。
+            // 期限はSendAsyncが要求ごとに本文の受信完了まで含めて管理する。
+            Timeout = System.Threading.Timeout.InfiniteTimeSpan,
         };
         _http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
         _http.DefaultRequestHeaders.Add("X-Open-Karaoke-Api-Version", "1");
@@ -238,7 +240,7 @@ public sealed class CoreApiClient : ICoreApi, IDisposable
     ///   ]
     ///   引数: [
     ///     method: HTTP method, path: Core内の相対パス, body: 要求本文, cancellationToken: 中断,
-    ///     responseLimit: 応答の最大byte数, deadline: 要求から本文の受信完了までの期限(既定はHttpClient.Timeout)
+    ///     responseLimit: 応答の最大byte数, deadline: 要求から本文の受信完了までの期限(既定はTimeout)
     ///   ]
     ///   戻り値: [変換した応答]
     ///   エラー: [CoreApiException: 失敗状態, InvalidDataException: 空・上限超過の応答, TimeoutException: 期限切れ]
@@ -255,9 +257,9 @@ public sealed class CoreApiClient : ICoreApi, IDisposable
             request.Content = new ByteArrayContent(bytes);
             request.Content.Headers.ContentType = new MediaTypeHeaderValue("application/json");
         }
-        // HttpClient.Timeoutはヘッダー受信までしか見ないため、本文が止まった応答も期限で打ち切る。
+        // ヘッダー待ちも、本文が止まった応答も、同じ期限で打ち切る。
         using var limit = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        limit.CancelAfter(deadline ?? _http.Timeout);
+        limit.CancelAfter(deadline ?? Timeout);
         var token = limit.Token;
         try
         {
