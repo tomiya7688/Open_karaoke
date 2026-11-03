@@ -8,7 +8,7 @@ import shutil
 import unicodedata
 from pathlib import Path
 
-from .evaluation_summary import lyric_summary
+from .evaluation_summary import lyric_summary, summary_binding_digest
 
 
 def normalize(text: str) -> str:
@@ -159,25 +159,38 @@ def main() -> None:
         # 両方を一時ファイルへ書き終えてから置き換える。
         # 置き換え自体(os.replace)の失敗までの不可分性は保証できないため、詳細→要約の順に置き換え、
         # 要約(検証用ハッシュを持つ)を最後のコミット点にする。中断は検証側で検出する。
-        detail_text = json.dumps(report, ensure_ascii=False, indent=2, allow_nan=False) + "\n"
+        detail_text = None
         summary_text = None
         if args.summary_output is not None:
-            # 詳細レポートのSHA-256を要約へ記録する。置き換えの途中で失敗して
-            # 「新しい詳細+古い要約」が残っても、読み手がハッシュ不一致で検出できる。
-            summary = lyric_summary(
-                report,
-                dataset_id=args.dataset_id,
-                dataset_version=args.dataset_version,
-                dataset_sha256=hashlib.sha256(data).hexdigest(),
-                model_name=args.model_name,
-                model_version=args.model_version,
-                evaluation_kind=args.evaluation_kind,
-                reference_sha256=hashlib.sha256(
+            summary_kwargs = {
+                "dataset_id": args.dataset_id,
+                "dataset_version": args.dataset_version,
+                "dataset_sha256": hashlib.sha256(data).hexdigest(),
+                "model_name": args.model_name,
+                "model_version": args.model_version,
+                "evaluation_kind": args.evaluation_kind,
+                "reference_sha256": hashlib.sha256(
                     b"open-karaoke-lyric-reference-v1\0" + reference_bytes
                 ).hexdigest(),
+            }
+            # 詳細へメタデータ込みの要約のSHA-256を埋め、要約へ詳細のSHA-256を記録する(相互拘束)。
+            # 置き換えの途中で失敗して「新しい詳細+古い要約」が残っても、詳細の内容が同じで
+            # メタデータだけ違う再実行でも、読み手がハッシュ不一致で検出できる。
+            base_summary = lyric_summary(report, **summary_kwargs)
+            detail_report = {
+                **report,
+                "summary_binding_sha256": summary_binding_digest(base_summary),
+            }
+            detail_text = json.dumps(detail_report, ensure_ascii=False, indent=2, allow_nan=False)
+            detail_text += "\n"
+            summary = lyric_summary(
+                report,
                 detail_sha256=hashlib.sha256(detail_text.encode("utf-8")).hexdigest(),
+                **summary_kwargs,
             )
             summary_text = json.dumps(summary, ensure_ascii=False, indent=2, allow_nan=False) + "\n"
+        else:
+            detail_text = json.dumps(report, ensure_ascii=False, indent=2, allow_nan=False) + "\n"
         args.output.parent.mkdir(parents=True, exist_ok=True)
         if summary_text is not None:
             args.summary_output.parent.mkdir(parents=True, exist_ok=True)

@@ -1,6 +1,7 @@
 """Versioned, aggregate-only evaluation results for comparing model runs."""
 
 import hashlib
+import json
 import math
 import re
 
@@ -167,11 +168,29 @@ def lyric_summary(
     return summary
 
 
+def summary_binding_digest(summary: dict) -> str:
+    """
+    {
+      責務: [summary_binding_digest: 要約(detail_sha256を除く)のSHA-256を返す(書き手と読み手で共有)]
+      処理: [1: detail_sha256を除く, 2: sort_keys・固定separatorsでJSON化する, 3: SHA-256を計算する]
+      引数: [summary: lyric_summaryが返した要約]
+      戻り値: [小文字16進のSHA-256]
+    }
+    """
+    base = {key: value for key, value in summary.items() if key != "detail_sha256"}
+    canonical = json.dumps(base, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
 def verify_detail_binding(summary: dict, detail_bytes: bytes) -> None:
     """
     {
       責務: [verify_detail_binding: 要約と詳細レポートが同じ実行で書かれた組か検証する]
-      処理: [1: 要約のdetail_sha256を確認する, 2: 詳細レポートの生バイトのSHA-256と照合する]
+      処理: [
+        1: 要約のdetail_sha256を確認する,
+        2: 詳細レポートの生バイトのSHA-256と照合する,
+        3: 詳細にsummary_binding_sha256があれば、要約(detail_sha256を除く)のSHA-256とも照合する
+      ]
       引数: [summary: 保存済みの要約, detail_bytes: 保存済みの詳細レポートの生バイト]
       戻り値: []
       エラー: [ValueError: 要約にdetail_sha256がない(旧形式)、または詳細レポートと一致しない]
@@ -184,3 +203,8 @@ def verify_detail_binding(summary: dict, detail_bytes: bytes) -> None:
         raise ValueError("detail_bytes must be bytes-like")
     if hashlib.sha256(detail_bytes).hexdigest() != expected:
         raise ValueError("Detail report does not match the summary (mismatched pair)")
+    detail = json.loads(bytes(detail_bytes))
+    binding = detail.get("summary_binding_sha256") if isinstance(detail, dict) else None
+    if binding is not None:
+        if summary_binding_digest(summary) != binding:
+            raise ValueError("Summary does not match the detail report (mismatched pair)")
