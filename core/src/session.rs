@@ -271,6 +271,8 @@ mod tests {
         for (method, path) in [
             ("GET", "/models"),
             ("GET", "/model-packages"),
+            ("GET", "/model-selection"),
+            ("POST", "/model-selection"),
             ("GET", "/devices"),
             ("GET", "/analysis/health"),
             ("GET", "/session"),

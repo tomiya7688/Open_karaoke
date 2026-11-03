@@ -45,6 +45,8 @@ internal static class Program
             ("clear a song found damaged on refresh", SongTests.DamagedOnRefresh),
             ("read the model package list from Core", ModelPackageTests.ClientRoute),
             ("summarize model packages without breaking connect", ModelPackageTests.Summary),
+            ("read and write the model selection through Core", ModelPackageTests.SelectionClient),
+            ("choose, refresh and clear model selection in the view model", ModelPackageTests.SelectionViewModel),
         };
         if (args.Length == 2) tests.Add(("live C# to Rust to Python lifecycle", () => NativeTests.RunAsync(args[0], args[1])));
         var passed = 0;
@@ -214,6 +216,42 @@ internal static class Program
     }
 
     internal static ICoreConnection NewFake(ModelPackageItem[]? packages) => new FakeConnection { Packages = packages };
+
+    internal static FakeSelectionConnection NewSelectionFake(ModelPackageItem[] packages) => new() { Packages = packages };
+
+    // 選択の保存・解除と失敗をテストから操作できるFake。保存先は辞書1つ。
+    internal sealed class FakeSelectionConnection : ICoreConnection, ICoreApi
+    {
+        public Guid InstanceId { get; } = Guid.NewGuid();
+        public ICoreApi Api => this;
+        public ModelPackageItem[] Packages { get; set; } = [];
+        public Dictionary<string, string> Stored { get; } = [];
+        public bool FailSet { get; set; }
+        public bool FailGet { get; set; }
+        public int SetCalls { get; private set; }
+        public Task<CoreIdentity> GetIdentityAsync(CancellationToken cancellationToken = default) => Task.FromResult(new CoreIdentity("open-karaoke-core", 1, InstanceId));
+        public Task<JsonElement> GetModelsAsync(CancellationToken cancellationToken = default) => Task.FromResult(JsonSerializer.SerializeToElement(new
+        {
+            models = new object[] { new { id = "mock-v1", role = "mock" }, new { id = "stems-v1", role = "stems" }, new { bad = true } },
+        }));
+        public Task<ModelPackageItem[]> GetModelPackagesAsync(CancellationToken cancellationToken = default) => Task.FromResult(Packages);
+        public Task<IReadOnlyDictionary<string, string>> GetModelSelectionAsync(CancellationToken cancellationToken = default) =>
+            FailGet ? throw new HttpRequestException("selection unavailable") : Task.FromResult<IReadOnlyDictionary<string, string>>(new Dictionary<string, string>(Stored));
+        public Task<IReadOnlyDictionary<string, string>> SetModelSelectionAsync(string role, string? modelId, CancellationToken cancellationToken = default)
+        {
+            SetCalls++;
+            if (FailSet) throw new CoreApiException(System.Net.HttpStatusCode.Conflict);
+            if (modelId is null) Stored.Remove(role); else Stored[role] = modelId;
+            return Task.FromResult<IReadOnlyDictionary<string, string>>(new Dictionary<string, string>(Stored));
+        }
+        public Task<JobSnapshot> CreateJobAsync(CreateJobRequest job, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<JobSnapshot> GetJobAsync(Guid id, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<JobSnapshot> CancelJobAsync(Guid id, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public IAsyncEnumerable<JobSnapshot> WatchJobAsync(Guid id, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<SongPage> ListSongsAsync(Guid? after = null, CancellationToken cancellationToken = default) => Task.FromResult(new SongPage([], null));
+        public Task<SongBundle> GetSongAsync(Guid id, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+    }
 
     private sealed class FakeConnection : ICoreConnection, ICoreApi
     {

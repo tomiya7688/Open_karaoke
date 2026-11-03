@@ -35,6 +35,33 @@ async fn call(router: &Router, method: &str, path: &str, body: Value) -> (Status
     (status, serde_json::from_slice(&bytes).unwrap())
 }
 
+#[tokio::test]
+async fn model_selection_needs_the_analysis_service_and_a_valid_body() {
+    let router = app(AppState::new());
+    let (status, _) = call(&router, "GET", "/model-selection", Value::Null).await;
+    assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
+    let body = json!({"role":"mock", "model_id":"mock-v1"});
+    let (status, _) = call(&router, "POST", "/model-selection", body).await;
+    assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
+}
+
+async fn verify_model_selection(router: &Router) {
+    let (status, value) = call(router, "GET", "/model-selection", Value::Null).await;
+    assert_eq!((status, &value["selection"]), (StatusCode::OK, &json!({})));
+    let choose = |id: Value| json!({"role":"mock", "model_id": id});
+    let (status, value) = call(router, "POST", "/model-selection", choose(json!("mock-v1"))).await;
+    assert_eq!(
+        (status, &value["selection"]["mock"]),
+        (StatusCode::OK, &json!("mock-v1"))
+    );
+    let (status, _) = call(router, "POST", "/model-selection", choose(json!("ghost"))).await;
+    assert_eq!(status, StatusCode::CONFLICT);
+    let (status, _) = call(router, "POST", "/model-selection", json!({"role":"nope"})).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    let (status, value) = call(router, "POST", "/model-selection", choose(Value::Null)).await;
+    assert_eq!((status, &value["selection"]), (StatusCode::OK, &json!({})));
+}
+
 async fn create(router: &Router, body: Value) -> Uuid {
     let (status, value) = call(router, "POST", "/jobs", body).await;
     assert_eq!(status, StatusCode::ACCEPTED, "{value}");
@@ -493,6 +520,7 @@ async fn python_startup_mock_cancel_crash_recovery_shutdown() {
     let router = app(AppState::with_analysis(client.clone()));
     let health = client.health().await.unwrap();
     assert_eq!(client.models().await.unwrap()["models"][0]["id"], "mock-v1");
+    verify_model_selection(&router).await;
     let a = create(&router, json!({"kind":"analysis.mock"})).await;
     let result = terminal(&router, a).await;
     assert_eq!(result.status, JobStatus::Completed);

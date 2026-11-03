@@ -55,6 +55,12 @@ larger than 64 KiB. Its private port is not a browser-facing web application.
 - `GET /models`: registered model descriptors, forwarded by Core.
 - `GET /model-packages`: user-placed model packages found under `models/<id>/manifest.json`,
   forwarded by Core. Discovery only reads the data file; see [Model Plugins](model_plugins.md).
+- `GET /model-selection`, `POST /model-selection`: the saved per-role model choice (a built-in
+  adapter or an `available` package), forwarded by Core. `POST` body is
+  `{"role": "<role>", "model_id": "<id>"}`; omit `model_id` to clear. A model that is not
+  selectable for the role is rejected with `model_not_selectable` (Core: 409), a malformed body
+  with `invalid_request` (Core: 422). The choice is stored data only and is not yet applied to
+  job defaults.
 - Existing `/jobs`, `/jobs/{id}`, `/jobs/{id}/cancel`, `/jobs/{id}/events` (SSE).
 
 Use the authenticated request examples in [Core API](core_api.md) and
@@ -68,7 +74,7 @@ framework-smoke jobs remain available. Core SSE sends an initial snapshot when s
 
 ## Private service contracts
 
-`GET /health`, `GET /models`, `GET /model-packages`, `POST /analysis/{role}`, `GET /jobs/{uuid}`,
+`GET /health`, `GET /models`, `GET /model-packages`, `GET`/`POST /model-selection`, `POST /analysis/{role}`, `GET /jobs/{uuid}`,
 `POST /jobs/{uuid}/cancel`, `POST /shutdown`. All require the private worker launch token.
 
 Roles: `mock`, `stems`, `lyrics`, `alignment`, `pitch`, `events`, `notes`, `song`.

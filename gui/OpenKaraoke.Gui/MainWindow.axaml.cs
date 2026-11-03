@@ -23,6 +23,8 @@ public sealed partial class MainWindow : Window
     private async void CancelClick(object? sender, RoutedEventArgs args) => await _model.CancelJobAsync();
     private async void RefreshSongsClick(object? sender, RoutedEventArgs args) => await _model.RefreshSongsAsync();
     private async void LoadSongClick(object? sender, RoutedEventArgs args) => await _model.LoadSelectedSongAsync();
+    private async void RefreshModelsClick(object? sender, RoutedEventArgs args) => await _model.RefreshModelPackagesAsync();
+    private async void ApplyModelChoiceClick(object? sender, RoutedEventArgs args) => await _model.ApplyModelChoiceAsync();
 
     private async void OnClosing(object? sender, WindowClosingEventArgs args)
     {
