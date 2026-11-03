@@ -15,7 +15,17 @@
 - `status`: `available`（backendが登録済みAdapterで、roleも一致）、`unsupported_backend`、`role_mismatch`、`duplicate`（IDが重複、または組み込みAdapterのIDと衝突）、`invalid`（読めない・schema違反・未対応のmanifest_version）。不正なパッケージがあっても他の一覧とサービスは動き続けます。
 - `origin` は常に `user_supplied` です。公式検証済みとは区別し、ライセンスは表示用の情報で審査はしません。
 
-enable/disable・roleごとの選択の保存、GUIでの一覧表示、ZIPインポート、公式Model Registryはまだありません。manifestだけでは新しいPythonコードを追加できず、`backend` は既にインストール済みのAdapterを指します。下記の例は公式配布向けの設計例です。
+### 選択の保存（#17の第2段）
+
+roleごとに「どのモデルを使うか」を1件だけ保存できます。候補は、登録済みの組み込みAdapterと、`status: available` のパッケージです。保存はデータだけで、パッケージのコードは実行しません。
+
+- 保存先はartifact root直下の `model_selection.json`（`{"version":1,"selection":{"<role>":"<id>"}}`）。16KiB以下、一時ファイルへ書いてから置き換えます。
+- `GET /model-selection` は、今も選べる選択だけを返します。消えた・利用不可になったパッケージ、未知のrole、IDの書式に合わない値、壊れた・巨大な・シンボリックリンクのファイルは無視します（ファイルは書き換えません。パッケージが戻れば選択も戻ります）。
+- `POST /model-selection` は `{"role": "<role>", "model_id": "<id>" | 省略}` で保存・解除します。今そのroleで選べないID（未知・利用不可・別role・パス風の文字列）は `model_not_selectable`（409）で拒否します。パスとして解釈することはなく、IDは既知の候補との一致でのみ受け付けます。
+- GUIの「モデルの選択」カードで、更新・role別の選択・保存・解除ができます。
+- 保存した選択は**まだ解析Jobの既定モデルには反映していません**。Jobは従来どおり `model_id` の指定またはroleの既定Adapterを使います。
+
+enable/disable、選択の解析への反映、ZIPインポート、公式Model Registryはまだありません。manifestだけでは新しいPythonコードを追加できず、`backend` は既にインストール済みのAdapterを指します。下記の例は公式配布向けの設計例です。
 追加のPython Adapterは任意コードを実行する**信頼済み拡張**です。ローカルモデルのライセンスチェックを省く方針は、未知の実行コードを安全に隔離できるという意味ではありません。
 
 現在の状態は [現在の実装状況](current_status.md)、解析側の登録境界は [Analysis Service](analysis_service.md) に記載します。

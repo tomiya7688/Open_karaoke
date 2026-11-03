@@ -36,6 +36,11 @@ internal static class NativeTests
                 Program.Check((await connection.Api.GetModelsAsync(token)).GetProperty("models").GetArrayLength() > 0, "Worker registry unavailable.");
                 var packages = await connection.Api.GetModelPackagesAsync(token);
                 Program.Check(packages is [{ Id: "demo", Status: "available", Name: "Demo" }], "Core did not forward the discovered package.");
+                var chosen = await connection.Api.SetModelSelectionAsync("mock", "demo", token);
+                Program.Check(chosen["mock"] == "demo" && (await connection.Api.GetModelSelectionAsync(token))["mock"] == "demo", "Core did not store the selection.");
+                var rejected = await Program.Throws<CoreApiException>(() => connection.Api.SetModelSelectionAsync("mock", "ghost", token));
+                Program.Check(rejected.StatusCode == HttpStatusCode.Conflict, "Core did not reject an unknown model.");
+                Program.Check((await connection.Api.SetModelSelectionAsync("mock", null, token)).Count == 0, "Core did not clear the selection.");
                 using var unauthenticated = new HttpClient(new HttpClientHandler { UseProxy = false, AllowAutoRedirect = false });
                 using var denied = await unauthenticated.GetAsync(new Uri(connection.Endpoint, "session"), token);
                 Program.Check(denied.StatusCode == HttpStatusCode.Unauthorized, "Executable did not enforce auth.");

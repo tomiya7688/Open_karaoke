@@ -15,6 +15,7 @@ from uuid import UUID, uuid4
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
+from pydantic import BaseModel, ConfigDict, Field
 from starlette.exceptions import HTTPException
 
 from .adapters import (
@@ -29,6 +30,7 @@ from .alignment import AlignmentAdapter
 from .contracts import PROTOCOL_VERSION, AnalysisRequest, ErrorDetail, Job, Role, ServiceError
 from .lyrics import LyricsAdapter
 from .model_packages import discover_packages
+from .model_selection import read_selection, set_selection
 from .notes import NotesAdapter
 from .pitch import PitchAdapter
 from .song import SongAdapter
@@ -41,6 +43,19 @@ TERMINAL = {"completed", "failed", "cancelled"}
 
 def now() -> datetime:
     return datetime.now(UTC)
+
+
+class ModelSelectionRequest(BaseModel):
+    """
+    {
+      責務: [ModelSelectionRequest: POST /model-selection の本文。1 roleの選択か解除]
+      フィールド: [role: 対象role, model_id: 選ぶモデルID。nullで解除]
+    }
+    """
+
+    model_config = ConfigDict(extra="forbid")
+    role: Role
+    model_id: str | None = Field(default=None, min_length=1, max_length=128)
 
 
 @dataclass
@@ -280,6 +295,18 @@ def create_app(
     async def model_packages():
         entries = await asyncio.to_thread(discover_packages, root, registry.adapters)
         return {"packages": [e.model_dump(mode="json") for e in entries]}
+
+    @app.get("/model-selection")
+    async def get_model_selection():
+        selection = await asyncio.to_thread(read_selection, root, registry.adapters)
+        return {"selection": selection}
+
+    @app.post("/model-selection")
+    async def post_model_selection(request: ModelSelectionRequest):
+        selection = await asyncio.to_thread(
+            set_selection, root, registry.adapters, request.role, request.model_id
+        )
+        return {"selection": selection}
 
     @app.post("/analysis/{role}", response_model=Job, status_code=202)
     async def analyze(role: Role, request: AnalysisRequest):

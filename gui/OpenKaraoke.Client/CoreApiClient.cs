@@ -30,6 +30,18 @@ public sealed record ModelPackageItem(string Id, string Status, string? Name, st
 public sealed record ModelPackageList(ModelPackageItem[] Packages);
 
 /// {
+///   責務: [ModelSelectionResponse: GET/POST /model-selection の応答]
+///   フィールド: [Selection: role名から選択中のモデルIDへの対応(選べなくなったものは含まれない)]
+/// }
+public sealed record ModelSelectionResponse(Dictionary<string, string> Selection);
+
+/// {
+///   責務: [ModelSelectionRequest: POST /model-selection の本文]
+///   フィールド: [Role: 対象role, ModelId: 選ぶモデルID。nullで解除]
+/// }
+public sealed record ModelSelectionRequest(string Role, string? ModelId);
+
+/// {
 ///   責務: [SongListItem: 曲一覧の1件。破損した曲も隠さずErrorを付けて返る]
 ///   フィールド: [SongId: 曲ID, Title: 曲名, Artist: 歌手, DurationSamples: 48kHzでの長さ, Error: 読めない理由]
 /// }
@@ -82,6 +94,22 @@ public interface ICoreApi
     Task<CoreIdentity> GetIdentityAsync(CancellationToken cancellationToken = default);
     Task<JsonElement> GetModelsAsync(CancellationToken cancellationToken = default);
     Task<ModelPackageItem[]> GetModelPackagesAsync(CancellationToken cancellationToken = default);
+    /// {
+    ///   責務: [GetModelSelectionAsync: 保存済みの、roleごとのモデル選択を読む]
+    ///   引数: [cancellationToken: 中断]
+    ///   戻り値: [role名 -> モデルID]
+    /// }
+    Task<IReadOnlyDictionary<string, string>> GetModelSelectionAsync(CancellationToken cancellationToken = default) =>
+        throw new NotSupportedException();
+
+    /// {
+    ///   責務: [SetModelSelectionAsync: 1 roleのモデル選択を保存する。modelIdがnullなら解除]
+    ///   引数: [role: 対象role, modelId: 選ぶID(解除はnull), cancellationToken: 中断]
+    ///   戻り値: [保存後の選択(role名 -> モデルID)]
+    /// }
+    Task<IReadOnlyDictionary<string, string>> SetModelSelectionAsync(string role, string? modelId, CancellationToken cancellationToken = default) =>
+        throw new NotSupportedException();
+
     Task<JobSnapshot> CreateJobAsync(CreateJobRequest job, CancellationToken cancellationToken = default);
     Task<JobSnapshot> GetJobAsync(Guid id, CancellationToken cancellationToken = default);
     Task<JobSnapshot> CancelJobAsync(Guid id, CancellationToken cancellationToken = default);
@@ -165,6 +193,40 @@ public sealed class CoreApiClient : ICoreApi, IDisposable
         if (value?.Packages is null || value.Packages.Length > 256 || value.Packages.Any(p => string.IsNullOrEmpty(p.Id) || string.IsNullOrEmpty(p.Status)))
             throw new InvalidDataException("Invalid Core model package list.");
         return value.Packages;
+    }
+
+    /// {
+    ///   責務: [GetModelSelectionAsync: 保存済みのモデル選択を取得する]
+    ///   処理: [1: GET model-selectionを送る, 2: 形式と件数を確認する]
+    ///   引数: [cancellationToken: 中断]
+    ///   戻り値: [role名 -> モデルID]
+    ///   エラー: [InvalidDataException: 形式不正, CoreApiException: Coreが失敗を返した]
+    /// }
+    public async Task<IReadOnlyDictionary<string, string>> GetModelSelectionAsync(CancellationToken cancellationToken = default) =>
+        ValidSelection(await SendAsync<ModelSelectionResponse>(HttpMethod.Get, "model-selection", null, cancellationToken).ConfigureAwait(false));
+
+    /// {
+    ///   責務: [SetModelSelectionAsync: 1 roleのモデル選択を保存・解除する]
+    ///   処理: [1: roleとIDの長さを確認する, 2: POST model-selectionを送る, 3: 応答の形式を確認する]
+    ///   引数: [role: 対象role, modelId: 選ぶID(解除はnull), cancellationToken: 中断]
+    ///   戻り値: [保存後の選択]
+    ///   エラー: [ArgumentException: 空または長すぎる値, InvalidDataException: 形式不正, CoreApiException: 選べないモデル(409)等]
+    /// }
+    public async Task<IReadOnlyDictionary<string, string>> SetModelSelectionAsync(
+        string role, string? modelId, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(role) || role.Length > 32) throw new ArgumentException("Invalid role.", nameof(role));
+        if (modelId is not null && (modelId.Length is 0 or > 128)) throw new ArgumentException("Invalid model ID.", nameof(modelId));
+        var body = new ModelSelectionRequest(role, modelId);
+        return ValidSelection(await SendAsync<ModelSelectionResponse>(HttpMethod.Post, "model-selection", body, cancellationToken).ConfigureAwait(false));
+    }
+
+    private static Dictionary<string, string> ValidSelection(ModelSelectionResponse value)
+    {
+        if (value?.Selection is null || value.Selection.Count > 16 ||
+            value.Selection.Any(pair => string.IsNullOrEmpty(pair.Key) || string.IsNullOrEmpty(pair.Value)))
+            throw new InvalidDataException("Invalid Core model selection.");
+        return value.Selection;
     }
 
     public async Task<JsonElement> GetModelsAsync(CancellationToken cancellationToken = default)

@@ -2,6 +2,12 @@ using System.ComponentModel;
 
 namespace OpenKaraoke.Client;
 
+/// {
+///   責務: [ModelChoice: モデル選択の候補1件。Idがnullなら「選択を解除する」候補]
+///   フィールド: [Id: 組み込みAdapterまたはパッケージのID, Label: 画面に出す名前]
+/// }
+public sealed record ModelChoice(string? Id, string Label);
+
 /// <summary>UI-independent session state; call on the UI synchronization context.</summary>
 public sealed class ShellViewModel : INotifyPropertyChanged, IAsyncDisposable
 {
@@ -24,6 +30,14 @@ public sealed class ShellViewModel : INotifyPropertyChanged, IAsyncDisposable
     private bool _songsLoaded;
     private bool _songsTruncated;
     private bool _songBusy;
+    private bool _modelBusy;
+    private IReadOnlyList<(string Id, string Role)> _builtins = [];
+    private IReadOnlyList<ModelPackageItem> _packages = [];
+    private IReadOnlyDictionary<string, string> _modelSelection = new Dictionary<string, string>();
+    private IReadOnlyList<string> _modelRoles = [];
+    private IReadOnlyList<ModelChoice> _modelChoices = [];
+    private string? _selectedModelRole;
+    private ModelChoice? _selectedModelChoice;
     private string _executable = Environment.GetEnvironmentVariable("OPEN_KARAOKE_CORE") ??
         Path.Combine(AppContext.BaseDirectory, OperatingSystem.IsWindows() ? "open-karaoke-core.exe" : "open-karaoke-core");
     private string _python = Environment.GetEnvironmentVariable("OPEN_KARAOKE_PYTHON") ?? "";
@@ -78,6 +92,31 @@ public sealed class ShellViewModel : INotifyPropertyChanged, IAsyncDisposable
         _songsTruncated ? $"先頭の{_songs.Count}曲を表示しています(続きは未取得)" :
         $"{_songs.Count}曲";
 
+    // モデルの選択。候補は組み込みAdapterと利用可のパッケージ。選択はAnalysis Service側に保存される。
+    public IReadOnlyList<string> ModelRoles => _modelRoles;
+    public IReadOnlyList<ModelChoice> ModelChoices => _modelChoices;
+    // 通信中は選択を変えない(保存した内容と画面がずれないようにする)。
+    public string? SelectedModelRole
+    {
+        get => _selectedModelRole;
+        set { if (!_modelBusy) { _selectedModelRole = value; RebuildModelChoices(); } Changed(); }
+    }
+    public ModelChoice? SelectedModelChoice
+    {
+        get => _selectedModelChoice;
+        set { if (!_modelBusy) _selectedModelChoice = value; Changed(); }
+    }
+    public bool CanRefreshModelPackages => !_disposed && IsConnected && !_modelBusy;
+    public bool CanApplyModelChoice =>
+        CanRefreshModelPackages && _selectedModelRole is not null && _selectedModelChoice is not null &&
+        _selectedModelChoice.Id != CurrentModelId(_selectedModelRole);
+    public string ModelSelectionSummary =>
+        !IsConnected ? "Coreに接続すると選択できます" :
+        _modelBusy ? "通信中…" :
+        _modelSelection.Count == 0 ? "保存済みの選択はありません" :
+        "保存済み: " + string.Join(", ", _modelSelection.OrderBy(pair => pair.Key, StringComparer.Ordinal)
+            .Select(pair => $"{Plain(pair.Key)}={Plain(pair.Value)}"));
+
     public string ProgressText => _job is null ? "—" : $"{Progress:0}%";
     public string JobStatusLabel => _job?.Status switch
     {
@@ -110,12 +149,18 @@ public sealed class ShellViewModel : INotifyPropertyChanged, IAsyncDisposable
                 throw new InvalidDataException("Coreセッションが一致しません。");
             var models = await pending.Api.GetModelsAsync(token);
             var modelSummary = $"登録Adapter: {models.GetProperty("models").GetArrayLength()}件（重みの導入状態とは別です）";
-            var packageSummary = await SummarizeModelPackagesAsync(pending.Api, token);
+            var (packageSummary, packages) = await SummarizeModelPackagesAsync(pending.Api, token);
+            var selection = await TryGetSelectionAsync(pending.Api, token);
+            var builtins = ParseBuiltins(models);
             if (epoch != _epoch || token.IsCancellationRequested) return;
             _connection = pending;
             pending = null;
             _models = modelSummary;
             _modelPackages = packageSummary;
+            _builtins = builtins;
+            _packages = packages;
+            _modelSelection = selection;
+            RebuildModelChoices();
             _ = MonitorConnectionAsync(epoch, _connection, token);
         }
         catch (OperationCanceledException) when (token.IsCancellationRequested) { }
@@ -145,22 +190,163 @@ public sealed class ShellViewModel : INotifyPropertyChanged, IAsyncDisposable
     }
 
     // モデルパッケージの検出は補助情報。取得に失敗してもCoreへの接続は成功のままにする。
-    private static async Task<string> SummarizeModelPackagesAsync(ICoreApi api, CancellationToken token)
+    private static async Task<(string Summary, ModelPackageItem[] Packages)> SummarizeModelPackagesAsync(ICoreApi api, CancellationToken token)
     {
         try
         {
             var packages = await api.GetModelPackagesAsync(token);
-            if (packages.Length == 0) return "追加のモデルパッケージはありません";
-            var usable = packages.Count(p => p.Status == "available");
-            var lines = packages.Take(5).Select(p => p.Status == "available"
-                ? $"{Plain(p.Name ?? p.Id)}{(p.Version is null ? "" : " " + Plain(p.Version))}"
-                : $"{Plain(p.Id)}: 利用できません({Plain(p.Status)}){(p.Error is null ? "" : " " + Plain(p.Error))}");
-            var more = packages.Length > 5 ? $"\n他{packages.Length - 5}件" : "";
-            return $"{packages.Length}件(利用可 {usable}件)\n{string.Join("\n", lines)}{more}";
+            return (DescribePackages(packages), packages);
         }
         catch (OperationCanceledException) when (token.IsCancellationRequested) { throw; }
-        catch (InvalidDataException) { return "応答の形式が不正です"; }
-        catch (Exception) { return "取得できません"; }
+        catch (InvalidDataException) { return ("応答の形式が不正です", []); }
+        catch (Exception) { return ("取得できません", []); }
+    }
+
+    private static string DescribePackages(ModelPackageItem[] packages)
+    {
+        if (packages.Length == 0) return "追加のモデルパッケージはありません";
+        var usable = packages.Count(p => p.Status == "available");
+        var lines = packages.Take(5).Select(p => p.Status == "available"
+            ? $"{Plain(p.Name ?? p.Id)}{(p.Version is null ? "" : " " + Plain(p.Version))}"
+            : $"{Plain(p.Id)}: 利用できません({Plain(p.Status)}){(p.Error is null ? "" : " " + Plain(p.Error))}");
+        var more = packages.Length > 5 ? $"\n他{packages.Length - 5}件" : "";
+        return $"{packages.Length}件(利用可 {usable}件)\n{string.Join("\n", lines)}{more}";
+    }
+
+    // 選択の取得失敗も補助情報として扱い、接続は成功のままにする(選択なしとして表示する)。
+    private static async Task<IReadOnlyDictionary<string, string>> TryGetSelectionAsync(ICoreApi api, CancellationToken token)
+    {
+        try { return await api.GetModelSelectionAsync(token); }
+        catch (OperationCanceledException) when (token.IsCancellationRequested) { throw; }
+        catch (Exception) { return new Dictionary<string, string>(); }
+    }
+
+    // 組み込みAdapterの一覧(GET /models)からIDとroleだけを取り出す。形式が合わない行は読み飛ばす。
+    private static List<(string Id, string Role)> ParseBuiltins(System.Text.Json.JsonElement models)
+    {
+        var result = new List<(string, string)>();
+        foreach (var item in models.GetProperty("models").EnumerateArray())
+        {
+            if (item.ValueKind == System.Text.Json.JsonValueKind.Object &&
+                item.TryGetProperty("id", out var id) && id.ValueKind == System.Text.Json.JsonValueKind.String &&
+                item.TryGetProperty("role", out var role) && role.ValueKind == System.Text.Json.JsonValueKind.String &&
+                id.GetString() is { Length: > 0 } idText && role.GetString() is { Length: > 0 } roleText)
+                result.Add((idText, roleText));
+        }
+        return result;
+    }
+
+    private string? CurrentModelId(string role) => _modelSelection.TryGetValue(role, out var id) ? id : null;
+
+    /// {
+    ///   責務: [RebuildModelChoices: 取得済みの組み込みAdapterとパッケージから、役割と候補の一覧を作り直す]
+    ///   処理: [
+    ///     1: 候補のある役割(利用可のパッケージを含む)を並べる,
+    ///     2: 選択中の役割が無くなっていれば先頭へ戻す,
+    ///     3: 選択中の役割の候補を「解除」「組み込み」「パッケージ」の順に作り、保存済みの選択を選ぶ
+    ///   ]
+    ///   引数: []
+    ///   戻り値: []
+    /// }
+    private void RebuildModelChoices()
+    {
+        var usable = _packages.Where(p => p.Status == "available" && p.Role is { Length: > 0 }).ToList();
+        _modelRoles = _builtins.Select(b => b.Role).Concat(usable.Select(p => p.Role!))
+            .Distinct(StringComparer.Ordinal).OrderBy(r => r, StringComparer.Ordinal).ToList();
+        if (_selectedModelRole is null || !_modelRoles.Contains(_selectedModelRole))
+            _selectedModelRole = _modelRoles.FirstOrDefault();
+        var choices = new List<ModelChoice>();
+        if (_selectedModelRole is not null)
+        {
+            choices.Add(new ModelChoice(null, "(選択しない)"));
+            choices.AddRange(_builtins.Where(b => b.Role == _selectedModelRole)
+                .Select(b => new ModelChoice(b.Id, $"{Plain(b.Id)}(組み込み)")));
+            choices.AddRange(usable.Where(p => p.Role == _selectedModelRole)
+                .Select(p => new ModelChoice(p.Id, $"{Plain(p.Name ?? p.Id)}(追加)")));
+        }
+        _modelChoices = choices;
+        var current = _selectedModelRole is null ? null : CurrentModelId(_selectedModelRole);
+        _selectedModelChoice = choices.FirstOrDefault(c => c.Id == current);
+    }
+
+    /// {
+    ///   責務: [RefreshModelPackagesAsync: モデルパッケージ一覧と保存済みの選択をCoreから読み直す]
+    ///   処理: [
+    ///     1: 一覧と選択を取得する(どちらかが失敗すれば表示は変えずエラーだけ示す),
+    ///     2: 切断や再接続で古くなっていれば結果を捨てる,
+    ///     3: 概要文と候補を作り直す
+    ///   ]
+    ///   引数: []
+    ///   戻り値: []
+    /// }
+    public async Task RefreshModelPackagesAsync()
+    {
+        if (!CanRefreshModelPackages || _connection is null || _lifetime is null) return;
+        var connection = _connection;
+        var epoch = _epoch;
+        var token = _lifetime.Token;
+        _modelBusy = true;
+        _error = "";
+        Changed();
+        try
+        {
+            var packages = await connection.Api.GetModelPackagesAsync(token);
+            var selection = await connection.Api.GetModelSelectionAsync(token);
+            if (epoch != _epoch) return;
+            _packages = packages;
+            _modelPackages = DescribePackages(packages);
+            _modelSelection = selection;
+            RebuildModelChoices();
+        }
+        catch (OperationCanceledException) when (token.IsCancellationRequested) { }
+        catch (Exception error)
+        {
+            if (epoch == _epoch) _error = $"モデル一覧を更新できません: {error.Message}";
+        }
+        finally
+        {
+            if (epoch == _epoch) { _modelBusy = false; Changed(); }
+        }
+    }
+
+    /// {
+    ///   責務: [ApplyModelChoiceAsync: 選んだ役割のモデル選択を保存する(「選択しない」なら解除する)]
+    ///   処理: [
+    ///     1: 役割と候補が選ばれ、保存済みと違うときだけ送る,
+    ///     2: 切断や再接続で古くなっていれば結果を捨てる,
+    ///     3: 成功したら保存後の選択を表示へ反映し、失敗したらエラーだけ示す
+    ///   ]
+    ///   引数: []
+    ///   戻り値: []
+    /// }
+    public async Task ApplyModelChoiceAsync()
+    {
+        if (!CanApplyModelChoice || _connection is null || _lifetime is null ||
+            _selectedModelRole is null || _selectedModelChoice is null) return;
+        var connection = _connection;
+        var epoch = _epoch;
+        var token = _lifetime.Token;
+        var role = _selectedModelRole;
+        var id = _selectedModelChoice.Id;
+        _modelBusy = true;
+        _error = "";
+        Changed();
+        try
+        {
+            var selection = await connection.Api.SetModelSelectionAsync(role, id, token);
+            if (epoch != _epoch) return;
+            _modelSelection = selection;
+            RebuildModelChoices();
+        }
+        catch (OperationCanceledException) when (token.IsCancellationRequested) { }
+        catch (Exception error)
+        {
+            if (epoch == _epoch) _error = $"モデルを選択できません: {error.Message}";
+        }
+        finally
+        {
+            if (epoch == _epoch) { _modelBusy = false; Changed(); }
+        }
     }
 
     public async Task StartTestJobAsync()
@@ -368,10 +554,15 @@ public sealed class ShellViewModel : INotifyPropertyChanged, IAsyncDisposable
         _lifetime = null;
         var old = _connection;
         _connection = null;
-        _connecting = _submitting = _cancelling = _songBusy = false;
+        _connecting = _submitting = _cancelling = _songBusy = _modelBusy = false;
         _job = null;
         _models = "未取得";
         _modelPackages = "未取得";
+        _builtins = [];
+        _packages = [];
+        _modelSelection = new Dictionary<string, string>();
+        _selectedModelRole = null;
+        RebuildModelChoices();
         _songs = [];
         _selectedSong = null;
         _songsLoaded = _songsTruncated = false;

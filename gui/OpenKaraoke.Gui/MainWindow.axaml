@@ -132,6 +132,43 @@
               </StackPanel>
             </Border>
 
+            <!-- モデルの選択 -->
+            <Border Classes="card">
+              <StackPanel Spacing="14">
+                <Grid ColumnDefinitions="*,Auto" ColumnSpacing="16">
+                  <StackPanel Spacing="4">
+                    <TextBlock Classes="cardTitle" Text="モデルの選択" />
+                    <TextBlock Classes="caption" TextWrapping="Wrap"
+                               Text="役割ごとに使うモデルを選んで保存します。保存した選択を解析へ反映する処理は今後追加します。" />
+                  </StackPanel>
+                  <Button Grid.Column="1" Content="モデル一覧を更新" VerticalAlignment="Top"
+                          IsEnabled="{Binding CanRefreshModelPackages}" Click="RefreshModelsClick" />
+                </Grid>
+                <Grid ColumnDefinitions="Auto,*" RowDefinitions="Auto,Auto" ColumnSpacing="24" RowSpacing="10">
+                  <TextBlock Classes="caption" Text="役割" VerticalAlignment="Center" />
+                  <ComboBox Grid.Column="1" HorizontalAlignment="Stretch"
+                            ItemsSource="{Binding ModelRoles}" SelectedItem="{Binding SelectedModelRole, Mode=TwoWay}"
+                            IsEnabled="{Binding CanRefreshModelPackages}" AutomationProperties.Name="モデルを選ぶ役割" />
+                  <TextBlock Grid.Row="1" Classes="caption" Text="モデル" VerticalAlignment="Center" />
+                  <ComboBox Grid.Row="1" Grid.Column="1" HorizontalAlignment="Stretch"
+                            ItemsSource="{Binding ModelChoices}" SelectedItem="{Binding SelectedModelChoice, Mode=TwoWay}"
+                            IsEnabled="{Binding CanRefreshModelPackages}" AutomationProperties.Name="使うモデル">
+                    <ComboBox.ItemTemplate>
+                      <DataTemplate x:DataType="client:ModelChoice">
+                        <TextBlock Text="{Binding Label}" />
+                      </DataTemplate>
+                    </ComboBox.ItemTemplate>
+                  </ComboBox>
+                </Grid>
+                <Grid ColumnDefinitions="*,Auto" ColumnSpacing="16">
+                  <TextBlock Classes="caption" Text="{Binding ModelSelectionSummary}" TextWrapping="Wrap"
+                             VerticalAlignment="Center" />
+                  <Button Grid.Column="1" Classes="accent" Content="この選択を保存"
+                          IsEnabled="{Binding CanApplyModelChoice}" Click="ApplyModelChoiceClick" />
+                </Grid>
+              </StackPanel>
+            </Border>
+
             <Border Classes="infoBar">
               <TextBlock Classes="body"
                          Text="取り込み済みの曲の歌詞と音程バーは「曲・歌詞」タブで確認できます。楽曲の解析・伴奏の再生・採点の画面は今後追加します。" />

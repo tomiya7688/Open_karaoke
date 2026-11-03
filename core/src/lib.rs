@@ -286,6 +286,10 @@ pub fn app(state: AppState) -> Router {
         .route("/devices", get(devices))
         .route("/models", get(models))
         .route("/model-packages", get(model_packages))
+        .route(
+            "/model-selection",
+            get(model_selection).post(set_model_selection),
+        )
         .route("/analysis/health", get(analysis_health))
         .route("/jobs", post(create_job))
         .route("/jobs/{id}", get(get_job))
@@ -348,6 +352,37 @@ async fn model_packages(
         .await
         .map(Json)
         .map_err(ApiError::unavailable)
+}
+
+async fn model_selection(
+    State(state): State<AppState>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    state
+        .analysis
+        .model_selection()
+        .await
+        .map(Json)
+        .map_err(ApiError::selection)
+}
+
+async fn set_model_selection(
+    State(state): State<AppState>,
+    Json(request): Json<ModelSelectionRequest>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    state
+        .analysis
+        .set_model_selection(&request.role, request.model_id.as_deref())
+        .await
+        .map(Json)
+        .map_err(ApiError::selection)
+}
+
+/// Body of `POST /model-selection`; the Analysis Service validates role and id.
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ModelSelectionRequest {
+    role: String,
+    model_id: Option<String>,
 }
 
 async fn analysis_health(
@@ -664,6 +699,17 @@ impl ApiError {
     }
     fn unavailable(message: String) -> Self {
         Self(StatusCode::SERVICE_UNAVAILABLE, message)
+    }
+    /// Keep the service's client errors (`code: message`) as 4xx instead of 503.
+    fn selection(message: String) -> Self {
+        let status = if message.starts_with("model_not_selectable:") {
+            StatusCode::CONFLICT
+        } else if message.starts_with("invalid_request:") {
+            StatusCode::UNPROCESSABLE_ENTITY
+        } else {
+            StatusCode::SERVICE_UNAVAILABLE
+        };
+        Self(status, message)
     }
 }
 impl IntoResponse for ApiError {

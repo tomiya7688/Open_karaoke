@@ -210,6 +210,37 @@ impl AnalysisClient {
             .request(Method::GET, "model-packages", None)
             .await
     }
+
+    /// Read the saved per-role model choice (stale choices are already dropped).
+    ///
+    /// # Errors
+    /// Returns an error when the service or its REST response is unavailable.
+    pub async fn model_selection(&self) -> Result<Value, String> {
+        self.lease()
+            .await?
+            .request(Method::GET, "model-selection", None)
+            .await
+    }
+
+    /// Save or clear (`model_id` null) the model choice of one role.
+    ///
+    /// # Errors
+    /// Returns `code: message` from the service (for example `model_not_selectable`),
+    /// or an error when the service is unavailable.
+    pub async fn set_model_selection(
+        &self,
+        role: &str,
+        model_id: Option<&str>,
+    ) -> Result<Value, String> {
+        self.lease()
+            .await?
+            .request(
+                Method::POST,
+                "model-selection",
+                Some(serde_json::json!({"role": role, "model_id": model_id})),
+            )
+            .await
+    }
 }
 
 impl AnalysisService {
