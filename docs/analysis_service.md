@@ -59,8 +59,8 @@ larger than 64 KiB. Its private port is not a browser-facing web application.
   adapter or an `available` package), forwarded by Core. `POST` body is
   `{"role": "<role>", "model_id": "<id>"}`; omit `model_id` to clear. A model that is not
   selectable for the role is rejected with `model_not_selectable` (Core: 409), a malformed body
-  with `invalid_request` (Core: 422). The choice is stored data only and is not yet applied to
-  job defaults.
+  with `invalid_request` (Core: 422). When a job request names no `model_id`, the saved choice
+  picks the adapter (see below); an explicit `model_id` always wins.
 - Existing `/jobs`, `/jobs/{id}`, `/jobs/{id}/cancel`, `/jobs/{id}/events` (SSE).
 
 Use the authenticated request examples in [Core API](core_api.md) and
@@ -88,7 +88,11 @@ Structured HTTP errors:
 ```
 
 Snapshots include `instance_id`, `id`, `kind`, `model_id`, status, progress, stage, timestamps,
-optional structured error, and artifact references. The queue retains at most 256 records,
+optional structured error, and artifact references. `model_id` is the adapter that actually ran;
+`model_source` is `request`, `selection` (saved choice; package choices map to the manifest
+`backend`, no package code runs), `default`, or `default_fallback` (the saved choice was not
+usable, so the role default ran; `selected_model_id` and `selection_fallback_reason` say why).
+These fields are additive. Song stages do not yet use per-role saved choices. The queue retains at most 256 records,
 evicts only finished records and returns 429 when all slots are live. There is one inference
 worker by default; the HTTP event loop is separate from synchronous adapter execution.
 
@@ -97,7 +101,7 @@ worker by default; the HTTP event loop is separate from synchronous adapter exec
 Register trusted `ModelAdapter` objects using `create_app(root, token, adapters=[...])`.
 Each supplies `ModelInfo`, `validate_options` and synchronous `analyze(context, options)`.
 The registry rejects duplicate IDs and mismatched roles. On-disk package discovery/selection
-is Issue #17, not silently mixed into this foundation.
+is Issue #17: see [Model Plugins](model_plugins.md).
 
 The default registry adds `SongAdapter(registry)` after individual adapters. Custom adapter
 lists stay explicit and are not automatically filled with production models or mock stages.

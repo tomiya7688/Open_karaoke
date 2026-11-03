@@ -2,7 +2,7 @@
 
 from datetime import datetime
 from enum import StrEnum
-from typing import Any
+from typing import Any, Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -41,11 +41,30 @@ class ErrorDetail(BaseModel):
     retryable: bool = False
 
 
+ModelSource = Literal["request", "selection", "default", "default_fallback"]
+
+
 class Job(BaseModel):
+    """
+    {
+      責務: [Job: 解析Jobのスナップショット。実際に動かしたモデルと、その決まり方も含む]
+      フィールド: [
+        model_id: 実際に実行した組み込みAdapterのID(パッケージ選択ならそのmanifestのbackend),
+        model_source: request=リクエストの明示指定 / selection=保存済み選択 /
+          default=選択なしの既定 / default_fallback=保存済み選択が使えず既定へ戻した,
+        selected_model_id: 保存済み選択のID(selection・default_fallback時のみ。package IDあり),
+        selection_fallback_reason: default_fallbackのときの短い理由。パスは含めない
+      ]
+    }
+    """
+
     id: UUID
     instance_id: UUID
     kind: Role
     model_id: str
+    model_source: ModelSource = "default"
+    selected_model_id: str | None = None
+    selection_fallback_reason: str | None = None
     status: str = "queued"
     progress: float = 0.0
     stage: str = "queued"
