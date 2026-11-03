@@ -308,7 +308,7 @@ def test_mid_replace_failure_with_same_detail_but_new_metadata_is_detected(
 
     monkeypatch.setattr(os, "replace", fail_on_summary)
     meta = [*CLI_META[:-4], "--model-version", "999", *CLI_META[-2:]]
-    assert meta != CLI_META
+    assert meta != list(CLI_META)
     with pytest.raises(SystemExit):
         run_cli(monkeypatch, pairs, "--output", detail, "--summary-output", summary, *meta)
     capsys.readouterr()
