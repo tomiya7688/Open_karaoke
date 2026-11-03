@@ -44,7 +44,7 @@ public sealed class SongTimeline
         }
         foreach (var note in notes)
         {
-            if (note is null || note.MidiNote > 127) throw new InvalidDataException("Invalid scoring note.");
+            if (note is null || note.MidiNote is < 0 or > 127) throw new InvalidDataException("Invalid scoring note.");
             CheckRange(note.StartSample, note.EndSample);
         }
         // Coreの保存形式は並び順を保証しないため、ここで二分探索できる順にする。

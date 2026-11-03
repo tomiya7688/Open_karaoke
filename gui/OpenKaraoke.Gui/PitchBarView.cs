@@ -46,7 +46,7 @@ public sealed class PitchBarView : Control
     ///   責務: [Render: 背景・音程バー・現在位置の線を描く]
     ///   処理: [
     ///     1: 背景を角丸で塗る,
-    ///     2: 描画領域の内側へ切り取り、各バーを比率から実座標へ写して描く,
+    ///     2: 描画領域の内側へ切り取り、各バーを比率から実座標へ写して描く(現在のバーは重なっても見えるよう最後に描く),
     ///     3: 現在位置の縦線を描く
     ///   ]
     ///   引数: [context: 描画先]
@@ -59,7 +59,7 @@ public sealed class PitchBarView : Control
         context.DrawRectangle(TrackBrush, null, bounds, 8, 8);
         using (context.PushClip(bounds))
         {
-            foreach (var bar in Bars ?? [])
+            foreach (var bar in (Bars ?? []).OrderBy(bar => bar.IsActive))
             {
                 // 細すぎる音符も見えるよう、幅と高さに最小値を設ける。
                 var rect = new Rect(

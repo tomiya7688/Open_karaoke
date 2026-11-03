@@ -116,7 +116,8 @@ public sealed class KaraokeViewModel : INotifyPropertyChanged
         // 曲頭では左側に何もない区間を残し、現在位置の線を常に同じ場所へ置く。
         var windowStart = (double)_position - LeadSamples;
         var from = _position > LeadSamples ? _position - LeadSamples : 0;
-        var to = _position + (WindowSamples - LeadSamples);
+        // 曲末より先にノートはないため、終了位置を曲末で止める(桁あふれも防ぐ)。
+        var to = _position + Math.Min(WindowSamples - LeadSamples, _timeline.DurationSamples - _position);
         var rows = _highestNote - _lowestNote + 1;
         return _timeline.NotesOverlapping(from, to).Select(note => new PitchBar(
             X: (note.StartSample - windowStart) / WindowSamples,

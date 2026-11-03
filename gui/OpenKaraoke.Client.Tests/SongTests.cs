@@ -123,6 +123,14 @@ internal static class SongTests
         Check(bars[0].X < 0 && Math.Abs(bars[1].X - (3 - 0.5) / 6) < 1e-9, "Bar position is not relative to the playhead.");
         Check(bars.All(bar => bar.Y is >= 0 and < 1) && bars[1].Y < bars[0].Y, "Higher notes must be drawn higher.");
         Check(Math.Abs(model.PlayheadX - 1.0 / 6) < 1e-9, "Playhead moved.");
+        // 曲頭付近(1秒未満)でも現在位置の線は左から1/6のまま。0.5秒ではn1(0秒開始)が線の0.5秒左から始まる。
+        model.Seek(Second / 2);
+        Check(Math.Abs(model.Bars[0].X - 0.5 / 6) < 1e-9 && model.Bars[0].IsActive, "Bars near the start are misplaced.");
+        model.Seek(0);
+        Check(Math.Abs(model.Bars[0].X - 1.0 / 6) < 1e-9, "Bars at the start are misplaced.");
+        // ノートも終了sampleを含まない。4秒ちょうどではn2(3〜4秒)は表示されるが強調しない。
+        model.Seek(4 * Second);
+        Check(model.Bars.Any(bar => bar.MidiNote == 67) && !model.Bars.Any(bar => bar.IsActive), "Note end must be exclusive.");
         model.Clear();
         Check(!model.HasSong && model.Bars.Count == 0 && model.CurrentLyric == "", "Clear left song state.");
         return Task.CompletedTask;
@@ -143,6 +151,7 @@ internal static class SongTests
             Song(Second, [new("a", "x", 0, Second + 1)], []),
             Song(Second, [new("a", "x", 10, 10)], []),
             Song(Second, [], [new("n", 0, 10, 128, null)]),
+            Song(Second, [], [new("n", 0, 10, -1, null)]),
             Song(Second, [], []) with { Lyrics = null! },
             Song(Second, [new("a", null!, 0, 10)], []),
         };
@@ -224,6 +233,7 @@ internal static class SongTests
         await model.ConnectAsync();
         await model.RefreshSongsAsync();
         Check(model.Songs.SequenceEqual([broken, good]) && model.SongLibraryStatus == "2曲", "Pages were not concatenated.");
+        Check(fake.Afters.SequenceEqual([null, broken.SongId]), "The next page was not requested after the previous one.");
         model.SelectedSong = broken;
         Check(!model.CanLoadSong, "A damaged song was loadable.");
         model.SelectedSong = good;
@@ -232,6 +242,7 @@ internal static class SongTests
         fake.Failure = new CoreApiException(HttpStatusCode.UnprocessableEntity);
         await model.LoadSelectedSongAsync();
         Check(model.Error.Contains("曲を読み込めません") && model.CanRefreshSongs, "A song failure must not disconnect Core.");
+        Check(!model.Karaoke.HasSong, "A failed load left the previous song on screen.");
         await model.DisconnectAsync();
         Check(model.Songs.Count == 0 && model.SelectedSong is null && !model.Karaoke.HasSong, "Disconnect left song state.");
     }
@@ -258,10 +269,41 @@ internal static class SongTests
         await model.RefreshSongsAsync();
         model.SelectedSong = item;
         var loading = model.LoadSelectedSongAsync();
+        model.SelectedSong = null;
+        Check(model.SelectedSong == item, "Selection changed while its song was loading.");
         await model.DisconnectAsync();
         fake.Pending.SetResult(Fixture());
         await loading;
         Check(!model.Karaoke.HasSong && model.CanConnect, "A late song resurrected a disconnected session.");
+    }
+
+    /// {
+    ///   責務: [SongListLimits: 曲一覧の打ち切り表示と、同じページの繰り返しの拒否を確かめる]
+    ///   処理: [
+    ///     1: 続きが残る50ページで止め、状態に打ち切りを示すことを確認する,
+    ///     2: 同じ次ページ指定が返ると一覧を更新せずエラーにすることを確認する
+    ///   ]
+    ///   引数: []
+    ///   戻り値: []
+    /// }
+    internal static async Task SongListLimits()
+    {
+        var pages = Enumerable.Range(0, 51).Select(_ => new SongListItem(Guid.NewGuid(), "曲", null, Second, null))
+            .Select(item => new SongPage([item], item.SongId));
+        var many = new FakeSongConnection { Pages = new(pages) };
+        await using (var model = new ShellViewModel((_, _, _, _) => Task.FromResult<ICoreConnection>(many)))
+        {
+            await model.ConnectAsync();
+            await model.RefreshSongsAsync();
+            Check(model.Songs.Count == 50 && model.SongLibraryStatus.Contains("先頭の50曲") && many.Afters.Count == 50,
+                "A truncated song list was reported as complete.");
+        }
+        var item = new SongListItem(Guid.NewGuid(), "曲", null, Second, null);
+        var repeating = new FakeSongConnection { Pages = new([new SongPage([item], item.SongId), new SongPage([item], item.SongId)]) };
+        await using var looping = new ShellViewModel((_, _, _, _) => Task.FromResult<ICoreConnection>(repeating));
+        await looping.ConnectAsync();
+        await looping.RefreshSongsAsync();
+        Check(looping.Error.Contains("曲一覧を取得できません") && looping.Songs.Count == 0, "A repeated page cursor was accepted.");
     }
 
     private static CoreApiClient TestClient(Func<HttpRequestMessage, CancellationToken, Task<HttpResponseMessage>> send) =>
@@ -313,8 +355,12 @@ internal static class SongTests
         public Task<JobSnapshot> GetJobAsync(Guid id, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<JobSnapshot> CancelJobAsync(Guid id, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public IAsyncEnumerable<JobSnapshot> WatchJobAsync(Guid id, CancellationToken cancellationToken = default) => throw new NotSupportedException();
-        public Task<SongPage> ListSongsAsync(Guid? after = null, CancellationToken cancellationToken = default) =>
-            Task.FromResult(Pages.Dequeue());
+        public List<Guid?> Afters { get; } = [];
+        public Task<SongPage> ListSongsAsync(Guid? after = null, CancellationToken cancellationToken = default)
+        {
+            Afters.Add(after);
+            return Task.FromResult(Pages.Dequeue());
+        }
         public Task<SongBundle> GetSongAsync(Guid id, CancellationToken cancellationToken = default)
         {
             RequestedSong = id;

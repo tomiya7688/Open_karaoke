@@ -40,6 +40,7 @@ internal static class Program
             ("read song list and song data from Core", SongTests.ClientSongRoutes),
             ("load songs and clear them on disconnect", SongTests.ViewModelSongs),
             ("discard a late song after disconnect", SongTests.StaleSong),
+            ("report truncated and repeating song lists", SongTests.SongListLimits),
         };
         if (args.Length == 2) tests.Add(("live C# to Rust to Python lifecycle", () => NativeTests.RunAsync(args[0], args[1])));
         var passed = 0;

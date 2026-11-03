@@ -21,6 +21,7 @@ public sealed class ShellViewModel : INotifyPropertyChanged, IAsyncDisposable
     private IReadOnlyList<SongListItem> _songs = [];
     private SongListItem? _selectedSong;
     private bool _songsLoaded;
+    private bool _songsTruncated;
     private bool _songBusy;
     private string _executable = Environment.GetEnvironmentVariable("OPEN_KARAOKE_CORE") ??
         Path.Combine(AppContext.BaseDirectory, OperatingSystem.IsWindows() ? "open-karaoke-core.exe" : "open-karaoke-core");
@@ -59,7 +60,12 @@ public sealed class ShellViewModel : INotifyPropertyChanged, IAsyncDisposable
     // 曲一覧と表示中の曲。曲の取得失敗はCore接続の失敗とは扱わず、エラー表示だけにする。
     public KaraokeViewModel Karaoke { get; } = new();
     public IReadOnlyList<SongListItem> Songs => _songs;
-    public SongListItem? SelectedSong { get => _selectedSong; set { _selectedSong = value; Changed(); } }
+    // 読み込み中は選択を変えない(完了した曲と選択がずれないようにする)。
+    public SongListItem? SelectedSong
+    {
+        get => _selectedSong;
+        set { if (!_songBusy) _selectedSong = value; Changed(); }
+    }
     public bool CanRefreshSongs => !_disposed && IsConnected && !_songBusy;
     public bool CanLoadSong => CanRefreshSongs && _selectedSong is { Error: null };
     public string SongLibraryStatus =>
@@ -67,6 +73,7 @@ public sealed class ShellViewModel : INotifyPropertyChanged, IAsyncDisposable
         _songBusy ? "読み込み中…" :
         !_songsLoaded ? "「曲一覧を更新」で取り込み済みの曲を表示します" :
         _songs.Count == 0 ? "取り込み済みの曲がありません" :
+        _songsTruncated ? $"先頭の{_songs.Count}曲を表示しています(続きは未取得)" :
         $"{_songs.Count}曲";
 
     public string ProgressText => _job is null ? "—" : $"{Progress:0}%";
@@ -184,9 +191,10 @@ public sealed class ShellViewModel : INotifyPropertyChanged, IAsyncDisposable
     /// {
     ///   責務: [RefreshSongsAsync: 取り込み済みの曲一覧をすべてのページから読み直す]
     ///   処理: [
-    ///     1: NextAfterをたどって最大50ページ(5000曲)まで取得する,
-    ///     2: 読み直し中に切断されたら結果を捨てる,
-    ///     3: 選択中の曲が一覧から消えていれば選択を外す
+    ///     1: NextAfterをたどって最大50ページ(5000曲)まで取得し、打ち切ったら状態に示す,
+    ///     2: 同じ位置を繰り返すページ指定は不正として中止する,
+    ///     3: 読み直し中に切断されたら結果を捨てる,
+    ///     4: 選択中の曲が一覧から消えていれば選択と表示を外す
     ///   ]
     ///   引数: []
     ///   戻り値: []
@@ -204,17 +212,25 @@ public sealed class ShellViewModel : INotifyPropertyChanged, IAsyncDisposable
         {
             var songs = new List<SongListItem>();
             Guid? after = null;
-            for (var page = 0; page < 50; page++)
+            var truncated = false;
+            for (var page = 0; ; page++)
             {
+                if (page == 50) { truncated = true; break; }
                 var result = await connection.Api.ListSongsAsync(after, token);
                 songs.AddRange(result.Songs);
                 if (result.NextAfter is null) break;
+                if (result.NextAfter == after) throw new InvalidDataException("Core repeated the song list page.");
                 after = result.NextAfter;
             }
             if (epoch != _epoch) return;
             _songs = songs;
             _songsLoaded = true;
-            if (_selectedSong is not null && !songs.Contains(_selectedSong)) _selectedSong = null;
+            _songsTruncated = truncated;
+            if (_selectedSong is not null && !songs.Any(song => song.SongId == _selectedSong.SongId))
+            {
+                _selectedSong = null;
+                Karaoke.Clear();
+            }
         }
         catch (OperationCanceledException) when (token.IsCancellationRequested) { }
         catch (Exception error)
@@ -232,7 +248,8 @@ public sealed class ShellViewModel : INotifyPropertyChanged, IAsyncDisposable
     ///   処理: [
     ///     1: Coreから曲データを取得する,
     ///     2: 48kHzの時間軸として検証する,
-    ///     3: 切断や別操作で古くなっていなければ表示へ渡す
+    ///     3: 切断や別操作で古くなっていなければ表示へ渡す,
+    ///     4: 失敗したら前の曲の表示を消し、エラーだけを示す
     ///   ]
     ///   引数: []
     ///   戻り値: []
@@ -250,12 +267,16 @@ public sealed class ShellViewModel : INotifyPropertyChanged, IAsyncDisposable
         try
         {
             var timeline = new SongTimeline(await connection.Api.GetSongAsync(id, token));
-            if (epoch == _epoch) Karaoke.Load(timeline);
+            if (epoch == _epoch && _selectedSong?.SongId == id) Karaoke.Load(timeline);
         }
         catch (OperationCanceledException) when (token.IsCancellationRequested) { }
         catch (Exception error)
         {
-            if (epoch == _epoch) _error = $"曲を読み込めません: {error.Message}";
+            if (epoch == _epoch)
+            {
+                _error = $"曲を読み込めません: {error.Message}";
+                Karaoke.Clear();
+            }
         }
         finally
         {
@@ -320,7 +341,7 @@ public sealed class ShellViewModel : INotifyPropertyChanged, IAsyncDisposable
         _models = "未取得";
         _songs = [];
         _selectedSong = null;
-        _songsLoaded = false;
+        _songsLoaded = _songsTruncated = false;
         Karaoke.Clear();
         Changed();
         try
