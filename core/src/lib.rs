@@ -7,6 +7,7 @@ pub mod audio_device;
 pub mod audio_engine;
 pub mod audio_import;
 pub mod audio_wav;
+pub mod mixer;
 pub mod song_api;
 pub mod song_data;
 pub mod song_library;
