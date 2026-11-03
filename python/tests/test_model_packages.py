@@ -2,9 +2,11 @@ import json
 import os
 from pathlib import Path
 
+import pytest
 from fastapi.testclient import TestClient
 
 from open_karaoke_analysis.adapters import MockAdapter
+from open_karaoke_analysis.contracts import ServiceError
 from open_karaoke_analysis.model_packages import MAX_MANIFEST_BYTES, discover_packages
 from open_karaoke_analysis.service import create_app
 
@@ -55,6 +57,28 @@ def test_valid_package_is_available_and_weight_only_folders_are_ignored(tmp_path
 
 def test_missing_models_directory_is_empty(tmp_path):
     assert discover_packages(tmp_path, ADAPTERS) == []
+
+
+def test_unreadable_models_directory_is_an_error_not_an_empty_list(tmp_path, monkeypatch):
+    (tmp_path / "models").mkdir()
+
+    def denied(self):
+        raise PermissionError("denied")
+
+    monkeypatch.setattr(Path, "iterdir", denied)
+    with pytest.raises(ServiceError) as error:
+        discover_packages(tmp_path, ADAPTERS)
+    assert error.value.status == 503
+
+
+def test_license_details_and_response_size_limits(tmp_path):
+    put(tmp_path, "demo", manifest(license_url="https://example.test/L", redistribution=True))
+    put(tmp_path, "wide", manifest(id="wide", capabilities={"x" * 49: True}))
+    put(tmp_path, "many", manifest(id="many", languages=["ja"] * 17))
+    entries = by_id(discover_packages(tmp_path, ADAPTERS))
+    assert entries["demo"].license_url == "https://example.test/L"
+    assert entries["demo"].redistribution is True
+    assert entries["wide"].status == entries["many"].status == "invalid"
 
 
 def test_invalid_manifests_never_stop_discovery(tmp_path):

@@ -20,7 +20,7 @@ internal static class ModelPackageTests
         var paths = new List<string>();
         using var client = SongTests.TestClient((request, _) =>
         {
-            paths.Add(request.RequestUri!.PathAndQuery);
+            paths.Add($"{request.Method} {request.RequestUri!.PathAndQuery}");
             return Task.FromResult(SongTests.Raw("""
                 {"packages":[
                   {"id":"demo","status":"available","name":"Demo","version":"1","role":"mock","backend":"mock-v1","origin":"user_supplied"},
@@ -28,7 +28,7 @@ internal static class ModelPackageTests
                 """));
         });
         var packages = await client.GetModelPackagesAsync();
-        Check(paths.SequenceEqual(["/model-packages"]), "Unexpected model package route.");
+        Check(paths.SequenceEqual(["GET /model-packages"]), "Unexpected model package route.");
         Check(packages.Length == 2 && packages[0].Name == "Demo" && packages[1].Error is not null, "Packages were not parsed.");
 
         using var noId = SongTests.TestClient((_, _) => Task.FromResult(SongTests.Raw("""{"packages":[{"id":"","status":"available"}]}""")));

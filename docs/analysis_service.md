@@ -68,7 +68,7 @@ framework-smoke jobs remain available. Core SSE sends an initial snapshot when s
 
 ## Private service contracts
 
-`GET /health`, `GET /models`, `POST /analysis/{role}`, `GET /jobs/{uuid}`,
+`GET /health`, `GET /models`, `GET /model-packages`, `POST /analysis/{role}`, `GET /jobs/{uuid}`,
 `POST /jobs/{uuid}/cancel`, `POST /shutdown`. All require the private worker launch token.
 
 Roles: `mock`, `stems`, `lyrics`, `alignment`, `pitch`, `events`, `notes`, `song`.

@@ -25,12 +25,17 @@ internal static class NativeTests
             Guid firstInstance;
             Guid previousJob;
             var data = Path.Combine(root, "session");
+            var package = Path.Combine(data, "artifacts", "models", "demo");
+            Directory.CreateDirectory(package);
+            await File.WriteAllTextAsync(Path.Combine(package, "manifest.json"),
+                """{"manifest_version":1,"id":"demo","name":"Demo","role":"mock","backend":"mock-v1","version":"1"}""", token);
             await using (var connection = await CoreConnection.StartAsync(executable, data, python, token))
             {
                 firstInstance = connection.InstanceId;
                 Program.Check((await connection.Api.GetIdentityAsync(token)).InstanceId == firstInstance, "Ready/auth identity mismatch.");
                 Program.Check((await connection.Api.GetModelsAsync(token)).GetProperty("models").GetArrayLength() > 0, "Worker registry unavailable.");
-                Program.Check((await connection.Api.GetModelPackagesAsync(token)).Length == 0, "Unexpected model packages in a fresh data directory.");
+                var packages = await connection.Api.GetModelPackagesAsync(token);
+                Program.Check(packages is [{ Id: "demo", Status: "available", Name: "Demo" }], "Core did not forward the discovered package.");
                 using var unauthenticated = new HttpClient(new HttpClientHandler { UseProxy = false, AllowAutoRedirect = false });
                 using var denied = await unauthenticated.GetAsync(new Uri(connection.Endpoint, "session"), token);
                 Program.Check(denied.StatusCode == HttpStatusCode.Unauthorized, "Executable did not enforce auth.");

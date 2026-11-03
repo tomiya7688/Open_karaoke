@@ -3,12 +3,12 @@
 import json
 from itertools import islice
 from pathlib import Path
-from typing import Literal
+from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
 from .adapters import ModelAdapter
-from .contracts import Role
+from .contracts import Role, ServiceError
 
 MANIFEST_VERSION = 1
 MANIFEST_NAME = "manifest.json"
@@ -45,12 +45,21 @@ class PackageManifest(BaseModel):
     role: Role
     backend: str = Field(min_length=1, max_length=128)
     version: str = Field(min_length=1, max_length=64)
-    languages: list[str] = Field(default_factory=list, max_length=32)
+    languages: list[Annotated[str, Field(max_length=16)]] = Field(
+        default_factory=list, max_length=16
+    )
     license: str | None = Field(default=None, max_length=128)
     license_url: str | None = Field(default=None, max_length=512)
     commercial_use: bool | None = None
     redistribution: bool | None = None
-    capabilities: dict[str, bool] = Field(default_factory=dict, max_length=64)
+    capabilities: dict[str, bool] = Field(default_factory=dict, max_length=16)
+
+    @field_validator("capabilities")
+    @classmethod
+    def _short_capability_names(cls, value: dict[str, bool]) -> dict[str, bool]:
+        if any(len(name) > 48 for name in value):
+            raise ValueError("capability name is too long")
+        return value
 
 
 class PackageEntry(BaseModel):
@@ -77,7 +86,9 @@ class PackageEntry(BaseModel):
     version: str | None = None
     languages: list[str] = Field(default_factory=list)
     license: str | None = None
+    license_url: str | None = None
     commercial_use: bool | None = None
+    redistribution: bool | None = None
     capabilities: dict[str, bool] = Field(default_factory=dict)
 
 
@@ -137,13 +148,18 @@ def discover_packages(root: Path, adapters: dict[str, ModelAdapter]) -> list[Pac
         adapters: 登録済みAdapterのID別辞書。コードは呼び出さない
       ]
       戻り値: [PackageEntryのリスト。重みだけのフォルダ(manifestなし)は含めない]
+      エラー: [ServiceError: model_packages_unavailable。models/が読めない(権限等)。無いだけなら空]
     }
     """
     models = root / "models"
     try:
         names = sorted(p.name for p in islice(models.iterdir(), MAX_SCANNED_ENTRIES))
-    except OSError:
+    except (FileNotFoundError, NotADirectoryError):
         return []
+    except OSError as error:
+        raise ServiceError(
+            "model_packages_unavailable", "The models directory cannot be read", 503
+        ) from error
     candidates: list[Path] = []
     for name in names:
         directory = models / name
@@ -199,6 +215,8 @@ def _describe(manifest: PackageManifest, adapters: dict[str, ModelAdapter]) -> P
         version=manifest.version,
         languages=manifest.languages,
         license=manifest.license,
+        license_url=manifest.license_url,
         commercial_use=manifest.commercial_use,
+        redistribution=manifest.redistribution,
         capabilities=manifest.capabilities,
     )
