@@ -23,9 +23,18 @@ roleごとに「どのモデルを使うか」を1件だけ保存できます。
 - `GET /model-selection` は、今も選べる選択だけを返します。消えた・利用不可になったパッケージ、未知のrole、IDの書式に合わない値、壊れた・巨大な・シンボリックリンクのファイルは無視します（ファイルは書き換えません。パッケージが戻れば選択も戻ります）。
 - `POST /model-selection` は `{"role": "<role>", "model_id": "<id>" | 省略}` で保存・解除します。今そのroleで選べないID（未知・利用不可・別role・パス風の文字列）は `model_not_selectable`（409）で拒否します。パスとして解釈することはなく、IDは既知の候補との一致でのみ受け付けます。
 - GUIの「モデルの選択」カードで、更新・role別の選択・保存・解除ができます。
-- 保存した選択は**まだ解析Jobの既定モデルには反映していません**。Jobは従来どおり `model_id` の指定またはroleの既定Adapterを使います。
 
-enable/disable、選択の解析への反映、ZIPインポート、公式Model Registryはまだありません。manifestだけでは新しいPythonコードを追加できず、`backend` は既にインストール済みのAdapterを指します。下記の例は公式配布向けの設計例です。
+### 選択の解析への反映（#17の第3段）
+
+`POST /analysis/{role}` が `model_id` を指定していないとき、そのroleの保存済み選択でJobのAdapterを決めます。
+
+- 優先順位: リクエストの `model_id`（最優先。保存済み選択は見ない）→ 保存済み選択 → 従来のroleの既定Adapter。
+- 組み込みAdapterの選択はそのAdapter、パッケージの選択はそのmanifestの `backend`（登録済みAdapter）で動きます。データを読むだけで、パッケージ内のコードは実行・importしません。
+- 保存済み選択が使えない（パッケージ削除・`available`でなくなった・role不一致・models/が読めない）ときはエラーにせず既定Adapterで動かし、`model_source: "default_fallback"` と短い理由で報告します。保存ファイルは書き換えません。
+- Jobのスナップショットに `model_id`（実際に動かしたAdapter。従来どおり）、`model_source`（`request` / `selection` / `default` / `default_fallback`）、`selected_model_id`（保存済み選択のID。パッケージIDの場合あり）、`selection_fallback_reason` を追加しました。追加のみで、既存フィールドは変わりません。
+- 制限: パッケージの選択は「そのbackend Adapterを使う」だけで、パッケージのフォルダや重みのパスはAdapterへ渡しません（重みの差し替えは未実装）。`song` Job内部の各段（stems・lyrics等）は、従来どおり `options.models` か各roleの既定Adapterを使い、段ごとの保存済み選択はまだ適用しません。Core経由のJob表示は新フィールドをまだ転送しません。
+
+enable/disable、ZIPインポート、公式Model Registryはまだありません。manifestだけでは新しいPythonコードを追加できず、`backend` は既にインストール済みのAdapterを指します。下記の例は公式配布向けの設計例です。
 追加のPython Adapterは任意コードを実行する**信頼済み拡張**です。ローカルモデルのライセンスチェックを省く方針は、未知の実行コードを安全に隔離できるという意味ではありません。
 
 現在の状態は [現在の実装状況](current_status.md)、解析側の登録境界は [Analysis Service](analysis_service.md) に記載します。

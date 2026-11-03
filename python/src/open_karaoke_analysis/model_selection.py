@@ -4,6 +4,7 @@ import json
 import os
 import re
 import tempfile
+from dataclasses import dataclass
 from pathlib import Path
 from threading import Lock
 
@@ -146,3 +147,55 @@ def set_selection(
             stored[role.value] = model_id
         _write(root, stored)
         return read_selection(root, adapters)
+
+
+@dataclass(frozen=True)
+class SelectionChoice:
+    """
+    {
+      責務: [SelectionChoice: 保存済み選択をJobの実行先へ解決した結果]
+      フィールド: [
+        stored_id: 保存されていた選択ID。未選択ならNone,
+        adapter_id: 使える場合に実行する登録済みAdapterのID。使えないときはNone,
+        fallback_reason: stored_idがあるのにadapter_idがNoneのときの短い理由
+      ]
+    }
+    """
+
+    stored_id: str | None = None
+    adapter_id: str | None = None
+    fallback_reason: str | None = None
+
+
+def resolve_selection(root: Path, adapters: dict[str, ModelAdapter], role: Role) -> SelectionChoice:
+    """
+    {
+      責務: [resolve_selection: 保存済みの選択を、Jobで動かす登録済みAdapterIDへ解決する]
+      処理: [
+        1: 保存ファイルからそのroleのIDを読む(無ければ未選択として返す),
+        2: 組み込みAdapterのIDで、roleが一致するならそのAdapterを使う,
+        3: それ以外はavailableなパッケージのmanifestのbackendを使う(データだけ。コードは動かさない),
+        4: どれにも当たらない・models/が読めない場合は理由つきで未解決にする(例外にしない)
+      ]
+      引数: [root: artifact root, adapters: 登録済みAdapter辞書, role: Jobのrole]
+      戻り値: [SelectionChoice。呼び出し側は未解決なら既定Adapterへ戻す]
+    }
+    """
+    stored = _read_raw(root).get(role.value)
+    if stored is None:
+        return SelectionChoice()
+    adapter = adapters.get(stored)
+    if adapter is not None:
+        if adapter.info.role == role:
+            return SelectionChoice(stored, stored)
+        return SelectionChoice(stored, None, "selected model is not available for this role")
+    try:
+        entries = discover_packages(root, adapters)
+    except ServiceError:
+        return SelectionChoice(stored, None, "model packages cannot be read")
+    for entry in entries:
+        if entry.id == stored and entry.status == "available" and entry.role == role:
+            backend = entry.backend
+            if backend in adapters and adapters[backend].info.role == role:
+                return SelectionChoice(stored, backend)
+    return SelectionChoice(stored, None, "selected model is no longer available")

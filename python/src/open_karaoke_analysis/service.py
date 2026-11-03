@@ -30,7 +30,7 @@ from .alignment import AlignmentAdapter
 from .contracts import PROTOCOL_VERSION, AnalysisRequest, ErrorDetail, Job, Role, ServiceError
 from .lyrics import LyricsAdapter
 from .model_packages import discover_packages
-from .model_selection import read_selection, set_selection
+from .model_selection import SelectionChoice, read_selection, resolve_selection, set_selection
 from .notes import NotesAdapter
 from .pitch import PitchAdapter
 from .song import SongAdapter
@@ -85,10 +85,36 @@ class JobManager:
                 "job_not_found", "Job is not present in this service instance", 404
             ) from error
 
-    def submit(self, role: Role, request: AnalysisRequest) -> Job:
+    def submit(
+        self, role: Role, request: AnalysisRequest, choice: SelectionChoice | None = None
+    ) -> Job:
+        """
+        {
+          責務: [submit: Jobを受け付け、使うAdapterを決めて実行を始める]
+          処理: [
+            1: model_idの明示指定があればそれを最優先する(保存済み選択は見ない),
+            2: 無ければ保存済み選択(choice)のAdapterを使う,
+            3: 選択が無い・使えないときは従来の既定Adapterを使い、使えない場合は理由を記録する
+          ]
+          引数: [role: Jobのrole, request: 解析リクエスト, choice: 事前に解決した保存済み選択]
+          戻り値: [model_id・model_source等を含むJobのスナップショット]
+          エラー: [ServiceError: shutting_down, model_not_found, model_role_mismatch, queue_full等]
+        }
+        """
         if self.stopping:
             raise ServiceError("shutting_down", "Service is shutting down", 503, True)
-        adapter = self.registry.select(role, request.model_id)
+        source, selected, reason = "default", None, None
+        if request.model_id is not None:
+            source = "request"
+            adapter = self.registry.select(role, request.model_id)
+        elif choice is not None and choice.adapter_id is not None:
+            source, selected = "selection", choice.stored_id
+            adapter = self.registry.select(role, choice.adapter_id)
+        else:
+            if choice is not None and choice.stored_id is not None:
+                source, selected = "default_fallback", choice.stored_id
+                reason = choice.fallback_reason
+            adapter = self.registry.select(role, None)
         options = adapter.validate_options(request.options)
         input_path = None
         if request.input_artifact is not None:
@@ -111,6 +137,9 @@ class JobManager:
             instance_id=self.instance_id,
             kind=role,
             model_id=adapter.info.id,
+            model_source=source,
+            selected_model_id=selected,
+            selection_fallback_reason=reason,
             created_at=now(),
         )
         record = Record(job, Event())
@@ -310,7 +339,11 @@ def create_app(
 
     @app.post("/analysis/{role}", response_model=Job, status_code=202)
     async def analyze(role: Role, request: AnalysisRequest):
-        return app.state.jobs.submit(role, request)
+        # 明示指定が無いときだけ保存済み選択を読む(ディスクI/Oはスレッドで行う)。
+        choice = None
+        if request.model_id is None:
+            choice = await asyncio.to_thread(resolve_selection, root, registry.adapters, role)
+        return app.state.jobs.submit(role, request, choice)
 
     @app.get("/jobs/{job_id}", response_model=Job)
     async def get_job(job_id: UUID):
