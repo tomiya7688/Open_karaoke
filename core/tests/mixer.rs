@@ -303,3 +303,25 @@ fn invalid_settings_and_lengths_are_rejected_without_changing_state() {
     assert_eq!(out, [[0.5; 2]; 4], "output must stay untouched");
     mixer.process(&[], &[], &mut []).unwrap();
 }
+
+#[test]
+fn huge_finite_input_cannot_poison_the_effect_state() {
+    let settings = MixerSettings {
+        mic_gain: 2.0,
+        echo_level: 1.0,
+        echo_delay_frames: 10,
+        echo_feedback: 0.9,
+        reverb_level: 1.0,
+        ..dry()
+    };
+    let mut mixer = Mixer::new(settings).unwrap();
+    let mut mic = vec![0.0; 40_000];
+    mic[0] = 3.0e38;
+    let output = run(&mut mixer, &silence(40_000), &mic);
+    assert!(output.iter().all(|f| f[0].is_finite() && f[0].abs() <= 1.0));
+    assert!(
+        output[20_000..].iter().all(|f| f[0].abs() < 1e-3),
+        "state stayed poisoned"
+    );
+    assert!(mixer.counters().rejected_samples >= 1);
+}

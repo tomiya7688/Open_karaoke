@@ -148,7 +148,11 @@ the scoring signal that `read_microphone*` returns.
   (1..48000 frames) and feedback (0..0.9). Invalid or non-finite settings are rejected and the
   previous settings stay.
 - `effects_bypass` monitors the microphone directly. Entering bypass clears the echo/reverb
-  state so an old tail does not return when effects are switched back on.
+  state so an old tail does not return when effects are switched back on. Bypass is an
+  immediate cut (no fade-out of the existing tail); effect levels fade back in over one block. Only the four volumes ramp; delay and feedback\n  changes are immediate. The limiter acts on the final output only, not inside the echo loop.
+- Echo and reverb are fed **after** `mic_gain` (post-fader send), so lowering the microphone
+  volume lowers the effects with it. Changing `echo_delay_frames` while playing moves the read
+  position at once and can click; change it between songs or accept the artifact.
 - The dry and bypassed microphone paths add **no latency** (`ADDED_MONITOR_LATENCY_FRAMES`);
   echo repeats are intentional delay. Setting changes ramp linearly over the next block.
 - Output is limited to ±1 and `MixerCounters` reports frames, clipped frames and replaced

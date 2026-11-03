@@ -180,7 +180,7 @@ impl AllPass {
 /// {
 ///   責務: [`Mixer`: 伴奏とモニタ用マイク(エコー・リバーブ付き)をlimit付きで混ぜる]
 ///   フィールド: [
-///     `settings`: 目標設定。変更は1ブロックかけて滑らかに追従する,
+///     `settings`: 目標設定。4つの音量は1ブロックで滑らかに追従し、遅延とfeedbackは即時,
 ///     `music_now` / `mic_now` / `echo_now` / `reverb_now`: 現在の実効値,
 ///     `echo_line` / `echo_index`: エコーの遅延線,
 ///     `combs` / `allpasses`: リバーブ,
@@ -322,7 +322,12 @@ impl Mixer {
                 self.counters.rejected_samples += 1;
                 0.0
             };
-            let monitored = mic * self.mic_now;
+            let mut monitored = mic * self.mic_now;
+            if !monitored.is_finite() {
+                // 有限でも極端に大きい入力の乗算がInfになると、遅延線に残り続けるため捨てる。
+                self.counters.rejected_samples += 1;
+                monitored = 0.0;
+            }
             let mut wet = 0.0;
             if !settings.effects_bypass {
                 let read = (self.echo_index + MAX_ECHO_DELAY_FRAMES - settings.echo_delay_frames)
@@ -331,6 +336,11 @@ impl Mixer {
                 self.echo_line[self.echo_index] = monitored + echo * settings.echo_feedback;
                 self.echo_index = (self.echo_index + 1) % MAX_ECHO_DELAY_FRAMES;
                 wet = echo * self.echo_now + self.reverb(monitored) * self.reverb_now;
+                if !wet.is_finite() {
+                    self.counters.rejected_samples += 1;
+                    wet = 0.0;
+                    self.clear_effects();
+                }
             }
             let mut clipped = false;
             for (&music_sample, slot) in frame.iter().zip(out.iter_mut()) {
