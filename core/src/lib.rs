@@ -284,6 +284,7 @@ pub fn app(state: AppState) -> Router {
     Router::new()
         .route("/devices", get(devices))
         .route("/models", get(models))
+        .route("/model-packages", get(model_packages))
         .route("/analysis/health", get(analysis_health))
         .route("/jobs", post(create_job))
         .route("/jobs/{id}", get(get_job))
@@ -332,6 +333,17 @@ async fn models(State(state): State<AppState>) -> Result<Json<serde_json::Value>
     state
         .analysis
         .models()
+        .await
+        .map(Json)
+        .map_err(ApiError::unavailable)
+}
+
+async fn model_packages(
+    State(state): State<AppState>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    state
+        .analysis
+        .model_packages()
         .await
         .map(Json)
         .map_err(ApiError::unavailable)

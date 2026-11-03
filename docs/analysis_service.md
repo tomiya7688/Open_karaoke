@@ -53,6 +53,8 @@ larger than 64 KiB. Its private port is not a browser-facing web application.
 - `GET /health`: Core health, independent of Python.
 - `GET /analysis/health`: authenticated child health, or 503 while unavailable/recovering.
 - `GET /models`: registered model descriptors, forwarded by Core.
+- `GET /model-packages`: user-placed model packages found under `models/<id>/manifest.json`,
+  forwarded by Core. Discovery only reads the data file; see [Model Plugins](model_plugins.md).
 - Existing `/jobs`, `/jobs/{id}`, `/jobs/{id}/cancel`, `/jobs/{id}/events` (SSE).
 
 Use the authenticated request examples in [Core API](core_api.md) and

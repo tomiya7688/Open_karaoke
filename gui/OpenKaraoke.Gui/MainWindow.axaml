@@ -104,11 +104,13 @@
             <Border Classes="card">
               <StackPanel Spacing="14">
                 <TextBlock Classes="cardTitle" Text="接続情報" />
-                <Grid ColumnDefinitions="Auto,*" RowDefinitions="Auto,Auto" ColumnSpacing="24" RowSpacing="10">
+                <Grid ColumnDefinitions="Auto,*" RowDefinitions="Auto,Auto,Auto" ColumnSpacing="24" RowSpacing="10">
                   <TextBlock Classes="caption" Text="接続状態" VerticalAlignment="Center" />
                   <TextBlock Grid.Column="1" Text="{Binding ConnectionStatus}" TextWrapping="Wrap" />
                   <TextBlock Grid.Row="1" Classes="caption" Text="利用可能なモデル" VerticalAlignment="Center" />
                   <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding Models}" TextWrapping="Wrap" />
+                  <TextBlock Grid.Row="2" Classes="caption" Text="追加モデル" VerticalAlignment="Top" />
+                  <TextBlock Grid.Row="2" Grid.Column="1" Text="{Binding ModelPackages}" TextWrapping="Wrap" />
                 </Grid>
                 <Expander Header="技術情報(Job ID・セッションID)">
                   <StackPanel Spacing="10">

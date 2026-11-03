@@ -30,6 +30,7 @@ internal static class NativeTests
                 firstInstance = connection.InstanceId;
                 Program.Check((await connection.Api.GetIdentityAsync(token)).InstanceId == firstInstance, "Ready/auth identity mismatch.");
                 Program.Check((await connection.Api.GetModelsAsync(token)).GetProperty("models").GetArrayLength() > 0, "Worker registry unavailable.");
+                Program.Check((await connection.Api.GetModelPackagesAsync(token)).Length == 0, "Unexpected model packages in a fresh data directory.");
                 using var unauthenticated = new HttpClient(new HttpClientHandler { UseProxy = false, AllowAutoRedirect = false });
                 using var denied = await unauthenticated.GetAsync(new Uri(connection.Endpoint, "session"), token);
                 Program.Check(denied.StatusCode == HttpStatusCode.Unauthorized, "Executable did not enforce auth.");

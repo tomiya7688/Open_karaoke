@@ -270,6 +270,7 @@ mod tests {
         let router = session(TOKEN).router(AppState::new());
         for (method, path) in [
             ("GET", "/models"),
+            ("GET", "/model-packages"),
             ("GET", "/devices"),
             ("GET", "/analysis/health"),
             ("GET", "/session"),

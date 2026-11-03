@@ -43,6 +43,8 @@ internal static class Program
             ("report truncated and repeating song lists", SongTests.SongListLimits),
             ("time out a stalled response body", SongTests.StalledBody),
             ("clear a song found damaged on refresh", SongTests.DamagedOnRefresh),
+            ("read the model package list from Core", ModelPackageTests.ClientRoute),
+            ("summarize model packages without breaking connect", ModelPackageTests.Summary),
         };
         if (args.Length == 2) tests.Add(("live C# to Rust to Python lifecycle", () => NativeTests.RunAsync(args[0], args[1])));
         var passed = 0;
@@ -211,6 +213,8 @@ internal static class Program
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) => send(request, cancellationToken);
     }
 
+    internal static ICoreConnection NewFake(ModelPackageItem[]? packages) => new FakeConnection { Packages = packages };
+
     private sealed class FakeConnection : ICoreConnection, ICoreApi
     {
         public Guid InstanceId { get; } = Guid.NewGuid();
@@ -220,6 +224,9 @@ internal static class Program
         public TaskCompletionSource? Completion { get; init; }
         public Task<CoreIdentity> GetIdentityAsync(CancellationToken cancellationToken = default) => Task.FromResult(new CoreIdentity("open-karaoke-core", 1, InstanceId));
         public Task<JsonElement> GetModelsAsync(CancellationToken cancellationToken = default) => Task.FromResult(JsonSerializer.SerializeToElement(new { models = Array.Empty<object>() }));
+        public ModelPackageItem[]? Packages { get; init; } = [];
+        public Task<ModelPackageItem[]> GetModelPackagesAsync(CancellationToken cancellationToken = default) =>
+            Packages is null ? throw new HttpRequestException("package list unavailable") : Task.FromResult(Packages);
         public Task<JobSnapshot> CreateJobAsync(CreateJobRequest job, CancellationToken cancellationToken = default) => Task.FromResult(Job(Guid.NewGuid(), "queued"));
         public Task<JobSnapshot> GetJobAsync(Guid id, CancellationToken cancellationToken = default) => Task.FromResult(Job(id, "running"));
         public Task<JobSnapshot> CancelJobAsync(Guid id, CancellationToken cancellationToken = default)

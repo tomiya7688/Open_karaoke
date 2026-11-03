@@ -28,6 +28,7 @@ from .adapters import (
 from .alignment import AlignmentAdapter
 from .contracts import PROTOCOL_VERSION, AnalysisRequest, ErrorDetail, Job, Role, ServiceError
 from .lyrics import LyricsAdapter
+from .model_packages import discover_packages
 from .notes import NotesAdapter
 from .pitch import PitchAdapter
 from .song import SongAdapter
@@ -274,6 +275,11 @@ def create_app(
     @app.get("/models")
     async def models():
         return {"models": [a.info.model_dump() for a in registry.adapters.values()]}
+
+    @app.get("/model-packages")
+    async def model_packages():
+        entries = await asyncio.to_thread(discover_packages, root, registry.adapters)
+        return {"packages": [e.model_dump(mode="json") for e in entries]}
 
     @app.post("/analysis/{role}", response_model=Job, status_code=202)
     async def analyze(role: Role, request: AnalysisRequest):

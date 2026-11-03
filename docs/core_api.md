@@ -25,6 +25,7 @@ stdinを保持する起動元がセッションを所有し、閉じるとCore�
 | GET | `/devices` | Windows WASAPIデバイス一覧（他OSは503） |
 | GET | `/analysis/health` | 監視中Python workerのhealth |
 | GET | `/models` | workerに登録済みのAdapter一覧 |
+| GET | `/model-packages` | `models/<id>/manifest.json` のモデルパッケージ検出結果と利用可否（#17） |
 | POST | `/jobs` | 解析・framework・曲登録のJob作成（202） |
 | GET | `/jobs/{id}` | Job状態・成果物・登録成功時の曲ID |
 | POST | `/jobs/{id}/cancel` | Jobキャンセル要求 |

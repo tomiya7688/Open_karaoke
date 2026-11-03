@@ -368,10 +368,10 @@ internal static class SongTests
             "A song found damaged on refresh stayed on screen.");
     }
 
-    private static CoreApiClient TestClient(Func<HttpRequestMessage, CancellationToken, Task<HttpResponseMessage>> send) =>
+    internal static CoreApiClient TestClient(Func<HttpRequestMessage, CancellationToken, Task<HttpResponseMessage>> send) =>
         new(new Uri("http://127.0.0.1:32145/"), new string('a', 64), new TestHandler(send));
 
-    private static HttpResponseMessage Raw(string json) =>
+    internal static HttpResponseMessage Raw(string json) =>
         new(HttpStatusCode.OK) { Content = new StringContent(json, Encoding.UTF8, "application/json") };
 
     /// {
@@ -429,6 +429,7 @@ internal static class SongTests
             Task.FromResult(new CoreIdentity("open-karaoke-core", 1, InstanceId));
         public Task<System.Text.Json.JsonElement> GetModelsAsync(CancellationToken cancellationToken = default) =>
             Task.FromResult(System.Text.Json.JsonSerializer.SerializeToElement(new { models = Array.Empty<object>() }));
+        public Task<ModelPackageItem[]> GetModelPackagesAsync(CancellationToken cancellationToken = default) => Task.FromResult(Array.Empty<ModelPackageItem>());
         public Task<JobSnapshot> CreateJobAsync(CreateJobRequest job, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<JobSnapshot> GetJobAsync(Guid id, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<JobSnapshot> CancelJobAsync(Guid id, CancellationToken cancellationToken = default) => throw new NotSupportedException();

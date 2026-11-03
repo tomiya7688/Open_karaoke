@@ -8,8 +8,14 @@
 
 現在は `python/src/open_karaoke_analysis/service.py` が信頼済みのPython Adapterを**静的に登録**し、`GET /models` は `id / version / role / capabilities` を返します。
 
-下記の `manifest.json` は**将来の公式モデルパッケージ形式の設計例**です。現行のAdapter登録と同一のスキーマではなく、フォルダから自動発見する仕組み、ZIPインポート、公式Model Registry、GUI選択画面はまだ実装されていません。これらを本番機能として扱わないでください。
+`models/<id>/manifest.json` を置いたフォルダは、起動中のAnalysis Serviceが `GET /model-packages`（Core経由も同名）で**検出して一覧にします**（#17の第1段）。manifestは次の通りで、読むだけでパッケージ内のコードは実行・importしません。
 
+- 対象はmodels直下の実フォルダ（最大256件）。manifestがない重みだけのフォルダ（`whisper/`、`umxhq/`など）は一覧に出しません。
+- manifestは通常ファイル・64KiB以下・UTF-8・`manifest_version: 1`。`id` はフォルダ名と一致し、`[a-z0-9][a-z0-9._-]{0,63}`。
+- `status`: `available`（backendが登録済みAdapterで、roleも一致）、`unsupported_backend`、`role_mismatch`、`duplicate`（IDが重複、または組み込みAdapterのIDと衝突）、`invalid`（読めない・schema違反・未対応のmanifest_version）。不正なパッケージがあっても他の一覧とサービスは動き続けます。
+- `origin` は常に `user_supplied` です。公式検証済みとは区別し、ライセンスは表示用の情報で審査はしません。
+
+enable/disable・roleごとの選択の保存、GUIでの一覧表示、ZIPインポート、公式Model Registryはまだありません。manifestだけでは新しいPythonコードを追加できず、`backend` は既にインストール済みのAdapterを指します。下記の例は公式配布向けの設計例です。
 追加のPython Adapterは任意コードを実行する**信頼済み拡張**です。ローカルモデルのライセンスチェックを省く方針は、未知の実行コードを安全に隔離できるという意味ではありません。
 
 現在の状態は [現在の実装状況](current_status.md)、解析側の登録境界は [Analysis Service](analysis_service.md) に記載します。
@@ -60,8 +66,8 @@ Model Adapter
   "manifest_version": 1,
   "id": "whisper-large-v3",
   "name": "Whisper Large V3",
-  "type": "asr",
-  "backend": "whisper",
+  "role": "lyrics",
+  "backend": "whisper-large-v3",
   "version": "1",
   "languages": ["ja", "en", "multi"],
   "license": "MIT",

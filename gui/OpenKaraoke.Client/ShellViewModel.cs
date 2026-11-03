@@ -18,6 +18,7 @@ public sealed class ShellViewModel : INotifyPropertyChanged, IAsyncDisposable
     private JobSnapshot? _job;
     private string _error = "";
     private string _models = "未取得";
+    private string _modelPackages = "未取得";
     private IReadOnlyList<SongListItem> _songs = [];
     private SongListItem? _selectedSong;
     private bool _songsLoaded;
@@ -41,6 +42,7 @@ public sealed class ShellViewModel : INotifyPropertyChanged, IAsyncDisposable
     public string DataDirectory { get => _data; set { _data = value; Changed(); } }
     public string Error => _error;
     public string Models => _models;
+    public string ModelPackages => _modelPackages;
     public string ConnectionStatus => _disconnecting ? "Coreを終了中" : _connecting ? "Coreを起動中" : _connection is null ? "未接続" : "認証済み・接続中";
     public string SessionId => _connection?.InstanceId.ToString() ?? "—";
     public JobSnapshot? CurrentJob => _job;
@@ -108,10 +110,12 @@ public sealed class ShellViewModel : INotifyPropertyChanged, IAsyncDisposable
                 throw new InvalidDataException("Coreセッションが一致しません。");
             var models = await pending.Api.GetModelsAsync(token);
             var modelSummary = $"登録Adapter: {models.GetProperty("models").GetArrayLength()}件（重みの導入状態とは別です）";
+            var packageSummary = await SummarizeModelPackagesAsync(pending.Api, token);
             if (epoch != _epoch || token.IsCancellationRequested) return;
             _connection = pending;
             pending = null;
             _models = modelSummary;
+            _modelPackages = packageSummary;
             _ = MonitorConnectionAsync(epoch, _connection, token);
         }
         catch (OperationCanceledException) when (token.IsCancellationRequested) { }
@@ -131,6 +135,24 @@ public sealed class ShellViewModel : INotifyPropertyChanged, IAsyncDisposable
             }
             if (epoch == _epoch) { _connecting = false; Changed(); }
         }
+    }
+
+    // モデルパッケージの検出は補助情報。取得に失敗してもCoreへの接続は成功のままにする。
+    private static async Task<string> SummarizeModelPackagesAsync(ICoreApi api, CancellationToken token)
+    {
+        try
+        {
+            var packages = await api.GetModelPackagesAsync(token);
+            if (packages.Length == 0) return "追加のモデルパッケージはありません";
+            var usable = packages.Count(p => p.Status == "available");
+            var lines = packages.Take(5).Select(p => p.Status == "available"
+                ? $"{p.Name ?? p.Id} {p.Version}"
+                : $"{p.Id}: 利用できません({p.Status}){(p.Error is null ? "" : " " + p.Error)}");
+            var more = packages.Length > 5 ? $"\n他{packages.Length - 5}件" : "";
+            return $"{packages.Length}件(利用可 {usable}件)\n{string.Join("\n", lines)}{more}";
+        }
+        catch (OperationCanceledException) when (token.IsCancellationRequested) { throw; }
+        catch (Exception) { return "取得できません"; }
     }
 
     public async Task StartTestJobAsync()
@@ -341,6 +363,7 @@ public sealed class ShellViewModel : INotifyPropertyChanged, IAsyncDisposable
         _connecting = _submitting = _cancelling = _songBusy = false;
         _job = null;
         _models = "未取得";
+        _modelPackages = "未取得";
         _songs = [];
         _selectedSong = null;
         _songsLoaded = _songsTruncated = false;

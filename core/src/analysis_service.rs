@@ -199,6 +199,17 @@ impl AnalysisClient {
             .request(Method::GET, "models", None)
             .await
     }
+
+    /// List user-placed model packages found under `models/` with their availability.
+    ///
+    /// # Errors
+    /// Returns an error when the service or its REST response is unavailable.
+    pub async fn model_packages(&self) -> Result<Value, String> {
+        self.lease()
+            .await?
+            .request(Method::GET, "model-packages", None)
+            .await
+    }
 }
 
 impl AnalysisService {

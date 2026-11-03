@@ -18,6 +18,18 @@ public sealed record JobSnapshot(
 }
 
 /// {
+///   責務: [ModelPackageItem: 利用者が置いたモデルパッケージ1件の検出結果。利用不可でも理由つきで返る]
+///   フィールド: [Id: パッケージID, Status: available等の利用可否, Name: 表示名, Version: 版, Role: 役割, Error: 利用できない理由]
+/// }
+public sealed record ModelPackageItem(string Id, string Status, string? Name, string? Version, string? Role, string? Error);
+
+/// {
+///   責務: [ModelPackageList: GET /model-packages の応答]
+///   フィールド: [Packages: 検出したパッケージ一覧]
+/// }
+public sealed record ModelPackageList(ModelPackageItem[] Packages);
+
+/// {
 ///   責務: [SongListItem: 曲一覧の1件。破損した曲も隠さずErrorを付けて返る]
 ///   フィールド: [SongId: 曲ID, Title: 曲名, Artist: 歌手, DurationSamples: 48kHzでの長さ, Error: 読めない理由]
 /// }
@@ -69,6 +81,7 @@ public interface ICoreApi
 {
     Task<CoreIdentity> GetIdentityAsync(CancellationToken cancellationToken = default);
     Task<JsonElement> GetModelsAsync(CancellationToken cancellationToken = default);
+    Task<ModelPackageItem[]> GetModelPackagesAsync(CancellationToken cancellationToken = default);
     Task<JobSnapshot> CreateJobAsync(CreateJobRequest job, CancellationToken cancellationToken = default);
     Task<JobSnapshot> GetJobAsync(Guid id, CancellationToken cancellationToken = default);
     Task<JobSnapshot> CancelJobAsync(Guid id, CancellationToken cancellationToken = default);
@@ -144,6 +157,14 @@ public sealed class CoreApiClient : ICoreApi, IDisposable
         if (identity.Service != "open-karaoke-core" || identity.ApiVersion != 1 || identity.InstanceId == Guid.Empty)
             throw new InvalidDataException("Core identity or protocol version mismatch.");
         return identity;
+    }
+
+    public async Task<ModelPackageItem[]> GetModelPackagesAsync(CancellationToken cancellationToken = default)
+    {
+        var value = await SendAsync<ModelPackageList>(HttpMethod.Get, "model-packages", null, cancellationToken).ConfigureAwait(false);
+        if (value?.Packages is null || value.Packages.Length > 256 || value.Packages.Any(p => string.IsNullOrEmpty(p.Id) || string.IsNullOrEmpty(p.Status)))
+            throw new InvalidDataException("Invalid Core model package list.");
+        return value.Packages;
     }
 
     public async Task<JsonElement> GetModelsAsync(CancellationToken cancellationToken = default)
