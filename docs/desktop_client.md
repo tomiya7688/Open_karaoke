@@ -31,6 +31,7 @@ Issue #15の初期GUIシェル。Rust Core API以外へ接続せず、Python・�
 GUIは独自の再生時計を作らない。伴奏の再生とCoreが報告する再生位置への追従は#12、マイクの音程表示と採点結果は#14と組み合わせて追加する。
 `GET /songs/{id}` の応答は、Coreが文書ごとに許す16MiBの4文書分に1MiBを足した65MiBまで読む。
 曲一覧を含む他のAPIの応答は従来どおり1MiBまで。どちらもContent-Lengthがなくても読みながら打ち切る。
+本文の受信が止まった応答も、要求から受信完了までの期限(曲データ60秒、他は10秒)で打ち切る。
 
 **楽曲全体の解析・再生・採点を完成した画面ではない。** 全曲Jobは#36、カラオケ画面は#16、
 採点は#14で実装する。接続テスト成功を実歌唱精度や可聴再生の証明にしない。
@@ -70,7 +71,7 @@ dotnet run --project gui/OpenKaraoke.Client.Tests --configuration Release -- --u
 dotnet run --project gui/OpenKaraoke.Client.Tests --configuration Release -- <absolute-core-path> <absolute-python-path>
 ```
 
-前者は20個のHTTP/状態遷移・曲時間軸シナリオ、後者は加えて実Core→Pythonの起動・認証・完了・失敗・
+前者は23個のHTTP/状態遷移・曲時間軸シナリオ、後者は加えて実Core→Pythonの起動・認証・完了・失敗・
 キャンセル・パイプ終了・再起動・旧Job404を検証する。専用CIはWindows/Linuxの両方で後者を実行する。
 これは依存を増やさないconsole型contract runnerであり、失敗時は非0終了する。
 

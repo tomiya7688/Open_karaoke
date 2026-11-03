@@ -94,8 +94,12 @@ public sealed class CoreApiClient : ICoreApi, IDisposable
     private const long DefaultResponseLimit = 1_048_576;
     // Coreは曲の文書1つを16MiBまで許すため、song.json・歌詞・ノート・evidenceの合計に余裕を足した上限。
     private const long SongResponseLimit = 4 * 16 * 1_048_576 + DefaultResponseLimit;
+    // 曲データは大きくなり得るため、受信完了までの期限を他のAPI(10秒)より長くする。
+    private static readonly TimeSpan SongDeadline = TimeSpan.FromSeconds(60);
     private readonly HttpClient _http;
     public Uri Endpoint { get; }
+    // テストで短い期限を使うため。最初の要求より前にだけ変更できる(HttpClientの制約)。
+    internal TimeSpan Timeout { get => _http.Timeout; set => _http.Timeout = value; }
 
     public CoreApiClient(Uri endpoint, string token)
         : this(endpoint, token, new HttpClientHandler
@@ -216,7 +220,7 @@ public sealed class CoreApiClient : ICoreApi, IDisposable
     public async Task<SongBundle> GetSongAsync(Guid id, CancellationToken cancellationToken = default)
     {
         if (id == Guid.Empty) throw new ArgumentException("Empty song ID.", nameof(id));
-        var bundle = await SendAsync<SongBundle>(HttpMethod.Get, $"songs/{id:D}", null, cancellationToken, SongResponseLimit)
+        var bundle = await SendAsync<SongBundle>(HttpMethod.Get, $"songs/{id:D}", null, cancellationToken, SongResponseLimit, SongDeadline)
             .ConfigureAwait(false);
         if (bundle.Song is null || !Guid.TryParse(bundle.Song.SongId, out var returned) || returned != id)
             throw new InvalidDataException("Core returned another song.");
@@ -229,15 +233,19 @@ public sealed class CoreApiClient : ICoreApi, IDisposable
     ///     1: 本文を64KiB以内で直列化する,
     ///     2: 失敗状態は応答本文を出さずに例外にする,
     ///     3: 応答をresponseLimitまで読み、超えたら中止する,
-    ///     4: JSONを変換する
+    ///     4: JSONを変換する,
+    ///     5: 本文の受信まで含めて期限を過ぎたら中止する
     ///   ]
-    ///   引数: [method: HTTP method, path: Core内の相対パス, body: 要求本文, cancellationToken: 中断, responseLimit: 応答の最大byte数]
+    ///   引数: [
+    ///     method: HTTP method, path: Core内の相対パス, body: 要求本文, cancellationToken: 中断,
+    ///     responseLimit: 応答の最大byte数, deadline: 要求から本文の受信完了までの期限(既定はHttpClient.Timeout)
+    ///   ]
     ///   戻り値: [変換した応答]
-    ///   エラー: [CoreApiException: 失敗状態, InvalidDataException: 空・上限超過の応答]
+    ///   エラー: [CoreApiException: 失敗状態, InvalidDataException: 空・上限超過の応答, TimeoutException: 期限切れ]
     /// }
     private async Task<T> SendAsync<T>(
         HttpMethod method, string path, object? body, CancellationToken cancellationToken,
-        long responseLimit = DefaultResponseLimit)
+        long responseLimit = DefaultResponseLimit, TimeSpan? deadline = null)
     {
         using var request = new HttpRequestMessage(method, path);
         if (body is not null)
@@ -247,24 +255,35 @@ public sealed class CoreApiClient : ICoreApi, IDisposable
             request.Content = new ByteArrayContent(bytes);
             request.Content.Headers.ContentType = new MediaTypeHeaderValue("application/json");
         }
-        using var response = await _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false);
-        // Do not expose untrusted response text, URL or request headers in errors.
-        if (!response.IsSuccessStatusCode) throw new CoreApiException(response.StatusCode);
-        if (response.Content.Headers.ContentLength > responseLimit)
-            throw new InvalidDataException("Core response exceeds the size limit.");
-        await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
-        // Content-Lengthがない応答も、読みながら上限で打ち切る。
-        using var buffer = new MemoryStream();
-        var chunk = new byte[81_920];
-        int read;
-        while ((read = await stream.ReadAsync(chunk, cancellationToken).ConfigureAwait(false)) > 0)
+        // HttpClient.Timeoutはヘッダー受信までしか見ないため、本文が止まった応答も期限で打ち切る。
+        using var limit = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        limit.CancelAfter(deadline ?? _http.Timeout);
+        var token = limit.Token;
+        try
         {
-            if (buffer.Length + read > responseLimit) throw new InvalidDataException("Core response exceeds the size limit.");
-            buffer.Write(chunk, 0, read);
+            using var response = await _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, token).ConfigureAwait(false);
+            // Do not expose untrusted response text, URL or request headers in errors.
+            if (!response.IsSuccessStatusCode) throw new CoreApiException(response.StatusCode);
+            if (response.Content.Headers.ContentLength > responseLimit)
+                throw new InvalidDataException("Core response exceeds the size limit.");
+            await using var stream = await response.Content.ReadAsStreamAsync(token).ConfigureAwait(false);
+            // Content-Lengthがない応答も、読みながら上限で打ち切る。
+            using var buffer = new MemoryStream();
+            var chunk = new byte[81_920];
+            int read;
+            while ((read = await stream.ReadAsync(chunk, token).ConfigureAwait(false)) > 0)
+            {
+                if (buffer.Length + read > responseLimit) throw new InvalidDataException("Core response exceeds the size limit.");
+                buffer.Write(chunk, 0, read);
+            }
+            buffer.Position = 0;
+            return await JsonSerializer.DeserializeAsync<T>(buffer, JsonOptions, token).ConfigureAwait(false)
+                ?? throw new InvalidDataException("Core returned an empty response.");
         }
-        buffer.Position = 0;
-        return await JsonSerializer.DeserializeAsync<T>(buffer, JsonOptions, cancellationToken).ConfigureAwait(false)
-            ?? throw new InvalidDataException("Core returned an empty response.");
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            throw new TimeoutException("Core response did not complete in time.");
+        }
     }
 
     private static string JobPath(Guid id) => id != Guid.Empty ? $"jobs/{id:D}" : throw new ArgumentException("Empty job ID.", nameof(id));

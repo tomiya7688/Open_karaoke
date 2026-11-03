@@ -229,8 +229,9 @@ public sealed class ShellViewModel : INotifyPropertyChanged, IAsyncDisposable
             if (_selectedSong is not null)
             {
                 // 画面の選択と一致するよう、読み直した一覧の同じ曲へ差し替える。
+                // 消えた曲や、読み直しで破損と分かった曲は表示も消す。
                 _selectedSong = songs.FirstOrDefault(song => song.SongId == _selectedSong.SongId);
-                if (_selectedSong is null) Karaoke.Clear();
+                if (_selectedSong is not { Error: null }) Karaoke.Clear();
             }
         }
         catch (OperationCanceledException) when (token.IsCancellationRequested) { }

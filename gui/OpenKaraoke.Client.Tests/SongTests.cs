@@ -299,11 +299,65 @@ internal static class SongTests
                 "A truncated song list was reported as complete.");
         }
         var item = new SongListItem(Guid.NewGuid(), "曲", null, Second, null);
-        var repeating = new FakeSongConnection { Pages = new([new SongPage([item], item.SongId), new SongPage([item], item.SongId)]) };
+        // 3ページ目は正常な終端。繰り返しの検出がなければ3曲の一覧として成功してしまう。
+        var repeating = new FakeSongConnection
+        {
+            Pages = new([new SongPage([item], item.SongId), new SongPage([item], item.SongId), new SongPage([], null)]),
+        };
         await using var looping = new ShellViewModel((_, _, _, _) => Task.FromResult<ICoreConnection>(repeating));
         await looping.ConnectAsync();
         await looping.RefreshSongsAsync();
         Check(looping.Error.Contains("曲一覧を取得できません") && looping.Songs.Count == 0, "A repeated page cursor was accepted.");
+    }
+
+    /// {
+    ///   責務: [StalledBody: ヘッダーの後で本文が止まった応答を期限で打ち切るか確かめる]
+    ///   処理: [
+    ///     1: 本文を返さないstreamの応答を作る,
+    ///     2: 短い期限でTimeoutExceptionになり、呼び出し側の中断とは区別されることを確認する
+    ///   ]
+    ///   引数: []
+    ///   戻り値: []
+    /// }
+    internal static async Task StalledBody()
+    {
+        using var client = TestClient((_, _) => Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new StreamContent(new StalledStream()),
+        }));
+        client.Timeout = TimeSpan.FromMilliseconds(200);
+        await Throws<TimeoutException>(() => client.ListSongsAsync());
+    }
+
+    /// {
+    ///   責務: [DamagedOnRefresh: 表示中の曲が読み直しで破損と分かったら表示を消すか確かめる]
+    ///   処理: [
+    ///     1: 正常な曲を表示する,
+    ///     2: 同じIDがErrorを持つ一覧へ読み直し、表示が消え読み込めないことを確認する
+    ///   ]
+    ///   引数: []
+    ///   戻り値: []
+    /// }
+    internal static async Task DamagedOnRefresh()
+    {
+        var id = Guid.NewGuid();
+        var fake = new FakeSongConnection
+        {
+            Pages = new([
+                new SongPage([new SongListItem(id, "曲", null, 10 * Second, null)], null),
+                new SongPage([new SongListItem(id, null, null, null, "song_corrupt")], null),
+            ]),
+            Song = Fixture(),
+        };
+        await using var model = new ShellViewModel((_, _, _, _) => Task.FromResult<ICoreConnection>(fake));
+        await model.ConnectAsync();
+        await model.RefreshSongsAsync();
+        model.SelectedSong = model.Songs.Single();
+        await model.LoadSelectedSongAsync();
+        Check(model.Karaoke.HasSong, "Song was not shown.");
+        await model.RefreshSongsAsync();
+        Check(!model.Karaoke.HasSong && model.SelectedSong?.Error is not null && !model.CanLoadSong,
+            "A song found damaged on refresh stayed on screen.");
     }
 
     private static CoreApiClient TestClient(Func<HttpRequestMessage, CancellationToken, Task<HttpResponseMessage>> send) =>
@@ -329,6 +383,22 @@ internal static class SongTests
     private sealed class UnsizedStream(byte[] data) : MemoryStream(data)
     {
         public override bool CanSeek => false;
+    }
+
+    /// {
+    ///   責務: [StalledStream: 中断されるまで1byteも返さないstream(本文が止まった応答を再現する)]
+    ///   フィールド: []
+    /// }
+    private sealed class StalledStream : MemoryStream
+    {
+        public override bool CanSeek => false;
+        public override async ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default)
+        {
+            await Task.Delay(System.Threading.Timeout.Infinite, cancellationToken);
+            return 0;
+        }
+        public override Task<int> ReadAsync(byte[] buffer, int offset, int count, CancellationToken cancellationToken) =>
+            ReadAsync(buffer.AsMemory(offset, count), cancellationToken).AsTask();
     }
 
     /// {

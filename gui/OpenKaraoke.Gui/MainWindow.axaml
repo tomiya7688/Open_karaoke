@@ -184,11 +184,14 @@
                 <TextBlock Grid.Column="1" Classes="metric" Text="{Binding Karaoke.PositionText}"
                            VerticalAlignment="Bottom" />
               </Grid>
-              <Border Grid.Row="1" Classes="codeBox" Padding="20,16" MinHeight="96">
-                <StackPanel Spacing="6" VerticalAlignment="Center">
-                  <TextBlock Classes="lyricCurrent" Text="{Binding Karaoke.CurrentLyric}" TextWrapping="Wrap" />
-                  <TextBlock Classes="lyricNext" Text="{Binding Karaoke.NextLyric}" TextWrapping="Wrap" />
-                </StackPanel>
+              <!-- 長い歌詞でも音程バーとスライダーを押し出さないよう、高さを抑えてスクロールさせる -->
+              <Border Grid.Row="1" Classes="codeBox" Padding="20,16" MinHeight="96" MaxHeight="150">
+                <ScrollViewer>
+                  <StackPanel Spacing="6" VerticalAlignment="Center">
+                    <TextBlock Classes="lyricCurrent" Text="{Binding Karaoke.CurrentLyric}" TextWrapping="Wrap" />
+                    <TextBlock Classes="lyricNext" Text="{Binding Karaoke.NextLyric}" TextWrapping="Wrap" />
+                  </StackPanel>
+                </ScrollViewer>
               </Border>
               <local:PitchBarView Grid.Row="2" MinHeight="160"
                                   Bars="{Binding Karaoke.Bars}" PlayheadX="{Binding Karaoke.PlayheadX}"

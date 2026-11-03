@@ -41,6 +41,8 @@ internal static class Program
             ("load songs and clear them on disconnect", SongTests.ViewModelSongs),
             ("discard a late song after disconnect", SongTests.StaleSong),
             ("report truncated and repeating song lists", SongTests.SongListLimits),
+            ("time out a stalled response body", SongTests.StalledBody),
+            ("clear a song found damaged on refresh", SongTests.DamagedOnRefresh),
         };
         if (args.Length == 2) tests.Add(("live C# to Rust to Python lifecycle", () => NativeTests.RunAsync(args[0], args[1])));
         var passed = 0;
