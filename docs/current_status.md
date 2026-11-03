@@ -25,7 +25,8 @@
 | 音声込み曲登録・一覧 | 完了済み解析Jobから検査・一括公開、再登録確認、永続化、一覧/詳細APIあり | `song_api.rs` / `song_library/`、[SongStore import](song_import.md)、#36 |
 | Rust音声入出力 | 48kHz WASAPI shared・raw mic・bounded ring/WAV feederあり。PCMにepochとsample位置を付与 / 実機未検証 | [Audio engine](audio_engine.md)、#12 |
 | Clock/latency契約 | 整数変換・不連続観測・旧epoch PCM除外・drift/遅延補正の合成テストあり / 物理校正未完 | [Audio clock](audio_clock.md)、#40 |
-| Mixer / DSP / リアルタイム採点 | 未実装 | [Scoring](scoring.md)、#13/#14 |
+| Mixer / DSP | 音量・エコー・リバーブ・bypass・飽和制限のサンプル処理あり。デバイス接続・API・GUI・物理遅延測定は未実装 | `mixer.rs`、[Audio engine](audio_engine.md)、#13 |
+| リアルタイム採点 | 未実装 | [Scoring](scoring.md)、#14 |
 | Avalonia GUI | 認証付き起動・設定・接続・mock Job進捗/キャンセル/error | [Desktop client](desktop_client.md)、#15 |
 | GUIの原曲取込・曲一覧操作 | 未接続。Core登録APIと画面の完成を区別 | #36/#15 |
 | カラオケ再生・歌詞・音程バー画面 | 曲一覧・曲データ取得と、指定位置に同期した歌詞・目標音程バー表示あり。伴奏再生・Core再生位置への追従・マイク音程・採点結果は未実装 | [Desktop client](desktop_client.md)、#16 |

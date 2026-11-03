@@ -136,3 +136,31 @@ CI runners do not guarantee microphones/speakers. The automated loopback fixture
 uses mock data, not WASAPI hardware. As of Issue #12, actual physical audible playback,
 mic capture, latency, hot-plug recovery and long-running hardware stability remain
 **Unverified**, not passing quality claims.
+
+## Mixer and monitoring effects — Issue #13 (first slice)
+
+`core/src/mixer.rs` is pure 48 kHz sample processing with no device or UI dependency. Per
+block it takes the stereo accompaniment and the **raw mono microphone** and writes a separate
+stereo monitor mix. The raw block is borrowed read-only, so echo and reverb can never reach
+the scoring signal that `read_microphone*` returns.
+
+- Independent `music_gain`, `mic_gain` (0..2), `echo_level`, `reverb_level` (0..1), echo delay
+  (1..48000 frames) and feedback (0..0.9). Invalid or non-finite settings are rejected and the
+  previous settings stay.
+- `effects_bypass` monitors the microphone directly. Entering bypass clears the echo/reverb
+  state so an old tail does not return when effects are switched back on. Bypass is an
+  immediate cut (no fade-out of the existing tail); effect levels fade back in over one block. Only the four volumes ramp; delay and feedback\n  changes are immediate. The limiter acts on the final output only, not inside the echo loop.
+- Echo and reverb are fed **after** `mic_gain` (post-fader send), so lowering the microphone
+  volume lowers the effects with it. Changing `echo_delay_frames` while playing moves the read
+  position at once and can click; change it between songs or accept the artifact.
+- The dry and bypassed microphone paths add **no latency** (`ADDED_MONITOR_LATENCY_FRAMES`);
+  echo repeats are intentional delay. Setting changes ramp linearly over the next block.
+- Output is limited to ±1 and `MixerCounters` reports frames, clipped frames and replaced
+  non-finite samples. `process` allocates, locks and logs nothing after construction.
+- Deterministic tests in `core/tests/mixer.rs` cover impulse position, exact gains, echo
+  repeats, reverb pre-delay and decay, bypass, saturation, block-size independence and
+  rejection of bad settings.
+
+**Not done yet:** connecting the mixer to the output callback, a Core API / GUI for the
+controls, and a physical loopback measurement of microphone-to-speaker latency. The values
+above are properties of the DSP only, not of a device.
