@@ -1,3 +1,4 @@
+import hashlib
 import json
 import os
 import sys
@@ -290,6 +291,49 @@ def test_mid_replace_failure_leaves_a_detectable_mismatched_pair(tmp_path, monke
     with pytest.raises(ValueError, match="mismatched pair"):
         verify_detail_binding(json.loads(old_summary), detail.read_bytes())
     assert not list(tmp_path.glob(".*.tmp"))
+
+
+def test_mid_replace_failure_with_same_detail_but_new_metadata_is_detected(
+    tmp_path, monkeypatch, capsys
+):
+    pairs, detail, summary = cli_args(tmp_path)
+    run_cli(monkeypatch, pairs, "--output", detail, "--summary-output", summary, *CLI_META)
+    old_summary = summary.read_bytes()
+    real_replace = os.replace
+
+    def fail_on_summary(source, target):
+        if os.fspath(target) == os.fspath(summary):
+            raise PermissionError("injected failure")
+        real_replace(source, target)
+
+    monkeypatch.setattr(os, "replace", fail_on_summary)
+    meta = [*CLI_META[:-4], "--model-version", "999", *CLI_META[-2:]]
+    assert meta != CLI_META
+    with pytest.raises(SystemExit):
+        run_cli(monkeypatch, pairs, "--output", detail, "--summary-output", summary, *meta)
+    capsys.readouterr()
+    # 入力が同じでも詳細にはメタデータ込みの要約のhashが入るため、古い要約は不一致になる。
+    assert summary.read_bytes() == old_summary
+    with pytest.raises(ValueError, match="mismatched pair"):
+        verify_detail_binding(json.loads(old_summary), detail.read_bytes())
+
+
+def test_summary_edited_with_same_detail_is_rejected_and_legacy_detail_is_accepted(
+    tmp_path, monkeypatch
+):
+    pairs, detail, summary = cli_args(tmp_path)
+    run_cli(monkeypatch, pairs, "--output", detail, "--summary-output", summary, *CLI_META)
+    written = json.loads(summary.read_text(encoding="utf-8"))
+    verify_detail_binding(written, detail.read_bytes())
+    tampered = {**written, "model": {**written["model"], "version": "other"}}
+    with pytest.raises(ValueError, match="mismatched pair"):
+        verify_detail_binding(tampered, detail.read_bytes())
+    # 束縛値のない旧形式の詳細は、従来どおり詳細hashだけで検証される。
+    legacy = json.loads(detail.read_text(encoding="utf-8"))
+    legacy.pop("summary_binding_sha256")
+    legacy_bytes = (json.dumps(legacy, ensure_ascii=False, indent=2) + "\n").encode("utf-8")
+    legacy_hash = hashlib.sha256(legacy_bytes).hexdigest()
+    verify_detail_binding({**tampered, "detail_sha256": legacy_hash}, legacy_bytes)
 
 
 def test_verify_detail_binding_rejects_summary_without_hash():
