@@ -43,7 +43,7 @@ internal static class Program
             Save(window, output, "01-initial.png");
 
             var tabs = window.GetVisualDescendants().OfType<TabControl>().Single();
-            tabs.SelectedIndex = 1;
+            tabs.SelectedIndex = 2;
             Flush();
             var textBoxes = window.GetVisualDescendants().OfType<TextBox>().Where(box => box.IsVisible).ToArray();
             Check(textBoxes.Length == 3, "Settings navigation failed.");
@@ -71,6 +71,25 @@ internal static class Program
             Check(start.IsEnabled && !connect.IsEnabled, "Connected button bindings failed.");
             Save(window, output, "03-connected.png");
 
+            // 曲タブ: 実Coreの空の曲一覧を読み、検証済みの曲データで歌詞と音程バーの描画を確かめる。
+            tabs.SelectedIndex = 1;
+            Flush();
+            Click(Button(window, "曲一覧を更新"));
+            PumpUntil(() => model.CanRefreshSongs || model.Error.Length > 0, "Song list");
+            Check(model.Error.Length == 0 && model.SongLibraryStatus == "取り込み済みの曲がありません",
+                "Empty song library was not shown: " + model.Error);
+            model.Karaoke.Load(new SongTimeline(SmokeSong()));
+            model.Karaoke.PositionSeconds = 3.5;
+            Flush();
+            var bars = window.GetVisualDescendants().OfType<PitchBarView>().Single();
+            Check(bars.IsVisible && bars.Bounds.Height >= 160 && bars.Bars?.Count(bar => bar.IsActive) == 1,
+                "Pitch bars were not bound to the song position.");
+            Check(window.GetVisualDescendants().OfType<TextBlock>().Any(text => text.Text == "二行目"),
+                "Current lyric was not rendered.");
+            Save(window, output, "03b-song-view.png");
+            tabs.SelectedIndex = 0;
+            Flush();
+
             Click(start);
             PumpUntil(() => model.CurrentJob is { Status: "running", Progress: > 0 } || model.Error.Length > 0, "Running job");
             Check(model.CurrentJob?.Status == "running" && cancel.IsEnabled, "Progress/cancel bindings failed.");
@@ -95,7 +114,7 @@ internal static class Program
             Check(shutdown.IsCompletedSuccessfully, "Window closed before its in-flight Core shutdown completed.");
             var runtime = Path.Combine(root, "data", "artifacts", ".runtime");
             Check(!Directory.Exists(runtime) || !Directory.EnumerateFileSystemEntries(runtime).Any(), "GUI close left a worker runtime.");
-            Console.WriteLine("PASS: actual XAML, settings/error, authenticated Core connection, job progress/completion/cancellation, shutdown race and six rendered frames.");
+            Console.WriteLine("PASS: actual XAML, settings/error, authenticated Core connection, job progress/completion/cancellation, shutdown race, song lyric/pitch view and seven rendered frames.");
             return 0;
         }
         catch (Exception error)
@@ -112,6 +131,25 @@ internal static class Program
             }
             Directory.Delete(root, recursive: true);
         }
+    }
+
+    /// {
+    ///   責務: [SmokeSong: 描画確認用の短い曲データを作る]
+    ///   処理: [1: 10秒の曲に歌詞2行とノート3つを置く]
+    ///   引数: []
+    ///   戻り値: [曲データ]
+    /// }
+    private static SongBundle SmokeSong()
+    {
+        const ulong second = SongTimeline.SampleRate;
+        return new SongBundle(
+            new SongManifest(1, Guid.NewGuid().ToString("D"), "スモーク確認用の曲", "Open Karaoke", SongTimeline.SampleRate, 10 * second),
+            new LyricsDocument([new("a", "一行目", second, 3 * second), new("b", "二行目", 3 * second, 6 * second)]),
+            new NotesDocument([
+                new("n1", second, 2 * second, 60, "a"),
+                new("n2", 3 * second, 4 * second, 64, "b"),
+                new("n3", 4 * second, 5 * second, 67, "b"),
+            ]));
     }
 
     private static Button Button(Window window, string content) => window.GetVisualDescendants()

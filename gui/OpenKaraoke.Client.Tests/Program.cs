@@ -33,6 +33,13 @@ internal static class Program
             ("cancel current job", ViewModelCancellation),
             ("discard late startup after disconnect", StaleStartup),
             ("discard late job after disconnect", StaleJob),
+            ("convert 48 kHz samples and seconds", SongTests.Conversions),
+            ("synchronize lyrics with the song position", SongTests.LyricSynchronization),
+            ("follow seeks and clamp the display position", SongTests.SeekRegression),
+            ("reject invalid song timelines", SongTests.InvalidTimelines),
+            ("read song list and song data from Core", SongTests.ClientSongRoutes),
+            ("load songs and clear them on disconnect", SongTests.ViewModelSongs),
+            ("discard a late song after disconnect", SongTests.StaleSong),
         };
         if (args.Length == 2) tests.Add(("live C# to Rust to Python lifecycle", () => NativeTests.RunAsync(args[0], args[1])));
         var passed = 0;
@@ -225,6 +232,10 @@ internal static class Program
             if (Completion is not null) await Completion.Task;
             yield return Job(id, Cancelled ? "cancelled" : "completed");
         }
+        public Task<SongPage> ListSongsAsync(Guid? after = null, CancellationToken cancellationToken = default) =>
+            Task.FromResult(new SongPage([], null));
+        public Task<SongBundle> GetSongAsync(Guid id, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
         public ValueTask DisposeAsync() { Disposed = true; return ValueTask.CompletedTask; }
     }
 }

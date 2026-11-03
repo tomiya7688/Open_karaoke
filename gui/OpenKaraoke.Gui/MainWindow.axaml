@@ -3,14 +3,16 @@
     xmlns="https://github.com/avaloniaui"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:client="clr-namespace:OpenKaraoke.Client;assembly=OpenKaraoke.Client"
+    xmlns:local="clr-namespace:OpenKaraoke.Gui"
     x:DataType="client:ShellViewModel"
     Title="Open Karaoke — 開発版"
     Width="1080" Height="740" MinWidth="780" MinHeight="580"
     WindowStartupLocation="CenterScreen">
   <!--
-    画面構成: 上部バー(ブランド・接続状態・接続操作) / エラー通知 / タブ(Job・設定) / 下部の注意書き。
+    画面構成: 上部バー(ブランド・接続状態・接続操作) / エラー通知 / タブ(Job・曲と歌詞・設定) / 下部の注意書き。
     見た目の定義は App.axaml のクラスとリソースに置き、ここでは構造だけを書く。
-    GUIスモークテストはボタンの文言、TabControl・ProgressBarが各1つ、設定タブの入力欄が3つであることに依存する。
+    GUIスモークテストはボタンの文言、TabControl・ProgressBarが各1つ、タブの並び(設定は3番目)、
+    設定タブの入力欄が3つであることに依存する。
   -->
   <Grid RowDefinitions="Auto,Auto,*,Auto">
 
@@ -130,10 +132,78 @@
 
             <Border Classes="infoBar">
               <TextBlock Classes="body"
-                         Text="楽曲の解析・カラオケ再生・採点の画面は今後追加します。現在の画面はCoreとの接続確認用です。" />
+                         Text="取り込み済みの曲の歌詞と音程バーは「曲・歌詞」タブで確認できます。楽曲の解析・伴奏の再生・採点の画面は今後追加します。" />
             </Border>
           </StackPanel>
         </ScrollViewer>
+      </TabItem>
+
+      <TabItem Header="曲・歌詞">
+        <Grid ColumnDefinitions="300,*" ColumnSpacing="16" Margin="0,12,0,20">
+
+          <!-- 曲一覧 -->
+          <Border Classes="card">
+            <Grid RowDefinitions="Auto,Auto,*,Auto" RowSpacing="12">
+              <StackPanel Spacing="4">
+                <TextBlock Classes="cardTitle" Text="曲一覧" />
+                <TextBlock Classes="caption" Text="{Binding SongLibraryStatus}" TextWrapping="Wrap" />
+              </StackPanel>
+              <Button Grid.Row="1" Content="曲一覧を更新" HorizontalAlignment="Stretch"
+                      IsEnabled="{Binding CanRefreshSongs}" Click="RefreshSongsClick" />
+              <ListBox Grid.Row="2" ItemsSource="{Binding Songs}" SelectedItem="{Binding SelectedSong, Mode=TwoWay}"
+                       AutomationProperties.Name="取り込み済みの曲">
+                <ListBox.ItemTemplate>
+                  <DataTemplate x:DataType="client:SongListItem">
+                    <StackPanel Spacing="2">
+                      <TextBlock Text="{Binding Title, TargetNullValue='(読み込めない曲)'}" FontWeight="SemiBold"
+                                 TextTrimming="CharacterEllipsis" />
+                      <TextBlock Classes="caption" Text="{Binding Artist}"
+                                 IsVisible="{Binding Artist, Converter={x:Static ObjectConverters.IsNotNull}}"
+                                 TextTrimming="CharacterEllipsis" />
+                      <TextBlock Classes="caption" Text="{Binding Error}" Foreground="{DynamicResource OkDanger}"
+                                 IsVisible="{Binding Error, Converter={x:Static ObjectConverters.IsNotNull}}"
+                                 TextWrapping="Wrap" />
+                    </StackPanel>
+                  </DataTemplate>
+                </ListBox.ItemTemplate>
+              </ListBox>
+              <Button Grid.Row="3" Classes="accent" Content="選んだ曲を表示" HorizontalAlignment="Stretch"
+                      IsEnabled="{Binding CanLoadSong}" Click="LoadSongClick" />
+            </Grid>
+          </Border>
+
+          <!-- 歌詞と音程バー -->
+          <Border Grid.Column="1" Classes="card">
+            <Grid RowDefinitions="Auto,Auto,*,Auto,Auto" RowSpacing="14">
+              <Grid ColumnDefinitions="*,Auto" ColumnSpacing="16">
+                <StackPanel Spacing="2">
+                  <TextBlock Classes="cardTitle" Text="{Binding Karaoke.Title}" TextTrimming="CharacterEllipsis" />
+                  <TextBlock Classes="caption" Text="{Binding Karaoke.Artist}" TextTrimming="CharacterEllipsis" />
+                </StackPanel>
+                <TextBlock Grid.Column="1" Classes="metric" Text="{Binding Karaoke.PositionText}"
+                           VerticalAlignment="Bottom" />
+              </Grid>
+              <Border Grid.Row="1" Classes="codeBox" Padding="20,16" MinHeight="96">
+                <StackPanel Spacing="6" VerticalAlignment="Center">
+                  <TextBlock Classes="lyricCurrent" Text="{Binding Karaoke.CurrentLyric}" TextWrapping="Wrap" />
+                  <TextBlock Classes="lyricNext" Text="{Binding Karaoke.NextLyric}" TextWrapping="Wrap" />
+                </StackPanel>
+              </Border>
+              <local:PitchBarView Grid.Row="2" MinHeight="160"
+                                  Bars="{Binding Karaoke.Bars}" PlayheadX="{Binding Karaoke.PlayheadX}"
+                                  TrackBrush="{DynamicResource OkCodeBackground}"
+                                  BarBrush="{DynamicResource OkNeutral}"
+                                  ActiveBrush="{DynamicResource SystemControlHighlightAccentBrush}"
+                                  PlayheadBrush="{DynamicResource OkForeground}"
+                                  AutomationProperties.Name="目標の音程バー" />
+              <Slider Grid.Row="3" Minimum="0" Maximum="{Binding Karaoke.DurationSeconds}"
+                      Value="{Binding Karaoke.PositionSeconds, Mode=TwoWay}" IsEnabled="{Binding Karaoke.HasSong}"
+                      SmallChange="0.1" LargeChange="5" AutomationProperties.Name="表示位置" />
+              <TextBlock Grid.Row="4" Classes="caption" TextWrapping="Wrap"
+                         Text="歌詞と目標の音程を、指定した位置に合わせて表示します。伴奏の再生・マイクの音程表示・採点はまだありません。" />
+            </Grid>
+          </Border>
+        </Grid>
       </TabItem>
 
       <TabItem Header="設定">
