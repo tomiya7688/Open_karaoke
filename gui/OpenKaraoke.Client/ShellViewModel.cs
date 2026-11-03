@@ -137,6 +137,13 @@ public sealed class ShellViewModel : INotifyPropertyChanged, IAsyncDisposable
         }
     }
 
+    // manifest由来の文字列は表示前に制御文字を除き、長さを抑える(複数行の表示を崩さないため)。
+    private static string Plain(string? value)
+    {
+        var text = new string((value ?? "").Select(c => char.IsControl(c) ? ' ' : c).ToArray());
+        return text.Length > 80 ? text[..80] + "…" : text;
+    }
+
     // モデルパッケージの検出は補助情報。取得に失敗してもCoreへの接続は成功のままにする。
     private static async Task<string> SummarizeModelPackagesAsync(ICoreApi api, CancellationToken token)
     {
@@ -146,12 +153,13 @@ public sealed class ShellViewModel : INotifyPropertyChanged, IAsyncDisposable
             if (packages.Length == 0) return "追加のモデルパッケージはありません";
             var usable = packages.Count(p => p.Status == "available");
             var lines = packages.Take(5).Select(p => p.Status == "available"
-                ? $"{p.Name ?? p.Id} {p.Version}"
-                : $"{p.Id}: 利用できません({p.Status}){(p.Error is null ? "" : " " + p.Error)}");
+                ? $"{Plain(p.Name ?? p.Id)}{(p.Version is null ? "" : " " + Plain(p.Version))}"
+                : $"{Plain(p.Id)}: 利用できません({Plain(p.Status)}){(p.Error is null ? "" : " " + Plain(p.Error))}");
             var more = packages.Length > 5 ? $"\n他{packages.Length - 5}件" : "";
             return $"{packages.Length}件(利用可 {usable}件)\n{string.Join("\n", lines)}{more}";
         }
         catch (OperationCanceledException) when (token.IsCancellationRequested) { throw; }
+        catch (InvalidDataException) { return "応答の形式が不正です"; }
         catch (Exception) { return "取得できません"; }
     }
 

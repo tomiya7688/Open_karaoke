@@ -49,10 +49,13 @@ internal static class ModelPackageTests
         ModelPackageItem[] mixed =
         [
             new("demo", "available", "Demo", "2", "mock", null),
+            new("noversion", "available", "NoVersion", null, "mock", null),
+            new("multi", "invalid", null, null, null, "line1\nline2"),
             new("broken", "invalid", null, null, null, "manifest.json is not valid JSON"),
         ];
         await Connect(Program.NewFake(mixed), text =>
-            Check(text.StartsWith("2件(利用可 1件)") && text.Contains("Demo 2") && text.Contains("broken: 利用できません(invalid)"), "Mixed summary: " + text));
+            Check(text.StartsWith("4件(利用可 2件)") && text.Contains("Demo 2") && text.Contains("\nNoVersion\n") &&
+                text.Contains("broken: 利用できません(invalid)") && text.Contains("line1 line2") && text.Split('\n').Length == 5, "Mixed summary: " + text));
         await Connect(Program.NewFake(null), text => Check(text == "取得できません", "Failure summary: " + text));
     }
 

@@ -1,6 +1,7 @@
 """Data-only discovery of user-placed model packages; no package code is ever imported or run."""
 
 import json
+from itertools import islice
 from pathlib import Path
 from typing import Literal
 
@@ -13,6 +14,8 @@ MANIFEST_VERSION = 1
 MANIFEST_NAME = "manifest.json"
 MAX_MANIFEST_BYTES = 64 * 1024
 MAX_PACKAGE_DIRECTORIES = 256
+MAX_SCANNED_ENTRIES = 4096
+MAX_DISPLAY_ID = 64
 ID_PATTERN = r"[a-z0-9][a-z0-9._-]{0,63}"
 
 PackageStatus = Literal["available", "unsupported_backend", "role_mismatch", "duplicate", "invalid"]
@@ -79,7 +82,8 @@ class PackageEntry(BaseModel):
 
 
 def _invalid(directory: str, reason: str) -> PackageEntry:
-    return PackageEntry(id=directory, status="invalid", error=reason)
+    shown = "".join(c if c.isprintable() else "?" for c in directory)[:MAX_DISPLAY_ID]
+    return PackageEntry(id=shown, status="invalid", error=reason)
 
 
 def _read_manifest(directory: Path) -> PackageManifest | str:
@@ -95,19 +99,22 @@ def _read_manifest(directory: Path) -> PackageManifest | str:
     try:
         if path.is_symlink() or not path.is_file():
             return "manifest.json is not a regular file"
-        if path.stat().st_size > MAX_MANIFEST_BYTES:
+        # stat後の差し替えや擬似ファイルに備え、開いたあとも上限+1バイトまでしか読まない。
+        with path.open("rb") as stream:
+            raw = stream.read(MAX_MANIFEST_BYTES + 1)
+        if len(raw) > MAX_MANIFEST_BYTES:
             return "manifest.json is larger than 64 KiB"
-        text = path.read_text(encoding="utf-8")
+        text = raw.decode("utf-8")
         value = json.loads(text, parse_constant=_reject_constant)
     except (OSError, UnicodeDecodeError):
         return "manifest.json cannot be read as UTF-8"
-    except ValueError:
+    except (ValueError, RecursionError):
         return "manifest.json is not valid JSON"
     if isinstance(value, dict) and value.get("manifest_version") not in (None, MANIFEST_VERSION):
-        return f"manifest_version {value.get('manifest_version')!r} is not supported"
+        return "manifest_version is not supported"
     try:
         return PackageManifest.model_validate_json(text)
-    except ValidationError:
+    except (ValidationError, RecursionError):
         return "manifest.json does not match manifest_version 1"
 
 
@@ -120,7 +127,7 @@ def discover_packages(root: Path, adapters: dict[str, ModelAdapter]) -> list[Pac
     {
       責務: [discover_packages: models/配下のモデルパッケージを検出し、利用可否つきで一覧にする]
       処理: [
-        1: models/直下の実フォルダのうちmanifest.jsonを持つものだけを名前順に最大256件調べる,
+        1: models/直下の先頭4096件の名前を並べ、manifest.jsonを持つ実フォルダを最大256件調べる,
         2: 各manifestを検証する。不正でも他のパッケージと全体の処理は続ける,
         3: IDが重複するもの、組み込みAdapterのIDと衝突するものはすべてduplicateにする,
         4: backendが登録済みAdapterで、roleが一致するものだけをavailableにする
@@ -134,15 +141,25 @@ def discover_packages(root: Path, adapters: dict[str, ModelAdapter]) -> list[Pac
     """
     models = root / "models"
     try:
-        directories = sorted(
-            (p for p in models.iterdir() if p.is_dir() and not p.is_symlink()),
-            key=lambda p: p.name,
-        )
+        names = sorted(p.name for p in islice(models.iterdir(), MAX_SCANNED_ENTRIES))
     except OSError:
         return []
-    candidates = [d for d in directories if (d / MANIFEST_NAME).exists()]
+    candidates: list[Path] = []
+    for name in names:
+        directory = models / name
+        try:
+            if directory.is_symlink() or not directory.is_dir():
+                continue
+            manifest_path = directory / MANIFEST_NAME
+            if not (manifest_path.is_symlink() or manifest_path.exists()):
+                continue
+        except OSError:
+            continue
+        candidates.append(directory)
+        if len(candidates) == MAX_PACKAGE_DIRECTORIES:
+            break
     entries: list[tuple[PackageEntry, PackageManifest | None]] = []
-    for directory in candidates[:MAX_PACKAGE_DIRECTORIES]:
+    for directory in candidates:
         manifest = _read_manifest(directory)
         if isinstance(manifest, str):
             entries.append((_invalid(directory.name, manifest), None))

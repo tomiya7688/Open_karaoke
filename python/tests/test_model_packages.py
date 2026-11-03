@@ -1,4 +1,6 @@
 import json
+import os
+from pathlib import Path
 
 from fastapi.testclient import TestClient
 
@@ -74,11 +76,19 @@ def test_invalid_manifests_never_stop_discovery(tmp_path):
         assert str(tmp_path) not in entries[name].error
 
 
+def test_deeply_nested_manifest_does_not_fail_the_whole_listing(tmp_path):
+    put(tmp_path, "good", manifest(id="good"))
+    put(tmp_path, "deep", "[" * 20000 + "]" * 20000, raw=True)
+    entries = by_id(discover_packages(tmp_path, ADAPTERS))
+    assert entries["good"].status == "available"
+    assert entries["deep"].status == "invalid"
+
+
 def test_future_manifest_version_is_reported_as_unsupported(tmp_path):
     put(tmp_path, "future", manifest(id="future", manifest_version=2))
     entry = discover_packages(tmp_path, ADAPTERS)[0]
     assert entry.status == "invalid"
-    assert "manifest_version" in entry.error
+    assert entry.error == "manifest_version is not supported"
 
 
 def test_backend_and_role_must_match_an_installed_adapter(tmp_path):
@@ -92,6 +102,28 @@ def test_backend_and_role_must_match_an_installed_adapter(tmp_path):
 def test_builtin_id_collision_is_a_duplicate(tmp_path):
     put(tmp_path, "mock-v1", manifest(id="mock-v1"))
     assert discover_packages(tmp_path, ADAPTERS)[0].status == "duplicate"
+
+
+def test_manifest_read_is_bounded_even_if_stat_lies(tmp_path, monkeypatch):
+    put(tmp_path, "big", "x" * (MAX_MANIFEST_BYTES * 4), raw=True)
+    original = Path.stat
+
+    def small_stat(self, *args, **kwargs):
+        result = original(self, *args, **kwargs)
+        if self.name == "manifest.json":
+            return os.stat_result((result.st_mode, *result[1:6], 10, *result[7:]))
+        return result
+
+    monkeypatch.setattr(Path, "stat", small_stat)
+    entry = discover_packages(tmp_path, ADAPTERS)[0]
+    assert entry.status == "invalid" and "64 KiB" in entry.error
+
+
+def test_long_folder_names_are_shortened_in_the_listing(tmp_path):
+    put(tmp_path, "x" * 200, "{", raw=True)
+    entry = discover_packages(tmp_path, ADAPTERS)[0]
+    assert entry.status == "invalid"
+    assert len(entry.id) == 64
 
 
 def test_symlinked_manifest_is_rejected(tmp_path):
