@@ -103,6 +103,15 @@
       <Setter Property="FontSize" Value="26" />
       <Setter Property="FontWeight" Value="SemiBold" />
     </Style>
+    <!-- 歌詞: 現在の行を大きく、次の行を控えめに表示する -->
+    <Style Selector="TextBlock.lyricCurrent">
+      <Setter Property="FontSize" Value="24" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+    </Style>
+    <Style Selector="TextBlock.lyricNext">
+      <Setter Property="FontSize" Value="15" />
+      <Setter Property="Foreground" Value="{DynamicResource OkMutedForeground}" />
+    </Style>
     <Style Selector="SelectableTextBlock.mono">
       <Setter Property="FontFamily" Value="{StaticResource OkMonoFontFamily}" />
       <Setter Property="FontSize" Value="12.5" />

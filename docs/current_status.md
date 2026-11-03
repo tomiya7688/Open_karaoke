@@ -28,7 +28,7 @@
 | Mixer / DSP / リアルタイム採点 | 未実装 | [Scoring](scoring.md)、#13/#14 |
 | Avalonia GUI | 認証付き起動・設定・接続・mock Job進捗/キャンセル/error | [Desktop client](desktop_client.md)、#15 |
 | GUIの原曲取込・曲一覧操作 | 未接続。Core登録APIと画面の完成を区別 | #36/#15 |
-| カラオケ再生・歌詞・音程バー画面 | 未実装 | #16 |
+| カラオケ再生・歌詞・音程バー画面 | 曲一覧・曲データ取得と、指定位置に同期した歌詞・目標音程バー表示あり。伴奏再生・Core再生位置への追従・マイク音程・採点結果は未実装 | [Desktop client](desktop_client.md)、#16 |
 | ランタイム同梱・モデル追加UI | 未実装 | [Development](development.md)、[Model Plugins](model_plugins.md)、#39 |
 
 `service.py` の既定roleはmock / stems / lyrics / alignment / pitch / events / notes / song。
