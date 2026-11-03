@@ -53,6 +53,8 @@ larger than 64 KiB. Its private port is not a browser-facing web application.
 - `GET /health`: Core health, independent of Python.
 - `GET /analysis/health`: authenticated child health, or 503 while unavailable/recovering.
 - `GET /models`: registered model descriptors, forwarded by Core.
+- `GET /model-packages`: user-placed model packages found under `models/<id>/manifest.json`,
+  forwarded by Core. Discovery only reads the data file; see [Model Plugins](model_plugins.md).
 - Existing `/jobs`, `/jobs/{id}`, `/jobs/{id}/cancel`, `/jobs/{id}/events` (SSE).
 
 Use the authenticated request examples in [Core API](core_api.md) and
@@ -66,7 +68,7 @@ framework-smoke jobs remain available. Core SSE sends an initial snapshot when s
 
 ## Private service contracts
 
-`GET /health`, `GET /models`, `POST /analysis/{role}`, `GET /jobs/{uuid}`,
+`GET /health`, `GET /models`, `GET /model-packages`, `POST /analysis/{role}`, `GET /jobs/{uuid}`,
 `POST /jobs/{uuid}/cancel`, `POST /shutdown`. All require the private worker launch token.
 
 Roles: `mock`, `stems`, `lyrics`, `alignment`, `pitch`, `events`, `notes`, `song`.
