@@ -226,10 +226,11 @@ public sealed class ShellViewModel : INotifyPropertyChanged, IAsyncDisposable
             _songs = songs;
             _songsLoaded = true;
             _songsTruncated = truncated;
-            if (_selectedSong is not null && !songs.Any(song => song.SongId == _selectedSong.SongId))
+            if (_selectedSong is not null)
             {
-                _selectedSong = null;
-                Karaoke.Clear();
+                // 画面の選択と一致するよう、読み直した一覧の同じ曲へ差し替える。
+                _selectedSong = songs.FirstOrDefault(song => song.SongId == _selectedSong.SongId);
+                if (_selectedSong is null) Karaoke.Clear();
             }
         }
         catch (OperationCanceledException) when (token.IsCancellationRequested) { }
