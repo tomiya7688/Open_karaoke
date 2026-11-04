@@ -123,6 +123,8 @@ Windowsでのセットアップ・ビルド方法は [Development](docs/developm
 - [Current status](docs/current_status.md) — 現在の実装と未検証範囲
 - [Requirements](docs/requirements.md) — 製品として何を作るか
 - [Architecture](docs/architecture.md) — Rust / Python / Avaloniaの責務と全体構成
+- [Karaoke Session Design](docs/karaoke_session_design.md) — 再生・マイク・採点を一元管理するCoreセッション設計（提案）
+- [Accuracy & UX Design](docs/quality_and_ux_design.md) — AI精度の検証・再解析と歌唱までのUX設計（提案）
 - [Implementation Plan](docs/implementation_plan.md) — 実装順序とIssue分割方針
 - [Development](docs/development.md) — 開発環境・ビルド・テスト
 
