@@ -5,7 +5,7 @@
 use std::{
     env,
     error::Error,
-    fs,
+    fs, io,
     path::PathBuf,
     sync::{
         Arc,
@@ -118,6 +118,12 @@ fn main() -> Result<(), Box<dyn Error>> {
         .and_then(|v| v.parse().ok())
         .unwrap_or_else(|| thread::available_parallelism().map_or(2, std::num::NonZero::get));
     let ballast_mib: usize = args.get(4).and_then(|v| v.parse().ok()).unwrap_or(64);
+    if !(1..=600).contains(&seconds) || load_threads > 256 || ballast_mib > 4096 {
+        return Err(io::Error::other(
+            "seconds must be 1..=600, load_threads <= 256 and ballast_mib <= 4096",
+        )
+        .into());
+    }
 
     let io = AudioIo::new(24_000)?;
     io.set_playing(true);
@@ -146,10 +152,16 @@ fn main() -> Result<(), Box<dyn Error>> {
         .collect();
     let loaded = run_phase(&io, duration);
     stop.store(true, Ordering::Relaxed);
+    let mut worker_panics = 0_usize;
     for worker in workers {
-        let _ = worker.join();
+        if worker.join().is_err() {
+            worker_panics += 1;
+        }
     }
     let loaded = loaded?;
+    if worker_panics > 0 {
+        return Err(io::Error::other("synthetic load worker panicked; result invalid").into());
+    }
     drop(ballast);
 
     let report = serde_json::json!({
@@ -162,6 +174,8 @@ fn main() -> Result<(), Box<dyn Error>> {
             "load_threads": load_threads,
             "ballast_mib": ballast_mib,
             "callback_frames": CALLBACK_FRAMES,
+            "percentile_method": "nearest-rank over render_mock processing time only",
+            "late_wakeup_definition": "scheduler woke more than 2 periods (20 ms) after the planned time; separate from output_underrun_frames",
             "os": env::consts::OS
         },
         "baseline": phase_json(&baseline),

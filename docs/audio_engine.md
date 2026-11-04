@@ -204,7 +204,10 @@ behaviour on real hardware as **Unverified**.
 `core/examples/inference_load_evaluator.rs` runs the mock output callback (`render_mock`,
 480 frames every 10 ms) first idle, then while busy-loop threads and a touched memory ballast
 run in the same process as a synthetic stand-in for Whisper/Stem inference. It reports
-callback p50/p95/p99/max time, added `output_underrun_frames` and late wakeups per phase.
+callback p50/p95/p99/max time (nearest-rank over the `render_mock` processing time only, not
+wake-up delay), added `output_underrun_frames` and late wakeups per phase. A late wakeup is a loop iteration that started more than two
+periods (20 ms) after its plan; it is a scheduler metric separate from `output_underrun_frames`.
+Arguments are range-checked (seconds 1..=600, threads <= 256, ballast <= 4096 MiB).
 
     cargo run --release -p open-karaoke-core --example inference_load_evaluator -- artifacts/inference-load.json [seconds] [load_threads] [ballast_mib]
 
