@@ -56,6 +56,8 @@ Python出力を本番Rust処理で音声込み登録する結合試験を行う�
 headless描画とOS実ウィンドウ/IME/物理入力、APIテストと物理音声/遅延/長時間稼働を混同しない。
 正式配布物・ライセンスの受け入れ確認も別途必要。
 
+Close済みIssueの完了条件から残る連結・実録評価・ペア原子性の契約は、[Close済みIssue監査](closed_issue_coverage.md)に整理する。
+
 ## 2026-11-04 横断設計上の残課題
 
 - 個々のAudioIo/WAV feeder/MixerとGUI描画はあるが、**再生から採点結果までを所有するCore歌唱セッション**が未実装。[Karaoke session design](karaoke_session_design.md)、#107。
