@@ -142,6 +142,7 @@ Windowsでのセットアップ・ビルド方法は [Development](docs/developm
 - [Analysis Pipeline](docs/analysis_pipeline.md) — 楽曲解析全体
 - [AI Workflow](docs/ai_workflow.md) — AI開発の参照先・差分確認・検証手順
 - [Code Design Review](docs/code_design_review.md) — 命名・委譲・継承の監査結果と後続改善
+- [Closed Issue Coverage](docs/closed_issue_coverage.md) — 完了済みIssueの設計引き継ぎ・未検証条件と後続Issue
 - [Stem Separation](docs/stem_separation.md) — vocals / accompaniment分離
 - [Lyric Transcription](docs/lyric_transcription.md) — Whisperによる歌詞生成
 - [Lyric Alignment](docs/lyric_alignment.md) — 既存歌詞 / ASRと時間軸の整列
