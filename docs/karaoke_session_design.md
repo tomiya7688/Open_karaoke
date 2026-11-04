@@ -26,24 +26,27 @@ Today, Rust has CPAL/WASAPI streams, a bounded audio queue, WAV feeder, clock/ep
 
 Only one controller holds the active output-device lease in v1. A second user-facing session must be rejected or queued explicitly; it must never silently mix two songs.
 
-### Proposed real-time topology
+### Real-time topology (corrected; implementation contract is KS-03/KS-04)
+
+The **existing** `WavFeeder` writes directly into `AudioIo`; a mixer cannot be inserted
+by adding another output writer. The intended integrated graph first decodes to a separate
+music queue, routes the single raw capture consumer through a dispatcher, mixes on a
+noncallback worker, and **only then** writes to the device output queue:
 
 ```text
-Verified SongStore assets ─> WavFeeder ─> tagged Music PCM ────────────┐
-                                                                     v
-physical microphone ─> AudioIo raw queue ─┬─> realtime pitch worker    Mixer ─> device output
-                                          │          │                  ^
-                                          │          v                  │
-                                          └──────> monitor branch ──────┘
-                                                (gain/echo/reverb)
-                         Score notes ─> ScoringEngine <─ timestamped F0
-                                                │
-                  Core state + clock + score events (bounded / SSE)
-                                                │
-                                         Avalonia renderer
+verified WAV → bounded MusicQueue ─────┐
+                                       v
+raw mic → AudioIo capture → Dispatcher → MonitorQueue → MixWorker → AudioIo output → WASAPI
+                                │                  ^
+                                └→ ScoringQueue    Mixer
+                                    │
+                              Realtime pitch → ScoreEngine
 ```
 
-The exact route from raw microphone frames into the playback mixer must be explicitly designed for **one stream clock domain**. A callback must not wait for a mutex, Python model, HTTP response, dynamic allocation, or disk access. If input/output devices have different clocks, use bounded queues with drift-compensated resampling on a **noncallback** worker. On underrun, emit diagnostics and silence; don't duplicate frames as if continuous.
+The design of `MusicDecodeWorker`, `CaptureDispatcher` and `PlaybackMixWorker` is specified
+under [#107 implementation details](#107-実装詳細設計オーディオ経路と状態所有).
+No such integrated graph is implemented yet. The callback must not block, allocate,
+read files or execute a Python model.
 
 ## Session state machine
 
@@ -62,44 +65,16 @@ A session state revision and `instance_id` accompany updates. `play` and `stop` 
 
 **Crash/restart policy:** Core process restart changes `instance_id`. Old sessions and in-memory Job IDs are not resurrected. GUI must rebootstrap/reauthenticate and offer to re-open a saved song; never resubmit a singing attempt automatically. Coordinate with PR #95.
 
-## Proposed Core API boundary (not existing routes)
+## Proposed Core API boundary
 
-Do not route GUI directly to `AudioIo` or to Python's private port.
+The API is **not yet implemented**. The design's preferred form is a single
+versioned command endpoint with idempotency keys; alternative individual
+`/play`/`/pause` paths must not be implemented in parallel without a
+protocol compatibility decision.
 
-```text
-POST /karaoke/sessions             choose persisted song + device profile
-GET  /karaoke/sessions/{id}        authoritative state + position
-POST /karaoke/sessions/{id}/play
-POST /karaoke/sessions/{id}/pause
-POST /karaoke/sessions/{id}/seek   integer song_sample + expected_epoch
-POST /karaoke/sessions/{id}/stop
-GET  /karaoke/sessions/{id}/events  bounded SSE state/pitch/score
-```
-
-Endpoints above are **conceptual**; #41 controls the final Core API version and client migration. Every mutating message must verify the authenticated owner, current session revision/epoch (where relevant), and bounded payload size. SSE must have bounded consumers/backpressure; loss of UI subscription cannot stop the audio callback.
-
-A proposed snapshot (illustrative **not current API**):
-
-```json
-{
-  "session_id": "<uuid>",
-  "core_instance_id": "<uuid>",
-  "state": "playing",
-  "revision": 3,
-  "song_id": "<uuid>",
-  "sample_rate": 48000,
-  "epoch": 2,
-  "presented_song_sample": 128000,
-  "clock_quality": "estimated",
-  "scoring_mode": "practice",
-  "audio": {
-    "output_underrun_frames": 0,
-    "input_overrun_frames": 0
-  }
-}
-```
-
-All persistent song/note/lyric times remain **u64 sample indices** at 48 kHz; JSON times expressed as seconds are display-only. Clients discard events with old `core_instance_id`/`session_id`/`epoch` or lower revisions.
+See [wire contract under #107](#core-apiのワイヤ契約案41との統合前) for exact proposed
+requests, snapshot fields, expected revisions, stale epochs, bounded SSE and errors.
+#41 (PR #95) owns the final Core API migration rules.
 
 ## Clock and observability rules
 
