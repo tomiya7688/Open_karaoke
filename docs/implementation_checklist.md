@@ -25,7 +25,7 @@
 |---|---|---|
 | Python | `E:\projects\Open_karaoke\.venv\Scripts\ruff.exe format <files>` と `ruff check <files>`（ruff 0.17.2, line-length 100） | pytest（下記レシピ） |
 | Rust | `cargo fmt` | `cargo clippy --offline -- -D warnings`、`cargo test --offline` |
-| C# | `dotnet format gui/OpenKaraoke.sln`（変更プロジェクトに絞る） | `dotnet run --project gui/OpenKaraoke.Client.Tests --configuration Release -- --unit`。実結合は引数に`<core.exe> <python.exe>`の絶対パス |
+| C# | `dotnet format <変更したプロジェクト.csproj> --include <変更ファイル>`（solution全体の一括整形はしない。検証は`--verify-no-changes`） | `dotnet run --project gui/OpenKaraoke.Client.Tests --configuration Release -- --unit`。実結合は引数に`<core.exe> <python.exe>`の絶対パス |
 | Markdown/PS1 | 手動（相対リンクは`check_local`が検査） | `pwsh scripts/check_local.ps1` |
 
 - **Python pytest（Windows worktreeレシピ）**: 基本Pythonは`E:\program_files\soft\IDE\compiler\python\python3.14\python.exe`、`PYTHONPATH=<worktree>\python\src;E:\program_files\soft\claude\tmp\open-karaoke-venv\Lib\site-packages`、`--basetemp E:/program_files/soft/claude/tmp/<名前>`。タイミング依存で落ちたテストは単独で再実行して判定
@@ -39,14 +39,14 @@
 - [ ] 指摘は原典と照合し、有効なものだけ修正→再整形→再テスト。無効な指摘は理由を記録
 
 ## E. PR・マージ
-- [ ] コミット: `<type>(<scope>): <要約> (#N)`、`-F ファイル`で渡し末尾に `Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>`（人/他ツールは各自の表記）。`main`へ直接pushしない
-- [ ] PR本文は下記テンプレート。末尾に `🤖 Generated with [Claude Code](https://claude.com/claude-code)`
+- [ ] コミット: `<type>(<scope>): <要約> (#N)`、`-F ファイル`で渡し末尾の`Co-Authored-By`は**実際に作業したエージェントの表記**（Claude Codeなら `Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>`。人・他ツールには付けない/各自の表記）。`main`へ直接pushしない
+- [ ] PR本文は下記テンプレート。Claude Codeが作った場合のみ末尾に `🤖 Generated with [Claude Code](https://claude.com/claude-code)`
 - [ ] 最新head SHAの**全CI成功**（pending/skippedは未成功）＋[自己レビュー](collaboration.md#自己レビュー)の両方で`gh pr merge <PR> --squash --delete-branch`。判断が要る場合は[人へ確認する条件](collaboration.md#5-マージ)に従い開いたまま報告
 - [ ] 後片付け: worktree削除（`Filename too long`は`\?\`パス）、Issue更新（未達は`Refs`）
 
 ```text
 Goal / Issue: Closes #N / Refs #N
-Agent: Claude Code | Codex | ChatGPT | human
+Agent: Claude Code | Codex | ChatGPT | Copilot | human
 Base -> Head SHA:
 Design: docs/design/issue-<N>-<slug>.md の スライス <N.x>
 Changed files / decision:
@@ -55,7 +55,7 @@ Unverified: skipped / unavailable / 実機・実歌唱・実モデルの未確�
 Review: 6者+CodeRabbit の evidence.md の場所、採用/不採用の指摘
 Self-review: (指摘と対処)
 
-🤖 Generated with [Claude Code](https://claude.com/claude-code)
+(Claude Codeの場合のみ) 🤖 Generated with [Claude Code](https://claude.com/claude-code)
 ```
 
 ## F. 完了の定義

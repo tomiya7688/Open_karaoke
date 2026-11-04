@@ -26,7 +26,7 @@
 4. 配布物評価: クリーンWindows、SBOM/NOTICE/FFmpeg buildconf、モデルライセンス、署名/Attestation（#39/#67）。
 5. 製品評価: 「手直しなしの利用率」。人手評価の手順と母集団を事前固定。
 
-**データ契約（案）**: `release_evaluation/<version>/report.json { app_sha, dataset_manifest_hash, model_snapshot, results[{area, metric, value, threshold|null, status: pass|fail|unverified, evidence_ref}], blocking[] }`。`threshold:null`は未校正。`status`に「未評価」を`pass`として入れない。非公開音源は報告に含めずhashと集計のみ。
+**データ契約（案）**: `release_evaluation/<version>/report.json { app_sha, dataset_manifest_hash, model_snapshot, results[{area, metric, value, threshold|null, status: pass|fail|unverified, evidence_ref}], blocking[] }`。`threshold:null`は未校正で、**blocking項目は`threshold`が非nullでなければ`pass`にできない（nullなら`unverified`）**。`status`に「未評価」を`pass`として入れない。非公開音源は報告に含めずhashと集計のみ。
 **エラー/判定**: blocking基準に`fail`か`unverified`が1つでもあれば「リリース可」を出さない。基準値はholdout収集後に版付きで確定し、変更履歴を残す。
 
 ## 実装スライス

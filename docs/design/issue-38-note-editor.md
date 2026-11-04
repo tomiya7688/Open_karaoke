@@ -28,9 +28,10 @@
 - 検証（既存`SongBundle::validate`に加え）: `start<end`、`duration_samples`以内、`midi_note 0..=127`、`lyric_segment_id`の存在、ID重複なし。違反は全op不適用（原子的）で拒否。
 - 出自の区別: `LyricSegment.source`は既存。`Note`にはsource欄が無い → 追加には`format_version`更新と`migrate_document`対応が必要（[song_format](../song_format.md#バージョニング--migration)）。
 - 元の解析結果は上書きせず保持（`evidence.json`または編集前スナップショット。方式は未決）。
+- 注意: `SongLibrary::load`系は無効(`valid=false`)artifactを含む束を拒否し得る（`song_library/validation.rs`の検査）。編集で下流を`invalidate`した曲が一覧/再生から消えないよう、「編集済みで再生成待ち」状態の扱いを38.2で定義する（未決）。
 - 下流: 歌詞編集→`ArtifactKind::Lyrics`を`mark_regenerated`、依存する`Notes`/`Evidence`は`invalidate`の伝播規則に従う（`song_data.rs`既存API）。
 
-**エラー**: `base_generation`不一致は409相当で拒否（他編集との競合）。保存失敗時は元データを保持（一時ファイル置換、既存`SongStore::save`の方式）。
+**エラー**: `base_generation`不一致は409相当で拒否。**世代比較から保存までを曲単位の排他で直列化**する（同時要求が同じ世代を読んで後勝ち上書きしない）。保存は全文書で原子的でなければならない: 既存`SongStore::save`は文書を順次置換し、`write_json`は既存ファイルを削除してからrenameする（`song_data.rs`）ため、途中失敗で新旧が混在し得る。**編集用に「全文書を一時領域へ書いてから切替」する保存を新設するか既存を直すかを38.2で決める**。
 **スレッド**: 編集は通常のJob/API経路。音声callbackと無関係。編集中のプレビュー再生は#107のセッションを読み取り専用で使用。
 
 ## 実装スライス

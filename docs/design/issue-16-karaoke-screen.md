@@ -22,9 +22,9 @@
 **既存（変更しない契約）**: `SongTimeline`（`gui/OpenKaraoke.Client/SongTimeline.cs`）が48kHz整数sampleで歌詞行・ノートを検索し、`KaraokeViewModel`が現在/次の歌詞と`PitchBar`列を計算、`PitchBarView`は描画のみ。
 
 **追加する責務**
-- `PlaybackFollower`（Client側・新設）: Coreのセッションスナップショット `{ revision, epoch, presentation_song_sample, clock_quality }`（#107で定義、**現時点APIは未確定**）を受け、`KaraokeViewModel.Seek`相当へ渡す。`revision`が古い、または`epoch`が現行と異なる更新は捨てる。
+- `PlaybackFollower`（Client側・新設）: Coreのセッションスナップショット `{ revision, epoch, presentation_song_sample, clock_quality }`（#107で定義、**現時点APIは未確定**）を受け、`KaraokeViewModel.Seek`相当へ渡す。`revision`が古い、または`epoch`が**現行より古い**更新は捨てる。新しいepoch（シーク・デバイス切替で増える）は受理して現行epochを更新し、歌唱線・暫定採点の表示状態を破棄して再基準化する。
 - 表示補間: スナップショット間のみ、単調・有界（例: 最後の値から経過分だけ。上限超過で停止）。補間値を採点や位置の正本にしない。
-- `SingerPitchTrack`（新設）: Coreが送る`PitchObservation`相当（#14）を直近N秒のリングで保持し、音程バー座標に変換。無声/拒否区間は線を描かない。epoch切替で破棄。
+- `SingerPitchTrack`（新設）: Coreが送る**曲sampleへ写像済み**の観測（#14の14.3後。capture streamの生sampleをGUIで変換しない）を直近N秒のリングで保持し、音程バー座標に変換。無声/拒否区間は線を描かない。epoch切替で破棄。
 - `ScoreFeedbackModel` / `ResultViewModel`（新設）: 暫定得点（練習/暫定ラベル付き）と曲終了後の結果。`unscored_reason_counts`と遅延品質（Unknown/Estimated/Measured）を必ず表示し、「精度保証」と読める文言を出さない。
 
 **エラー**: Core切断・stale epoch・状態`interrupted`は画面に明示し、旧位置で再生中に見せない。Core再接続後に旧セッションを自動再開しない。
