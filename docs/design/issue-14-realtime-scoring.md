@@ -42,9 +42,9 @@
 |---|---|---|---|
 | 14.1 | `ScoringEngine`の純関数: cent誤差・ノート別指標・集計、`ScoreResult`型とserde | なし | `core/tests/scoring.rs`: ±cent単調、timing単調、無音/無声、gross error（オクターブ）、決定的fixture |
 | 14.2 | `RealtimePitchDetector` trait + 自前実装1つ（依存追加なら[ライセンス確認](../licensing.md)） | 14.1の型 | 合成正弦/ノイズ/無音/オクターブ誤りfixture、フレームごと有界時間、割当なし（事前確保）の確認 |
-| 14.3 | 時刻写像: `PitchObservation`→曲sample、epoch不一致除外、遅延品質の伝播 | 14.1, #40のClockSession | 疑似ドリフト・負補正・シーク/旧epoch混入なしのテスト |
+| 14.3 | 時刻写像: `PitchObservation`→曲sample、epoch不一致除外、遅延品質の伝播 | 14.1。`ClockSession`は実装済み（`core/src/audio_clock.rs`、物理校正のみ#40で未完。`Unknown`を伝播すれば先行可） | 疑似ドリフト・負補正・シーク/旧epoch混入なしのテスト |
 | 14.4 | 結果保存形式（`ScoreResult`のJSON、保存先と版） | 14.1 | round-trip、版違い読込拒否。保存先は未決事項 |
-| 14.5 | #107のworker組成へ接続（練習=暫定/全曲=確定の区別、シーク後の重複加点禁止） | 14.1-14.3, #107 | #107側の`karaoke_session`テスト。ここでは別PR |
+| 14.5 | #107のworker組成へ接続（練習=暫定/全曲=確定の区別、シーク後の重複加点禁止） | 14.1-14.3, #107 | **#107側のスライスの受入項目として扱う**（#14のIssueは14.4までで閉じられる）。テストは#107側`karaoke_session` |
 
 ## 触るファイル
 新設: `core/src/pitch_tracker.rs`、`core/src/scoring.rs`、`core/tests/scoring.rs`、（`core/src/lib.rs`の`mod`宣言のみ）。
