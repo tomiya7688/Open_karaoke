@@ -83,7 +83,8 @@ pub fn summarize_latency(round_trip_samples: &[i64]) -> Result<LatencyReport, Ca
         sorted[count / 2]
     } else {
         let (a, b) = (sorted[count / 2 - 1], sorted[count / 2]);
-        a + (b - a) / 2
+        // i128で加算するため極端な値でもoverflowしない。平均はi64範囲に収まる。
+        i64::try_from((i128::from(a) + i128::from(b)).div_euclid(2)).unwrap_or(a)
     };
     let p95 = nearest_rank(&sorted, 95);
     let n = count as f64;
@@ -118,7 +119,7 @@ pub fn summarize_latency(round_trip_samples: &[i64]) -> Result<LatencyReport, Ca
 #[must_use]
 pub fn capture_calibration(report: &LatencyReport) -> LatencyCalibration {
     LatencyCalibration::Measured {
-        compensation_samples: -report.median_samples,
+        compensation_samples: report.median_samples.saturating_neg(),
         uncertainty_samples: report.p95_abs_deviation_samples,
     }
 }

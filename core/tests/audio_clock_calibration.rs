@@ -33,6 +33,29 @@ fn latency_summary_reports_median_p95_and_std_dev() {
 }
 
 #[test]
+fn extreme_values_do_not_overflow() {
+    let mut samples = vec![i64::MIN; 20];
+    samples.extend(vec![i64::MAX; 20]);
+    let r = summarize_latency(&samples).unwrap();
+    assert_eq!(r.median_samples, -1);
+    assert_eq!(
+        capture_calibration(&r),
+        LatencyCalibration::Measured {
+            compensation_samples: 1,
+            uncertainty_samples: u64::MAX / 2 + 1,
+        }
+    );
+    let all_min = summarize_latency(&[i64::MIN; 30]).unwrap();
+    assert_eq!(
+        capture_calibration(&all_min),
+        LatencyCalibration::Measured {
+            compensation_samples: i64::MAX,
+            uncertainty_samples: 0,
+        }
+    );
+}
+
+#[test]
 fn drift_recovers_known_ppm_with_zero_residual() {
     let step = MIN_DRIFT_SPAN_SAMPLES / 8;
     let obs: Vec<(u64, u64)> = (0..10_u64)
