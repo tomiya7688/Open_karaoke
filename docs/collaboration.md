@@ -68,6 +68,8 @@ git pull --ff-only origin main
 新設するPCMのキュー所有者、委譲、epoch/seek、API、テストを定義する。
 
 
+### 実装とコミット
+
 - 1ブランチ・1PR・1つの実装単位。無関係なリファクタリングや別Issueの変更を混ぜない。
 - [coding_rules.md](coding_rules.md)に従う。特に、宣言コメント(JSON-like)、境界での検証、48 kHz整数sample、テストの用意は必須。
 - 仕様・共有契約・テスト・必要な文書を一緒に更新する。コードと文書が食い違う状態でPRにしない。
