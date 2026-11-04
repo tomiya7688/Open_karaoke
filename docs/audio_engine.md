@@ -198,3 +198,22 @@ frames, but the capture/render callback sizes, WASAPI shared-mode buffering and 
 add latency that no test here measures; there is no physical loopback measurement, and no
 audible check on hardware has been done. Treat latency, glitch-free playback and feedback
 behaviour on real hardware as **Unverified**.
+
+## Inference load evaluator — Issue #43 (slice 43.1)
+
+`core/examples/inference_load_evaluator.rs` runs the mock output callback (`render_mock`,
+480 frames every 10 ms) first idle, then while busy-loop threads and a touched memory ballast
+run in the same process as a synthetic stand-in for Whisper/Stem inference. It reports
+callback p50/p95/p99/max time (nearest-rank over the `render_mock` processing time only, not
+wake-up delay), added `output_underrun_frames` and late wakeups per phase. A late wakeup is a loop iteration that started more than two
+periods (20 ms) after its plan; it is a scheduler metric separate from `output_underrun_frames`.
+Arguments are range-checked (seconds 1..=600, threads <= 256, ballast <= 4096 MiB).
+
+    cargo run --release -p open-karaoke-core --example inference_load_evaluator -- artifacts/inference-load.json [seconds] [load_threads] [ballast_mib]
+
+- It has **no pass/fail gate** (`passed` is `null`) and is not part of CI: timing depends on
+  the machine. Compare baseline vs loaded on the same machine only.
+- It does not measure WASAPI, real inference, GPU/VRAM or a real Python worker. Results from
+  it, including on Windows, are **Unverified** for real-device stability; record them with the
+  conditions printed in the JSON. Worker priority/concurrency changes (43.3) must be judged
+  against a re-measurement from this tool on the target Windows machine.

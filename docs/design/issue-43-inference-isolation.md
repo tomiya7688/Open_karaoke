@@ -33,7 +33,7 @@ Whisper/Stem等の重い推論が走っていても、再生・マイクモニ�
 ## 実装スライス
 | # | 内容 | 依存 | 完了条件・テスト |
 |---|---|---|---|
-| 43.1 | 計測: 合成負荷（CPU/メモリ）下でmock音声経路のunderrun/p95を記録するevaluator | #12 | `core/examples/`系の測定ツール。結果は`Unverified`欄に条件付きで記録 |
+| 43.1 | 計測: 合成負荷（CPU/メモリ）下でmock音声経路のunderrun/p95を記録するevaluator | #12 | `core/examples/`系の測定ツール。結果は`Unverified`欄に条件付きで記録。**実装済み**: `core/examples/inference_load_evaluator.rs`（手順は`docs/audio_engine.md`）。合否ゲートなし・CI対象外 |
 | 43.2 | 再生状態の公開と`defer_while_playing`（Job開始待ち） | #107, #2 | `core/tests/job_api.rs`: 再生中の重いJobが待機、再生終了で開始、cancel可 |
 | 43.3 | worker優先度/同時数の設定と適用 | 43.1の結果 | Windows実機で43.1を再測定し効果を比較（効果なしなら採用しない） |
 | 43.4 | worker crash/Job失敗が再生に波及しない回帰 | #107 | 疑似crash中も`AudioCounters`が増え続けテストが再生継続を確認 |
