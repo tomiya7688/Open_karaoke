@@ -4,6 +4,16 @@
 > 現在のPython側 [Score Generation](score_generation.md) は採点用正解譜面の**生成**であり、
 > マイク歌唱の採点機能ではありません。実装状況は [Current status](current_status.md) を参照してください。
 
+## 実装前に明確化する契約（2026-11-04）
+
+本書の採点アルゴリズムは、実装の前提となる概念設計である。音声入力のepoch管理、`RealtimePitchDetector`、
+サンプル境界ごとのquality mask、practice/whole-songの区別、Core sessionとGUIの責務は
+[Karaoke session integration](karaoke_session_design.md) に具体化した。
+検証の段階・信頼度の意味・実歌唱データによる校正については
+[Analysis quality and UX](quality_and_ux_design.md) を参照する。
+
+合成fixtureでの単調性は、実歌唱や可聴遅延が適切であることを意味しない。
+
 ## 方針
 
 採点は1つのヒューリスティックへ依存せず、独立した評価軸を算出して最後に統合する。
