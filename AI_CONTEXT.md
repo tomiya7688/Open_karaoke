@@ -6,13 +6,13 @@ Rust Core / Python Analysis Service / C#・Avalonia GUI のモノレポ。
 
 ## 着手する順序
 
-0. 共通規則([共同作業ルール](docs/collaboration.md)): 作業前に必ず`git pull --ff-only`、終了時は必ずPR、CIと自己レビューが問題なければマージ。
+共通規則と確認表は [AGENTS.md](AGENTS.md) と [実装チェックリスト](docs/implementation_checklist.md)（pull・ブランチ・PR・CI・自己レビュー・マージ）。ここでは繰り返さない。
+
 1. 今回の依頼と対象Issueを確認する。「次」の場合もIssueの状態を取得する。
-2. [Remote delta](docs/ai_workflow.md#remote-delta)でブランチ・差分・未統合PRを確認し、統合済み・他者作業中の実装と重複しないことを確かめる。
-3. [Task routes](docs/ai_workflow.md#task-routes)の該当行からsourceとtestsだけを選ぶ。
-4. Goal / Required / Acceptance / Working setを短く決め、必要な根拠が揃ったら実装へ進む。
+2. [設計書索引](docs/design/README.md)の該当行から設計書と次のスライスを選ぶ。
+3. [Remote delta](docs/ai_workflow.md#remote-delta)で未統合PR・他者作業との重複を確認する。
+4. [Task routes](docs/ai_workflow.md#task-routes)の該当行からsourceとtestsだけを選び、Goal / Required / Acceptance / Working setを短く決めて実装へ進む。
 5. 対象検証から始め、共有契約の変更や不明な影響があれば検証範囲を広げる。
-6. 終了時はPRを作り、最新SHAのCIと自己レビューを確認してからマージする。
 
 ## 正本
 
