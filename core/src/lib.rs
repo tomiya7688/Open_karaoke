@@ -3,6 +3,7 @@
 pub mod analysis_service;
 pub mod artifact_ref;
 pub mod audio_clock;
+pub mod audio_clock_calibration;
 pub mod audio_device;
 pub mod audio_engine;
 pub mod audio_import;
