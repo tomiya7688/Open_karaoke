@@ -11,6 +11,8 @@ Refs #（全条件を満たす場合のみ Closes #）
 
 ## Source / Tests
 
+- 実装者向け[編集マップ](https://github.com/tomiya7688/Open_karaoke/blob/main/docs/implementation_navigation.md)のIssue行:
+- 最初に編集するファイル・型/関数、触らない境界:
 - 変更するsourceと対応するtest:
 - 設計書の各契約 → 対応コード・テスト:
 - 既存契約・互換性への影響:
