@@ -5,10 +5,7 @@
 
 use serde::Serialize;
 
-use crate::{
-    audio_engine::AudioIo,
-    mixer_control::{MixerControl, MonitorMixer},
-};
+use crate::{audio_engine::AudioIo, mixer_control::MixerControl};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -50,9 +47,9 @@ mod platform {
 
     use crate::audio_engine::SAMPLE_RATE;
 
-    use super::{
-        AudioDeviceInfo, AudioIo, DeviceDirection, MixerControl, MonitorMixer, WasapiMode,
-    };
+    use super::{AudioDeviceInfo, AudioIo, DeviceDirection, MixerControl, WasapiMode};
+
+    use crate::mixer_control::MonitorMixer;
 
     fn host() -> Result<Host, String> {
         cpal::host_from_id(cpal::HostId::Wasapi).map_err(|error| error.to_string())
