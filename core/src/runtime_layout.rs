@@ -161,13 +161,18 @@ impl RuntimeManifest {
     /// # Errors
     /// Returns I/O, size, parse, schema or content validation errors.
     pub fn load(path: &Path) -> Result<Self, RuntimeManifestError> {
-        let metadata =
-            std::fs::metadata(path).map_err(|e| RuntimeManifestError::Io(e.to_string()))?;
-        if metadata.len() > MANIFEST_MAX_BYTES {
+        use std::io::Read;
+        let file =
+            std::fs::File::open(path).map_err(|e| RuntimeManifestError::Io(e.to_string()))?;
+        // Bound the bytes actually read so a file that grows after open cannot exceed the cap.
+        let mut bytes = Vec::new();
+        file.take(MANIFEST_MAX_BYTES + 1)
+            .read_to_end(&mut bytes)
+            .map_err(|e| RuntimeManifestError::Io(e.to_string()))?;
+        if bytes.len() as u64 > MANIFEST_MAX_BYTES {
             return Err(RuntimeManifestError::TooLarge);
         }
-        let text =
-            std::fs::read_to_string(path).map_err(|e| RuntimeManifestError::Io(e.to_string()))?;
+        let text = String::from_utf8(bytes).map_err(|e| RuntimeManifestError::Io(e.to_string()))?;
         Self::parse(&text)
     }
 
