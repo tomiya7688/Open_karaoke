@@ -10,6 +10,7 @@ pub mod audio_wav;
 pub mod mixer;
 pub mod mixer_api;
 pub mod mixer_control;
+pub mod runtime_layout;
 pub mod song_api;
 pub mod song_data;
 pub mod song_library;

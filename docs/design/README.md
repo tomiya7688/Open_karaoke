@@ -29,7 +29,7 @@
 | #36 全曲解析/登録 | Python/登録API済み。元音源〜GUI未 | [#36残り設計](issue-36-source-import-flow.md)、[全曲解析](../full_song_analysis.md)、[登録](../song_import.md) | #4 | 36.1 |
 | #37 外部MIDI | 実装あり（実MIDI corpus未評価） | [MIDI import](../midi_import.md) | #3 #11 | 実MIDIでの評価 |
 | #38 任意編集 | 未（P3） | [#38設計](issue-38-note-editor.md) | #3 #15 #16 | 38.1 |
-| #39 Windows配布 | 配布候補zipのみ | [#39設計](issue-39-windows-packaging.md) | #15 #17 #67 | 39.1 |
+| #39 Windows配布 | 配布候補zipのみ（39.1 配置解決実装済み） | [#39設計](issue-39-windows-packaging.md) | #15 #17 #67 | 39.2 |
 | #40 クロック/遅延 | 合成契約済み。物理校正未 | [Audio clock](../audio_clock.md)、[実装単位](../implementation_plan.md#40の実装単位p0は空けておく) | #12 | plan記載の次単位 |
 | #41 Core API保護 | 一部実装、PR #95 | [Core API](../core_api.md)、[実装単位](../implementation_plan.md#41の実装単位p0は空けておく) | #2 #15 | PR #95 の統合後 |
 | #42 実歌唱データ | 一部実装 | [データセット](../dataset_evaluation.md)、[実装単位](../implementation_plan.md#42の実装単位p0は空けておく) | #18 | plan記載の次単位 |
