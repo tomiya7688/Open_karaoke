@@ -1003,7 +1003,7 @@ finally {
     if ($commentFiles.Count) {
         $plan.Add((New-Check 'decl-comments' '変更宣言のJSON-likeコメント' $true { param($d)
                     if (-not $d) { throw 'UNVERIFIED: 比較元git refがなくコメント契約を確認できません' }
-                    Invoke-Python @('scripts/check_declaration_comments.py', '--base', $d, '--head', 'WORKTREE')
+                    Invoke-Python (@('scripts/check_declaration_comments.py', '--base', $d, '--head', 'WORKTREE'))
                 } 'pwsh scripts/check_local.ps1' $MergeBase))
     }
 
