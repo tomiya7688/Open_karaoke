@@ -10,9 +10,7 @@
 `AI_CONTEXT.md`やCopilot/Claude向けの入口でも参照されている。
 **ただし「参照されている」だけでは準拠していない。**
 
-通常のCIはRuff、Rustfmt/Clippy、.NETのビルドなどを実行するが、
-現行の宣言コメントについてJSON-likeの`責務`/`フィールド`/`処理`/`引数`/`戻り値`
-が存在するかを検査する専用処理はなかった。
+通常のCIはRuff、Rustfmt/Clippy、.NETのビルドなどを実行するが、従来は宣言コメントの専用検査がなかった。今回`scripts/check_declaration_comments.py`を追加し、PRで**追加・署名変更した本番コードの宣言だけ**にJSON-like規約の必須項目を検査する（既存コード全体の自動監査ではない）。
 
 ### 代表例
 
@@ -35,6 +33,15 @@
 3. 実装の振る舞いが変わったら**コメントも同じコミットで更新**し、[設計書](collaboration.md#2-作業中)の責務・不変条件と照合する。
 4. 既存ファイルの数百宣言すべてを、無関係な機能PRで一括変更しない。後続の変更時に段階的に修正する。
 5. 自動検査は、**差分に新規追加・署名変更のある宣言のみ**をまず対象にする。既存の不足を理由に無関係なPRをすべて失敗させない。正規表現ヒューリスティックだけで完全に守られたと宣言しない。
+
+## 差分自動検査（今回追加）
+
+- CI: Linuxの標準workflowで`python scripts/check_declaration_comments.py --base HEAD^1`を実行。checkoutはbaseの親commitを確認できるようdepth 2とする。
+- ローカル: 既存の単一入口`pwsh scripts/check_local.ps1`に同じ検査を組み込む。作業ツリーで変更した宣言と未追跡の新規sourceも対象。
+- 対象: `core/src/**/*.rs`、`python/src/open_karaoke_analysis/**/*.py`、`gui/OpenKaraoke.Client/**/*.cs`、`gui/OpenKaraoke.Gui/**/*.cs`。
+- PythonはASTで宣言とdocstringを照合。Rust/C#は宣言開始行と直前の`///`を**簡易検査**。複雑な構文・宣言の内部変更・既存の未整備箇所は依然として手動レビューが必要。
+- 欠落の自動検査は**設計書の内容・コメントの正確さを保証しない**。コードと違うコメントや必要なエラーの記述不足は人間/エージェントのレビューが必要。
+- テスト: `python/tests/test_declaration_comments.py`。
 
 ## コメントに最低限記載すること
 
