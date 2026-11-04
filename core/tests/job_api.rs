@@ -35,6 +35,61 @@ async fn call(router: &Router, method: &str, path: &str, body: Value) -> (Status
     (status, serde_json::from_slice(&bytes).unwrap())
 }
 
+/// Framework body rejections are plain text, so only the status is compared.
+async fn put_status(router: &Router, path: &str, body: &Value) -> StatusCode {
+    router
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("PUT")
+                .uri(path)
+                .header("content-type", "application/json")
+                .body(Body::from(body.to_string()))
+                .unwrap(),
+        )
+        .await
+        .unwrap()
+        .status()
+}
+
+#[tokio::test]
+async fn mixer_settings_are_read_clamped_written_and_shared_with_the_engine() {
+    let state = AppState::new();
+    let control = state.mixer_control();
+    let router = app(state);
+    let (status, value) = call(&router, "GET", "/mixer", Value::Null).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(value["mic_monitor"], false, "monitoring is opt-in");
+    assert_eq!(value["echo_delay_ms"], 200);
+    let wild = json!({
+        "music_gain": 9.0, "mic_gain": 0.5, "echo_level": 0.4, "echo_delay_ms": 5000,
+        "echo_feedback": 0.5, "reverb_level": -1.0, "effects_bypass": true, "mic_monitor": true
+    });
+    let (status, value) = call(&router, "PUT", "/mixer", wild).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(value["music_gain"], 2.0);
+    assert_eq!(value["echo_delay_ms"], 1000);
+    assert_eq!(value["reverb_level"], 0.0);
+    assert_eq!(value["effects_bypass"], true);
+    let (_, again) = call(&router, "GET", "/mixer", Value::Null).await;
+    assert_eq!(again, value, "GET returns what PUT applied");
+    let applied = control.get();
+    assert!(applied.mic_monitor && applied.mixer.effects_bypass);
+    assert_eq!(applied.mixer.echo_delay_frames, 48_000);
+    let missing = json!({"music_gain": 1.0});
+    assert_eq!(
+        put_status(&router, "/mixer", &missing).await,
+        StatusCode::UNPROCESSABLE_ENTITY
+    );
+    let mut unknown = value.clone();
+    unknown["surprise"] = json!(1);
+    assert_eq!(
+        put_status(&router, "/mixer", &unknown).await,
+        StatusCode::UNPROCESSABLE_ENTITY
+    );
+    assert_eq!(control.get(), applied, "refused writes change nothing");
+}
+
 #[tokio::test]
 async fn model_selection_needs_the_analysis_service_and_a_valid_body() {
     let router = app(AppState::new());

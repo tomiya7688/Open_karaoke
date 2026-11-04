@@ -75,6 +75,8 @@ public sealed class ShellViewModel : INotifyPropertyChanged, IAsyncDisposable
     public bool HasJob => _job is not null;
     // 曲一覧と表示中の曲。曲の取得失敗はCore接続の失敗とは扱わず、エラー表示だけにする。
     public KaraokeViewModel Karaoke { get; } = new();
+    // モニタ音量・エコー・リバーブの調整。接続・切断に合わせて読み込みと破棄だけをここから指示する。
+    public MixerViewModel Mixer { get; } = new();
     public IReadOnlyList<SongListItem> Songs => _songs;
     // 読み込み中は選択を変えない(完了した曲と選択がずれないようにする)。
     public SongListItem? SelectedSong
@@ -162,6 +164,7 @@ public sealed class ShellViewModel : INotifyPropertyChanged, IAsyncDisposable
             _modelSelection = selection;
             RebuildModelChoices();
             _ = MonitorConnectionAsync(epoch, _connection, token);
+            _ = Mixer.AttachAsync(_connection.Api, token);
         }
         catch (OperationCanceledException) when (token.IsCancellationRequested) { }
         catch (Exception error)
@@ -567,6 +570,7 @@ public sealed class ShellViewModel : INotifyPropertyChanged, IAsyncDisposable
         _selectedSong = null;
         _songsLoaded = _songsTruncated = false;
         Karaoke.Clear();
+        Mixer.Detach();
         Changed();
         try
         {

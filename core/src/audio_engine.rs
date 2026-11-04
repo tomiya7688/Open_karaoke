@@ -12,7 +12,10 @@ use std::{
     },
 };
 
-use crate::audio_clock::ClockEpoch;
+use crate::{
+    audio_clock::ClockEpoch,
+    mixer_control::{MONITOR_BLOCK_FRAMES, MixerControl, MonitorMixer},
+};
 
 pub const SAMPLE_RATE: u32 = 48_000;
 pub const DEFAULT_BUFFER_FRAMES: usize = 48_000;
@@ -157,6 +160,9 @@ impl<const CHANNELS: usize> FrameRing<CHANNELS> {
 struct Shared {
     output: FrameRing<2>,
     microphone: FrameRing<1>,
+    /// Second copy of the raw microphone for monitoring only; scoring never reads it.
+    monitor_tap: FrameRing<1>,
+    mixer: MixerControl,
     // Neither mutex is acquired in a device callback.
     output_writer: Mutex<()>,
     microphone_reader: Mutex<()>,
@@ -247,6 +253,23 @@ impl AudioIo {
     /// # Errors
     /// Returns an error for a zero, tiny or excessively large queue.
     pub fn new(queue_capacity_frames: usize) -> Result<Self, AudioError> {
+        Self::with_mixer_control(queue_capacity_frames, MixerControl::default())
+    }
+
+    /// {
+    ///   責務: [`with_mixer_control`: 共有のミキサー設定を持つ`AudioIo`を作る]
+    ///   処理: [1: queue容量を検証する, 2: output/capture/monitor tapのringを確保する]
+    ///   引数: [`queue_capacity_frames`: 各ringのframe容量, `mixer`: 制御側と共有するミキサー設定]
+    ///   戻り値: [`AudioIo`: 共有音声状態]
+    ///   エラー: [`InvalidCapacity`: 容量が許容範囲外]
+    /// }
+    ///
+    /// # Errors
+    /// Returns an error for a zero, tiny or excessively large queue.
+    pub fn with_mixer_control(
+        queue_capacity_frames: usize,
+        mixer: MixerControl,
+    ) -> Result<Self, AudioError> {
         if !(32..=MAX_BUFFER_FRAMES).contains(&queue_capacity_frames) {
             return Err(AudioError::InvalidCapacity);
         }
@@ -254,6 +277,8 @@ impl AudioIo {
             shared: Arc::new(Shared {
                 output: FrameRing::new(queue_capacity_frames),
                 microphone: FrameRing::new(queue_capacity_frames),
+                monitor_tap: FrameRing::new(queue_capacity_frames),
+                mixer,
                 output_writer: Mutex::new(()),
                 microphone_reader: Mutex::new(()),
                 clock_epoch: AtomicU64::new(1),
@@ -555,51 +580,123 @@ impl AudioIo {
             samples.fill(S::silence());
             return;
         }
-        let output_start = self.shared.output_position.load(Ordering::Relaxed);
-        let mut emitted = 0_u64;
-        let mut underruns = 0_u64;
-        let mut last_presentation = None;
+        let mut progress = RenderProgress::new(self.shared.output_position.load(Ordering::Relaxed));
         let mut chunks = samples.chunks_exact_mut(channels);
         for frame in chunks.by_ref() {
-            let epoch = self.shared.clock_epoch.load(Ordering::Acquire);
-            let queued = self.shared.output.pop();
-            let stereo = queued.filter(|item| item.epoch == epoch);
-            let [left, right] = stereo.as_ref().map_or([0.0, 0.0], |item| item.samples);
-            if let Some(item) = stereo {
-                last_presentation = Some(if item.sample_position == UNKNOWN_SONG_SAMPLE {
-                    (0, 0, 0)
-                } else {
-                    (
-                        epoch,
-                        output_start.wrapping_add(emitted),
-                        item.sample_position,
-                    )
-                });
-            } else {
-                underruns += 1;
-            }
-            for (channel, sample) in frame.iter_mut().enumerate() {
-                let value = if channels == 1 {
-                    f32::midpoint(left, right)
-                } else if channel == 0 {
-                    left
-                } else if channel == 1 {
-                    right
+            let stereo = self.pop_music_frame(&mut progress);
+            write_frame(frame, stereo);
+        }
+        chunks.into_remainder().fill(S::silence());
+        self.publish_render(&progress);
+    }
+
+    /// {
+    ///   責務: [`render_monitored`: 伴奏に、設定済みのモニタ用マイク・エコー・リバーブを混ぜて出力する]
+    ///   処理: [
+    ///     1: 再生状態を確認し、設定の変化を反映する,
+    ///     2: マイクtapの滞留を2ブロック分に制限するか、モニタ停止中なら捨てる,
+    ///     3: 固定長ブロックごとに伴奏とマイクをMixerへ渡し、結果をdeviceのchannelへ書く,
+    ///     4: 通常の`render`と同じcounterと提示時刻を公開する
+    ///   ]
+    ///   引数: [samples: device出力, channels: device channel数, monitor: callbackが所有するMonitorMixer]
+    ///   戻り値: []
+    ///   補足: [確保・lock・I/Oをしない。採点用のmicrophone ringには触れない]
+    /// }
+    pub(crate) fn render_monitored<S: OutputSample>(
+        &self,
+        samples: &mut [S],
+        channels: usize,
+        monitor: &mut MonitorMixer,
+    ) {
+        if channels == 0 || !self.shared.playing.load(Ordering::Acquire) {
+            samples.fill(S::silence());
+            return;
+        }
+        monitor.refresh();
+        let total_frames = samples.len() / channels;
+        self.limit_monitor_backlog(monitor.mic_monitor, total_frames);
+        let mut progress = RenderProgress::new(self.shared.output_position.load(Ordering::Relaxed));
+        let (body, remainder) = samples.split_at_mut(total_frames * channels);
+        remainder.fill(S::silence());
+        for block in body.chunks_mut(channels * MONITOR_BLOCK_FRAMES) {
+            let frames = block.len() / channels;
+            for index in 0..frames {
+                monitor.music[index] = self.pop_music_frame(&mut progress);
+                monitor.mic[index] = if monitor.mic_monitor {
+                    self.shared
+                        .monitor_tap
+                        .pop()
+                        .map_or(0.0, |item| item.samples[0])
                 } else {
                     0.0
                 };
-                *sample = S::from_normalized(value);
             }
-            emitted += 1;
+            // The three slices have the same length, so the mixer cannot refuse the block.
+            let _ = monitor.mixer.process(
+                &monitor.music[..frames],
+                &monitor.mic[..frames],
+                &mut monitor.out[..frames],
+            );
+            for (frame, mixed) in block.chunks_exact_mut(channels).zip(&monitor.out) {
+                write_frame(frame, *mixed);
+            }
         }
-        chunks.into_remainder().fill(S::silence());
+        self.publish_render(&progress);
+    }
+
+    /// {
+    ///   責務: [`limit_monitor_backlog`: モニタ用マイクの滞留が遅延として積み上がらないようにする]
+    ///   処理: [1: モニタ停止中は全て捨てる, 2: 稼働中は直近2ブロック分だけ残して古い方を捨てる]
+    ///   引数: [`active`: モニタ中か, `block_frames`: 今回のcallbackのframe数]
+    ///   戻り値: []
+    /// }
+    fn limit_monitor_backlog(&self, active: bool, block_frames: usize) {
+        let keep = if active { block_frames * 2 } else { 0 };
+        for _ in 0..self.shared.monitor_tap.queued().saturating_sub(keep) {
+            let _ = self.shared.monitor_tap.pop();
+        }
+    }
+
+    /// {
+    ///   責務: [`pop_music_frame`: 現epochの伴奏1frameを取り出し、無ければ無音として数える]
+    ///   処理: [1: ringから取り出す, 2: 旧epochなら無音にする, 3: 提示時刻とunderrunを記録する]
+    ///   引数: [progress: このcallbackの出力位置と記録]
+    ///   戻り値: [`[左, 右]`のPCM]
+    /// }
+    fn pop_music_frame(&self, progress: &mut RenderProgress) -> [f32; 2] {
+        let epoch = self.shared.clock_epoch.load(Ordering::Acquire);
+        let stereo = self.shared.output.pop().filter(|item| item.epoch == epoch);
+        let pcm = stereo.as_ref().map_or([0.0, 0.0], |item| item.samples);
+        if let Some(item) = stereo {
+            progress.last_presentation = Some(if item.sample_position == UNKNOWN_SONG_SAMPLE {
+                (0, 0, 0)
+            } else {
+                (
+                    epoch,
+                    progress.output_start.wrapping_add(progress.emitted),
+                    item.sample_position,
+                )
+            });
+        } else {
+            progress.underruns += 1;
+        }
+        progress.emitted += 1;
+        pcm
+    }
+
+    /// {
+    ///   責務: [`publish_render`: 出力位置・underrun・最後の提示時刻を公開する]
+    ///   引数: [progress: このcallbackの記録]
+    ///   戻り値: []
+    /// }
+    fn publish_render(&self, progress: &RenderProgress) {
         self.shared
             .output_position
-            .fetch_add(emitted, Ordering::Release);
+            .fetch_add(progress.emitted, Ordering::Release);
         self.shared
             .output_underruns
-            .fetch_add(underruns, Ordering::Relaxed);
-        if let Some((epoch, output_sample, song_sample)) = last_presentation {
+            .fetch_add(progress.underruns, Ordering::Relaxed);
+        if let Some((epoch, output_sample, song_sample)) = progress.last_presentation {
             self.shared
                 .presentation_sequence
                 .fetch_add(1, Ordering::AcqRel);
@@ -618,6 +715,25 @@ impl AudioIo {
         }
     }
 
+    /// Deterministic mock entry point for the monitored output path.
+    pub fn render_monitored_mock(
+        &self,
+        samples: &mut [f32],
+        channels: usize,
+        monitor: &mut MonitorMixer,
+    ) {
+        self.render_monitored(samples, channels, monitor);
+    }
+
+    /// {
+    ///   責務: [`mixer_control`: 制御側が設定を変えるための共有ハンドルを返す]
+    ///   戻り値: [この`AudioIo`が使う`MixerControl`のclone]
+    /// }
+    #[must_use]
+    pub fn mixer_control(&self) -> MixerControl {
+        self.shared.mixer.clone()
+    }
+
     /// {
     ///   責務: [`capture`: callbackのraw mono `PCM`へ現epochと欠落を含むcapture位置を付ける]
     ///   処理: [1: channelをdownmixする, 2: 時刻付きframeを送る, 3: 受信数と欠落数を公開する]
@@ -633,6 +749,7 @@ impl AudioIo {
         let first_sample = self.shared.captured_frames.load(Ordering::Relaxed);
         let mut received = 0_u64;
         let mut dropped = 0_u64;
+        let monitoring = self.shared.mixer.mic_monitor_enabled();
         for frame in samples.chunks_exact(channels) {
             // All channel conversions are pure and allocation-free.
             let sample = frame.iter().copied().map(S::to_normalized).sum::<f32>() / channels as f32;
@@ -643,6 +760,10 @@ impl AudioIo {
             {
                 dropped += 1;
             }
+            if monitoring {
+                // A full tap only costs monitor samples; the scoring ring above is unaffected.
+                let _ = self.shared.monitor_tap.push(epoch, 0, [sample]);
+            }
             received += 1;
         }
         self.shared
@@ -651,6 +772,54 @@ impl AudioIo {
         self.shared
             .input_overruns
             .fetch_add(dropped, Ordering::Relaxed);
+    }
+}
+
+/// {
+///   責務: [`RenderProgress`: 1回の出力callbackで進めた位置・無音補完・最後の提示時刻を集める]
+///   フィールド: [`output_start`: 開始時の出力位置, emitted: 進めたframe数, underruns: 無音補完数, `last_presentation`: 最後の提示時刻]
+/// }
+struct RenderProgress {
+    output_start: u64,
+    emitted: u64,
+    underruns: u64,
+    last_presentation: Option<(u64, u64, u64)>,
+}
+
+impl RenderProgress {
+    /// {
+    ///   責務: [`new`: 開始位置だけを持つ空の記録を作る]
+    ///   引数: [`output_start`: callback開始時の出力位置]
+    ///   戻り値: [`RenderProgress`]
+    /// }
+    fn new(output_start: u64) -> Self {
+        Self {
+            output_start,
+            emitted: 0,
+            underruns: 0,
+            last_presentation: None,
+        }
+    }
+}
+
+/// {
+///   責務: [`write_frame`: 1つのstereo frameをdeviceのchannel数に合わせて書く]
+///   引数: [frame: device 1frame分の出力, stereo: 左右のPCM]
+///   戻り値: []
+/// }
+fn write_frame<S: OutputSample>(frame: &mut [S], [left, right]: [f32; 2]) {
+    let channels = frame.len();
+    for (channel, sample) in frame.iter_mut().enumerate() {
+        let value = if channels == 1 {
+            f32::midpoint(left, right)
+        } else if channel == 0 {
+            left
+        } else if channel == 1 {
+            right
+        } else {
+            0.0
+        };
+        *sample = S::from_normalized(value);
     }
 }
 

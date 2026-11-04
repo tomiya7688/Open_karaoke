@@ -286,6 +286,54 @@
           </StackPanel>
         </ScrollViewer>
       </TabItem>
+      <TabItem Header="ミキサー">
+        <ScrollViewer>
+          <StackPanel Spacing="16" Margin="0,12,0,20" MaxWidth="820" HorizontalAlignment="Left">
+            <Border Classes="card">
+              <StackPanel Spacing="14" IsEnabled="{Binding Mixer.IsAvailable}">
+                <StackPanel Spacing="4">
+                  <TextBlock Classes="cardTitle" Text="ミキサー" />
+                  <TextBlock Classes="caption" TextWrapping="Wrap" Text="{Binding Mixer.Status}" />
+                </StackPanel>
+                <Grid ColumnDefinitions="180,*,56" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto" ColumnSpacing="16" RowSpacing="8">
+                  <TextBlock Grid.Row="0" Classes="caption" Text="伴奏の音量" VerticalAlignment="Center" />
+                  <Slider Grid.Row="0" Grid.Column="1" Minimum="0" Maximum="2" SmallChange="0.01" LargeChange="0.1"
+                          Value="{Binding Mixer.MusicGain, Mode=TwoWay}" AutomationProperties.Name="伴奏の音量" />
+                  <TextBlock Grid.Row="0" Grid.Column="2" Text="{Binding Mixer.MusicGain, StringFormat={}{0:0.00}}" VerticalAlignment="Center" />
+                  <TextBlock Grid.Row="1" Classes="caption" Text="マイクの音量" VerticalAlignment="Center" />
+                  <Slider Grid.Row="1" Grid.Column="1" Minimum="0" Maximum="2" SmallChange="0.01" LargeChange="0.1"
+                          Value="{Binding Mixer.MicGain, Mode=TwoWay}" AutomationProperties.Name="マイクの音量" />
+                  <TextBlock Grid.Row="1" Grid.Column="2" Text="{Binding Mixer.MicGain, StringFormat={}{0:0.00}}" VerticalAlignment="Center" />
+                  <TextBlock Grid.Row="2" Classes="caption" Text="エコーの量" VerticalAlignment="Center" />
+                  <Slider Grid.Row="2" Grid.Column="1" Minimum="0" Maximum="1" SmallChange="0.01" LargeChange="0.1"
+                          Value="{Binding Mixer.EchoLevel, Mode=TwoWay}" AutomationProperties.Name="エコーの量" />
+                  <TextBlock Grid.Row="2" Grid.Column="2" Text="{Binding Mixer.EchoLevel, StringFormat={}{0:0.00}}" VerticalAlignment="Center" />
+                  <TextBlock Grid.Row="3" Classes="caption" Text="エコーの遅れ(ミリ秒)" VerticalAlignment="Center" />
+                  <Slider Grid.Row="3" Grid.Column="1" Minimum="1" Maximum="1000" SmallChange="1" LargeChange="10"
+                          Value="{Binding Mixer.EchoDelayMs, Mode=TwoWay}" AutomationProperties.Name="エコーの遅れ(ミリ秒)" />
+                  <TextBlock Grid.Row="3" Grid.Column="2" Text="{Binding Mixer.EchoDelayMs, StringFormat={}{0:0}}" VerticalAlignment="Center" />
+                  <TextBlock Grid.Row="4" Classes="caption" Text="エコーの繰り返し" VerticalAlignment="Center" />
+                  <Slider Grid.Row="4" Grid.Column="1" Minimum="0" Maximum="0.9" SmallChange="0.01" LargeChange="0.1"
+                          Value="{Binding Mixer.EchoFeedback, Mode=TwoWay}" AutomationProperties.Name="エコーの繰り返し" />
+                  <TextBlock Grid.Row="4" Grid.Column="2" Text="{Binding Mixer.EchoFeedback, StringFormat={}{0:0.00}}" VerticalAlignment="Center" />
+                  <TextBlock Grid.Row="5" Classes="caption" Text="リバーブの量" VerticalAlignment="Center" />
+                  <Slider Grid.Row="5" Grid.Column="1" Minimum="0" Maximum="1" SmallChange="0.01" LargeChange="0.1"
+                          Value="{Binding Mixer.ReverbLevel, Mode=TwoWay}" AutomationProperties.Name="リバーブの量" />
+                  <TextBlock Grid.Row="5" Grid.Column="2" Text="{Binding Mixer.ReverbLevel, StringFormat={}{0:0.00}}" VerticalAlignment="Center" />
+                </Grid>
+                <ToggleSwitch Content="エコー・リバーブを使わない(マイクは遅れずにそのまま聞こえます)"
+                              IsChecked="{Binding Mixer.EffectsBypass, Mode=TwoWay}" AutomationProperties.Name="エコーとリバーブをバイパス" />
+                <ToggleSwitch Content="マイクの声を自分のスピーカーへ流す(スピーカー使用時はハウリングに注意)"
+                              IsChecked="{Binding Mixer.MicMonitor, Mode=TwoWay}" AutomationProperties.Name="マイクをモニタする" />
+              </StackPanel>
+            </Border>
+            <Border Classes="infoBar">
+              <TextBlock Classes="body" TextWrapping="Wrap"
+                         Text="設定はCoreが保持し、音声エンジンの次の処理から反映されます。採点に使うマイクの生信号には影響しません。実機での遅延は未測定です。" />
+            </Border>
+          </StackPanel>
+        </ScrollViewer>
+      </TabItem>
     </TabControl>
 
     <!-- 下部の注意書き -->

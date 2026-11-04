@@ -15,6 +15,9 @@ use crate::audio_engine::SAMPLE_RATE;
 pub const ADDED_MONITOR_LATENCY_FRAMES: usize = 0;
 /// Longest echo delay: one second of frames at the engine sample rate.
 pub const MAX_ECHO_DELAY_FRAMES: usize = SAMPLE_RATE as usize;
+/// Frames over which a changed echo delay crossfades from the old to the new read
+/// position (10 ms), so that moving the tap does not click.
+pub const ECHO_DELAY_CROSSFADE_FRAMES: usize = 480;
 const MAX_GAIN: f32 = 2.0;
 const MAX_ECHO_FEEDBACK: f32 = 0.9;
 
@@ -84,7 +87,15 @@ impl Default for MixerSettings {
 }
 
 impl MixerSettings {
-    fn validate(&self) -> Result<(), MixerError> {
+    /// {
+    ///   責務: [`validate`: 全項目が有限で許容範囲内か確認する]
+    ///   引数: []
+    ///   戻り値: [範囲内なら`Ok`。最初に外れた項目名つきで`InvalidSetting`]
+    /// }
+    ///
+    /// # Errors
+    /// Returns `InvalidSetting` for the first non-finite or out-of-range field.
+    pub fn validate(&self) -> Result<(), MixerError> {
         let in_range = |value: f32, max: f32| value.is_finite() && (0.0..=max).contains(&value);
         if !in_range(self.music_gain, MAX_GAIN) {
             return Err(MixerError::InvalidSetting("music_gain"));
@@ -183,6 +194,7 @@ impl AllPass {
 ///     `settings`: 目標設定。4つの音量は1ブロックで滑らかに追従し、遅延とfeedbackは即時,
 ///     `music_now` / `mic_now` / `echo_now` / `reverb_now`: 現在の実効値,
 ///     `echo_line` / `echo_index`: エコーの遅延線,
+///     `echo_delay_now` / `echo_delay_prev` / `echo_fade_left`: 遅延変更時のクロスフェード状態,
 ///     `combs` / `allpasses`: リバーブ,
 ///     `counters`: 観測値
 ///   ]
@@ -195,6 +207,9 @@ pub struct Mixer {
     reverb_now: f32,
     echo_line: Vec<f32>,
     echo_index: usize,
+    echo_delay_now: usize,
+    echo_delay_prev: usize,
+    echo_fade_left: usize,
     combs: Vec<Comb>,
     allpasses: Vec<AllPass>,
     counters: MixerCounters,
@@ -220,6 +235,9 @@ impl Mixer {
             settings,
             echo_line: vec![0.0; MAX_ECHO_DELAY_FRAMES],
             echo_index: 0,
+            echo_delay_now: settings.echo_delay_frames,
+            echo_delay_prev: settings.echo_delay_frames,
+            echo_fade_left: 0,
             combs: COMB_FRAMES.iter().map(|&n| Comb::new(n)).collect(),
             allpasses: ALLPASS_FRAMES.iter().map(|&n| AllPass::new(n)).collect(),
             counters: MixerCounters::default(),
@@ -237,10 +255,11 @@ impl Mixer {
     /// Returns `InvalidSetting` and keeps the previous settings when a value is invalid.
     pub fn set_settings(&mut self, settings: MixerSettings) -> Result<(), MixerError> {
         settings.validate()?;
-        if settings.effects_bypass && !self.settings.effects_bypass {
+        let entering_bypass = settings.effects_bypass && !self.settings.effects_bypass;
+        self.settings = settings;
+        if entering_bypass {
             self.clear_effects();
         }
-        self.settings = settings;
         Ok(())
     }
 
@@ -256,8 +275,41 @@ impl Mixer {
 
     fn clear_effects(&mut self) {
         self.echo_line.fill(0.0);
+        self.echo_delay_now = self.settings.echo_delay_frames;
+        self.echo_delay_prev = self.echo_delay_now;
+        self.echo_fade_left = 0;
         self.combs.iter_mut().for_each(Comb::clear);
         self.allpasses.iter_mut().for_each(AllPass::clear);
+    }
+
+    fn tap(&self, delay: usize) -> f32 {
+        self.echo_line[(self.echo_index + MAX_ECHO_DELAY_FRAMES - delay) % MAX_ECHO_DELAY_FRAMES]
+    }
+
+    /// {
+    ///   責務: [`read_echo`: 遅延線から1フレーム読む。遅延が変わったら旧位置から新位置へクロスフェードする]
+    ///   処理: [
+    ///     1: クロスフェード中でなく目標遅延が違えば、旧遅延を保存してフェードを始める,
+    ///     2: フェード中は旧位置と新位置を線形に混ぜる(音程は変わらず、ステップもない),
+    ///     3: それ以外は現在の遅延位置を読む
+    ///   ]
+    ///   引数: [target: 設定上の遅延フレーム数]
+    ///   戻り値: [このフレームのエコー入力sample]
+    /// }
+    #[allow(clippy::cast_precision_loss)]
+    fn read_echo(&mut self, target: usize) -> f32 {
+        if self.echo_fade_left == 0 && self.echo_delay_now != target {
+            self.echo_delay_prev = self.echo_delay_now;
+            self.echo_delay_now = target;
+            self.echo_fade_left = ECHO_DELAY_CROSSFADE_FRAMES;
+        }
+        let current = self.tap(self.echo_delay_now);
+        if self.echo_fade_left == 0 {
+            return current;
+        }
+        let old_weight = self.echo_fade_left as f32 / ECHO_DELAY_CROSSFADE_FRAMES as f32;
+        self.echo_fade_left -= 1;
+        self.tap(self.echo_delay_prev) * old_weight + current * (1.0 - old_weight)
     }
 
     fn reverb(&mut self, input: f32) -> f32 {
@@ -330,9 +382,7 @@ impl Mixer {
             }
             let mut wet = 0.0;
             if !settings.effects_bypass {
-                let read = (self.echo_index + MAX_ECHO_DELAY_FRAMES - settings.echo_delay_frames)
-                    % MAX_ECHO_DELAY_FRAMES;
-                let echo = self.echo_line[read];
+                let echo = self.read_echo(settings.echo_delay_frames);
                 self.echo_line[self.echo_index] = monitored + echo * settings.echo_feedback;
                 self.echo_index = (self.echo_index + 1) % MAX_ECHO_DELAY_FRAMES;
                 wet = echo * self.echo_now + self.reverb(monitored) * self.reverb_now;

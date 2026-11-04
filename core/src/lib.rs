@@ -8,6 +8,8 @@ pub mod audio_engine;
 pub mod audio_import;
 pub mod audio_wav;
 pub mod mixer;
+pub mod mixer_api;
+pub mod mixer_control;
 pub mod song_api;
 pub mod song_data;
 pub mod song_library;
@@ -57,6 +59,7 @@ pub struct AppState {
     song_library: Option<song_library::SongLibrary>,
     stopping: Arc<AtomicBool>,
     sse_budget: Arc<Semaphore>,
+    mixer: mixer_control::MixerControl,
 }
 
 impl Default for AppState {
@@ -73,6 +76,7 @@ impl Default for AppState {
             song_library: None,
             stopping: Arc::new(AtomicBool::new(false)),
             sse_budget: Arc::new(Semaphore::new(MAX_SSE_CONNECTIONS)),
+            mixer: mixer_control::MixerControl::default(),
         }
     }
 }
@@ -212,6 +216,19 @@ impl AppState {
         self
     }
 
+    /// Mixer settings shared with the audio engine; hand a clone to the device layer.
+    #[must_use]
+    pub fn mixer_control(&self) -> mixer_control::MixerControl {
+        self.mixer.clone()
+    }
+
+    /// Replace the shared mixer settings so an engine opened with them starts from `control`.
+    #[must_use]
+    pub fn with_mixer_control(mut self, control: mixer_control::MixerControl) -> Self {
+        self.mixer = control;
+        self
+    }
+
     /// Stop admission and request cancellation before runtime teardown.
     /// Active imports that already claimed publication finish without accepting cancellation.
     pub async fn begin_shutdown(&self) {
@@ -296,6 +313,7 @@ pub fn app(state: AppState) -> Router {
         .route("/jobs/{id}/cancel", post(cancel_job))
         .route("/jobs/{id}/events", get(job_events))
         .merge(song_api::routes())
+        .merge(mixer_api::routes())
         .route_layer(middleware::from_fn(api_guard))
         .route("/health", get(health))
         .layer(DefaultBodyLimit::max(MAX_CORE_REQUEST_BYTES))

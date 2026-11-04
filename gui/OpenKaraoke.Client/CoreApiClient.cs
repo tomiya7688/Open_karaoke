@@ -42,6 +42,36 @@ public sealed record ModelSelectionResponse(Dictionary<string, string> Selection
 public sealed record ModelSelectionRequest(string Role, string? ModelId);
 
 /// {
+///   責務: [MixerSettings: GET/PUT /mixer の本文。カラオケのモニタ音量とエコー・リバーブ・bypassの設定]
+///   フィールド: [
+///     MusicGain / MicGain: 伴奏・マイクの音量(0..2),
+///     EchoLevel / ReverbLevel: エコー・リバーブの音量(0..1),
+///     EchoDelayMs: エコーの遅延(1..1000ミリ秒),
+///     EchoFeedback: エコーの繰り返し量(0..0.9),
+///     EffectsBypass: エコー・リバーブを通さない,
+///     MicMonitor: マイクを自分のスピーカーへ戻す(既定はオフ。採点用の生信号には影響しない)
+///   ]
+/// }
+public sealed record MixerSettings(
+    double MusicGain, double MicGain, double EchoLevel, int EchoDelayMs,
+    double EchoFeedback, double ReverbLevel, bool EffectsBypass, bool MicMonitor)
+{
+    /// {
+    ///   責務: [Validate: 全項目が有限で、Coreが受け付ける範囲内か確認する]
+    ///   引数: []
+    ///   戻り値: [範囲内なら何も返さない。外れていればInvalidDataException]
+    /// }
+    internal MixerSettings Validate()
+    {
+        static bool In(double value, double max) => double.IsFinite(value) && value >= 0 && value <= max;
+        if (!In(MusicGain, 2) || !In(MicGain, 2) || !In(EchoLevel, 1) || !In(ReverbLevel, 1) ||
+            !In(EchoFeedback, 0.9) || EchoDelayMs is < 1 or > 1000)
+            throw new InvalidDataException("Invalid Core mixer settings.");
+        return this;
+    }
+}
+
+/// {
 ///   責務: [SongListItem: 曲一覧の1件。破損した曲も隠さずErrorを付けて返る]
 ///   フィールド: [SongId: 曲ID, Title: 曲名, Artist: 歌手, DurationSamples: 48kHzでの長さ, Error: 読めない理由]
 /// }
@@ -108,6 +138,22 @@ public interface ICoreApi
     ///   戻り値: [保存後の選択(role名 -> モデルID)]
     /// }
     Task<IReadOnlyDictionary<string, string>> SetModelSelectionAsync(string role, string? modelId, CancellationToken cancellationToken = default) =>
+        throw new NotSupportedException();
+
+    /// {
+    ///   責務: [GetMixerAsync: 現在のミキサー設定を読む]
+    ///   引数: [cancellationToken: 中断]
+    ///   戻り値: [Coreが保持している設定]
+    /// }
+    Task<MixerSettings> GetMixerAsync(CancellationToken cancellationToken = default) =>
+        throw new NotSupportedException();
+
+    /// {
+    ///   責務: [SetMixerAsync: ミキサー設定を置き換える。範囲外の有限値はCoreが丸める]
+    ///   引数: [settings: 新しい設定, cancellationToken: 中断]
+    ///   戻り値: [Coreが実際に適用した設定]
+    /// }
+    Task<MixerSettings> SetMixerAsync(MixerSettings settings, CancellationToken cancellationToken = default) =>
         throw new NotSupportedException();
 
     Task<JobSnapshot> CreateJobAsync(CreateJobRequest job, CancellationToken cancellationToken = default);
@@ -219,6 +265,31 @@ public sealed class CoreApiClient : ICoreApi, IDisposable
         if (modelId is not null && (modelId.Length is 0 or > 128)) throw new ArgumentException("Invalid model ID.", nameof(modelId));
         var body = new ModelSelectionRequest(role, modelId);
         return ValidSelection(await SendAsync<ModelSelectionResponse>(HttpMethod.Post, "model-selection", body, cancellationToken).ConfigureAwait(false));
+    }
+
+    /// {
+    ///   責務: [GetMixerAsync: ミキサー設定を取得する]
+    ///   処理: [1: GET mixerを送る, 2: 範囲を確認する]
+    ///   引数: [cancellationToken: 中断]
+    ///   戻り値: [設定]
+    ///   エラー: [InvalidDataException: 範囲外または形式不正, CoreApiException: Coreが失敗を返した]
+    /// }
+    public async Task<MixerSettings> GetMixerAsync(CancellationToken cancellationToken = default) =>
+        (await SendAsync<MixerSettings>(HttpMethod.Get, "mixer", null, cancellationToken).ConfigureAwait(false)).Validate();
+
+    /// {
+    ///   責務: [SetMixerAsync: ミキサー設定を保存する]
+    ///   処理: [1: 送る前に全項目が有限か確認する, 2: PUT mixerを送る, 3: 適用値の範囲を確認する]
+    ///   引数: [settings: 新しい設定, cancellationToken: 中断]
+    ///   戻り値: [Coreが適用した設定(範囲外はCoreが丸めた値)]
+    ///   エラー: [ArgumentException: 非有限値, InvalidDataException: 応答が不正, CoreApiException: Coreが拒否した]
+    /// }
+    public async Task<MixerSettings> SetMixerAsync(MixerSettings settings, CancellationToken cancellationToken = default)
+    {
+        if (!double.IsFinite(settings.MusicGain) || !double.IsFinite(settings.MicGain) || !double.IsFinite(settings.EchoLevel) ||
+            !double.IsFinite(settings.EchoFeedback) || !double.IsFinite(settings.ReverbLevel))
+            throw new ArgumentException("Mixer values must be finite.", nameof(settings));
+        return (await SendAsync<MixerSettings>(HttpMethod.Put, "mixer", settings, cancellationToken).ConfigureAwait(false)).Validate();
     }
 
     private static Dictionary<string, string> ValidSelection(ModelSelectionResponse value)

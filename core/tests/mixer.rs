@@ -6,7 +6,8 @@
 #![allow(clippy::float_cmp, clippy::cast_precision_loss)]
 
 use open_karaoke_core::mixer::{
-    ADDED_MONITOR_LATENCY_FRAMES, MAX_ECHO_DELAY_FRAMES, Mixer, MixerError, MixerSettings,
+    ADDED_MONITOR_LATENCY_FRAMES, ECHO_DELAY_CROSSFADE_FRAMES, MAX_ECHO_DELAY_FRAMES, Mixer,
+    MixerError, MixerSettings,
 };
 
 fn dry() -> MixerSettings {
@@ -324,4 +325,45 @@ fn huge_finite_input_cannot_poison_the_effect_state() {
         "state stayed poisoned"
     );
     assert!(mixer.counters().rejected_samples >= 1);
+}
+
+#[test]
+fn echo_delay_change_crossfades_without_a_step() {
+    let settings = MixerSettings {
+        echo_level: 1.0,
+        echo_delay_frames: 100,
+        ..dry()
+    };
+    let mut mixer = Mixer::new(settings).unwrap();
+    // A steady tone fills the delay line, then the delay jumps by a non-multiple of the
+    // period so a hard switch would step; the crossfade must keep every step small.
+    let tone: Vec<f32> = (0..4000)
+        .map(|n| 0.2 * (n as f32 * 0.05).sin() + 0.3)
+        .collect();
+    run(&mut mixer, &silence(2000), &tone[..2000]);
+    mixer
+        .set_settings(MixerSettings {
+            echo_delay_frames: 777,
+            ..settings
+        })
+        .unwrap();
+    let output = run(&mut mixer, &silence(2000), &tone[2000..]);
+    // The monitored dry tone steps at most 0.01 per frame, plus the echo path.
+    let worst = output
+        .windows(2)
+        .map(|w| (w[1][0] - w[0][0]).abs())
+        .fold(0.0_f32, f32::max);
+    assert!(worst < 0.03, "no click while the echo tap moves: {worst}");
+    // After the fade the echo reads the new delay: an impulse repeats 777 frames later.
+    let mut probe = Mixer::new(settings).unwrap();
+    run(&mut probe, &silence(10), &[0.0; 10]);
+    probe
+        .set_settings(MixerSettings {
+            echo_delay_frames: 777,
+            ..settings
+        })
+        .unwrap();
+    let length = ECHO_DELAY_CROSSFADE_FRAMES + 1500;
+    let block = run(&mut probe, &silence(length), &impulse(length, 900, 0.5));
+    assert!((block[900 + 777][0] - 0.5).abs() < 1e-6);
 }
