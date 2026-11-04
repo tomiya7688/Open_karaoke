@@ -55,10 +55,13 @@ body:
     id: design_contract
     attributes:
       label: 設計書・変更する契約
-      description: "実装系はdocs/内の正本の設計書と更新予定の節（または新設するファイル名）、主要な責務・型/操作・状態/エラーを記載。調査/事務タスクならN/Aと理由。Close後の記録だけでなく実装前・実装中に設計書を更新します。"
+      description: "設計書の正本、最初に編集するファイルと型/関数、触らない責務、対応テストを記載。実装前と実装中に設計書を更新。Issue別の導線はdocs/implementation_navigation.md。事務タスクはN/Aと理由。"
       placeholder: |
-        設計書: docs/xxx.md（新設予定 / 既存の○○節）
-        主な決定: ○○が状態を所有し△△へ処理を委譲する
+        設計書: docs/xxx.md（対象節）
+        編集開始: core/src/foo.rs のFoo::bar / python/src/...
+        やること: ○○が状態を所有し△△へ委譲する
+        触らない境界: GUIから直接Pythonを呼ばない等
+        対応テスト: core/tests/... / python/tests/...
         未確定: 実機測定が必要な事項と確認方法
     validations:
       required: true
