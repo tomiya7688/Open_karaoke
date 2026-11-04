@@ -1,59 +1,61 @@
-# Analysis quality and karaoke UX design
+# 解析精度・カラオケの使いやすさの設計
 
-> **Proposed architecture and product acceptance criteria** as of `main` `907d166b2ca0bcfbaf739593a53004d9e0eef02e` (2026-11-04), Issue #106.
+> 状態：**実装前の設計案**。2026-11-04時点の`main` `907d166b2ca0bcfbaf739593a53004d9e0eef02e`を確認。Issue #106。
+> ここに示す品質閾値、自動再解析、インストーラー、実機UXが実装済みという意味ではない。
 >
-> It is not a claim that quality thresholds, auto-reanalysis, installer or real-device UX are implemented. Existing evidence: [Full-song analysis](full_song_analysis.md), [Dataset evaluation](dataset_evaluation.md), [Testing](testing.md), [Desktop client](desktop_client.md), [Model Plugins](model_plugins.md).
+> 根拠となる既存文書：[全曲解析](full_song_analysis.md)、[データセット評価](dataset_evaluation.md)、[テスト](testing.md)、[デスクトップクライアント](desktop_client.md)、[モデル拡張](model_plugins.md)。
 
-## Product objective and constraints
+## 製品として目指す体験と前提
 
-The expected experience is: **choose a song → prepare with the least required work → sing → understand feedback**. Normally no manual lyric/note correction, model installation by hand or audio developer knowledge should be required.
+目標とする通常操作は、**曲を選ぶ → 最小限の準備 → 歌う → 結果を理解する**、という流れである。歌詞・譜面の手動修正や、開発者向けのPython・モデル環境設定を通常利用の前提にしない。
 
-Keep these independent:
+次の3項目を混同しない。
 
-1. **Integrity:** Is the artifact valid (source hash, timing, schema, language and model identity)?
-2. **Estimated quality:** How trustworthy is this segment for the intended use? Derived model confidences and heuristic fusion scores are not necessarily calibrated.
-3. **User action:** Can we sing now? Should one uncertain interval be retried? What can the user do if the result is poor?
+1. **成果物の整合性:** 入力hash、時間範囲、Schema、言語、モデルIDが正しく、ファイルを安全に利用できるか。
+2. **推定品質:** その区間の歌詞・音程・境界をどの程度信頼できるか。モデルのconfidenceやヒューリスティックな合議値が校正されているとは限らない。
+3. **利用者が取れる操作:** 今すぐ歌えるか、問題のある区間を再解析できるか、結果に不満があるとき何をすればよいか。
 
-Do not collapse these into an invented global “95% accurate” label. A synthetic regression pass or successfully downloaded model weight is **not** real-singing quality evidence.
+これらを架空の「精度95%」などの単一値へまとめない。合成データの回帰テスト成功やモデル重みの導入成功は、**実歌唱の精度の証拠ではない**。
 
-## Actual pipeline and missing quality feedback loop
+## 現行の解析経路と不足している品質改善ループ
 
-Current full-song pipeline is one sequential `analysis.song` Job:
-
-```text
-normalized 48kHz WAV
-   → UMX-HQ stems
-   → Whisper lyric candidates
-   → Japanese CTC lyric alignment
-   → YIN/NACF offline F0
-   → Vocal Event boundary fusion
-   → note candidate optimization
-   → SongBundle
-   → separate song.import Job
-```
-
-This already checks source hashes, format, time ranges and artifact ownership. **It does not yet re-run low-quality sections, automatically calibrate confidence, or choose an alternate path for a MIDI/ready-made instrumental input.** A failure at a required stage currently fails the Job; an inaccurate-but-valid result can pass structural tests.
-
-The target pipeline adds a **QualityAssessor / RepairPlanner** after each stage and again before song publication:
+現在の`analysis.song`は、以下の処理を1つのJob内で順に実行する。
 
 ```text
-stage artifacts (immutable)
-     │
-     ├── hard validation ── integrity failure → fail, do not publish
-     │
-     └── quality assessment ── acceptable → continue
-                    │
-                    └── uncertain → bounded retry / alternative evidence
-                                 │
-                                 └── still uncertain → best-effort playable
-                                     with transparent warnings, not fake scores
+48kHzへ正規化したWAV
+  → UMX-HQでボーカル分離
+  → Whisperで歌詞候補を作成
+  → 日本語CTCで歌詞の時刻を整列
+  → YIN/NACFでオフラインF0を推定
+  → Vocal Eventで音符・歌詞境界を融合
+  → 音符候補を時系列で最適化
+  → SongBundle
+  → 別のsong.import JobでSongStoreへ登録
 ```
 
-The RepairPlanner must be deterministic for a fixed artifact set and configuration. It must not invoke arbitrary new models or unbounded recursive retries. Keep audio/lyrics/notes evidence as distinct versioned objects. Do not let text fluency alone overwrite unusual but acoustically plausible lyrics.
+入力hash、形式、時間範囲、成果物の所有範囲は検査している。しかし、**低品質区間の自動再解析、confidenceの校正、既存MIDI・伴奏を使う代替経路の選択は未完成**。
+必須段階が失敗すればJobは失敗する一方、「形式は正しいが歌詞や音程が間違っている」結果は構造検証に通る可能性がある。
 
-## Quality report contract (design proposal)
+今後は各解析段階と登録前に`QualityAssessor`・`RepairPlanner`を追加する。
 
-Store optional quality metadata as a **separate versioned artifact** to avoid silently changing v1 `song.json`/`notes.json`. A draft layout:
+```text
+各段階の成果物（改変せず保持）
+   │
+   ├─ 整合性検査
+   │     └─ 破損・契約違反 → 失敗／登録しない
+   │
+   └─ 品質判定
+         ├─ 許容範囲 → 次段階
+         └─ 不確実 → 制限付き再解析・別の証拠との照合
+                       └─ 改善できない → 警告付きで利用可能にする
+                                        （架空の高得点は付けない）
+```
+
+同じ成果物・設定に対し、RepairPlannerが同じ計画を生成できることを目指す。無制限にモデルを呼び直したり、未知のモデルを勝手に起動したりしない。音源・歌詞・譜面の証拠は別々に版管理し、文章として自然であるという理由だけで音響的にあり得る歌詞を上書きしない。
+
+## 品質レポートの契約案
+
+既存のv1 `song.json` / `notes.json` を暗黙に変更せず、**独立した版付き成果物**として品質情報を保存する。JSONのフィールド名は将来のAPI候補として保持する。
 
 ```json
 {
@@ -85,131 +87,133 @@ Store optional quality metadata as a **separate versioned artifact** to avoid si
 }
 ```
 
-The sample values above are illustrative, **not measured project statistics**. Report should also carry algorithm/config versions, input/annotation provenance, successful/failed attempts, and effective model-selection source. `quality_report` is **not a legal or scientific certification**.
+上記は**形式を示す例**であり、`alignment_coverage: 0.62`は実測結果ではない。実際のレポートにはアルゴリズム・設定の版、入力・正解注釈の出典、成功/失敗した試行、実際に選択されたモデルの由来も記録する。`quality_report`は法律上・科学上の保証書ではない。
 
-Recommended state values:
+品質状態の候補:
 
-- `blocked`: corrupted/untrusted artifact or required playable assets missing. Do not publish as ready.
-- `needs_review`: valid artifact, but some observations are uncertain. Keep evidence; bounded repair may improve it.
-- `playable_with_warnings`: audio and timeline are safe to use, but some generated content is approximate.
-- `ready`: all required structural contracts pass **and** any defined product gates pass. This is not equivalent to perfect lyrics or score.
-- `not_evaluated`: no quality measurement, distinguish from failure and from perfect zero error.
+- `blocked`: 必須の伴奏・譜面が欠ける、成果物が破損しているなど安全に利用できない。準備完了と公開しない。
+- `needs_review`: ファイルは有効だが、一部の推定結果に不確実性がある。元の証拠を残し、再解析を検討する。
+- `playable_with_warnings`: 再生・タイムラインは利用できるが、生成した歌詞や音符の一部は概算である。
+- `ready`: 必須の構造契約と定義済みの製品品質ゲートに合格した。ただし完全な歌詞・採点を保証しない。
+- `not_evaluated`: 品質を未評価。失敗とも誤差ゼロとも区別する。
 
-Avoid conflating `confidence` with correctness probability. Require `signal_interpretation` such as `heuristic`, `calibrated`, `measured` on each signal where important.
+`confidence`を正解確率と同一視しない。必要に応じて`signal_interpretation`で`heuristic`（経験則）、`calibrated`（データにより校正）、`measured`（実測）を区別する。
 
-### Proposed quality signals
+### 解析段階別の品質信号
 
-| Stage | Diagnostic evidence | User impact / retry choice |
+| 段階 | 確認する診断情報 | 利用者への影響・再解析の候補 |
 |---|---|---|
-| Stems | Vocal energy leakage, estimated masking, clip/nonfinite, reconstruction error (structural only) | High leakage may pollute mic monitoring and ASR; offer model comparison when licensed |
-| Whisper ASR | Coarse segments, no-speech flags, repeated hallucination patterns, language agreement, reference text difference | Re-decode only uncertain windows with context; never replace unique lyric on grammar grounds |
-| Alignment | Character/line span coverage, missing/OOV characters, score/time discrepancy, duration overlap | Re-align an expanded window or mark line timing approximate |
-| F0 | YIN/NACF agreement, octave alternatives, voicing consistency, gap and harmonic indicators | Re-estimate suspicious windows, retain original evidence and detector outputs |
-| Vocal Event | Acoustic/voicing/lyric boundary agreement; uncertain legato/melisma segmentation | Consider neighboring windows and lyric evidence, avoid splitting vibrato |
-| Note generation | Note onset/offset uncertainty, short fragment count, chromatic soft-prior conflict, reference MIDI differences | Re-score candidate timeline and local optimization, retain alternatives |
+| ボーカル分離 | 伴奏の声への漏れ、マスキング、クリップ/非有限値、音の再構成誤差（構造検証） | 漏れはASRやマイク監視を妨げる。許諾された別モデルとの比較を検討 |
+| Whisper歌詞認識 | 粗い時刻区間、無音判定、反復・幻覚候補、言語一致、参照歌詞との差 | 不確実な区間だけ前後文脈とともに再認識。文法の自然さだけで珍しい歌詞を消さない |
+| 歌詞Alignment | 文字/行の整列率、欠落文字・辞書外文字、時刻と根拠の食い違い、区間重複 | 前後を広げて再整列、または行単位の概算時刻と明示 |
+| F0推定 | YIN/NACF間の一致、オクターブ候補、有声判定の連続性、欠落と倍音の兆候 | 疑わしい区間だけ再推定し、元の観測と検出器別結果を保持 |
+| Vocal Event | 音響・voicing・歌詞境界の一致、レガート・メリスマの分割の不確実性 | 隣接区間と歌詞の証拠を比較し、ビブラートをむやみに音符分割しない |
+| 譜面生成 | 音符開始/終了の不確実性、極短音符の多発、スケール事前分布の矛盾、既存MIDIとの差 | 音符候補と局所最適化を再評価し、代替候補も保持 |
 
-**Hard failures** (hash mismatch, invalid PCM, incompatible schema) are not “low confidence”. They must fail safely; retries must not hide provenance mismatch. **Data quality warnings** should not automatically prevent singing.
+**hash不一致、PCM破損、Schema不整合**は低confidenceではなく整合性の失敗であり、安全側に拒否する。再解析で出典不一致を隠してはいけない。一方、内容品質の警告だけで歌唱開始を一律禁止しない。
 
-## Bounded automatic repair
+## 制限付きの自動再解析
 
-- Set deterministic per-stage and whole-song budgets: max attempts, max window duration, time/CPU/VRAM budget, cancellation checkpoints. No indefinite search for a “perfect” result.
-- Record attempt identity and exact artifact dependencies; keep original observations. If a window is reanalyzed, regenerate only downstream artifacts whose input hashes actually changed.
-- Compare candidates against an objective for each dimension. Preserve exact lyric text, character alignment and note timing separately; don't reward grammatical fluency as “song accuracy”.
-- Prefer conservative non-destructive fallbacks: provide lyric line timing without invented syllable times; display pitch bar only where notes are valid; allow unscored/practice mode when score evidence is weak.
-- Allow optional user-provided lyric / MIDI to increase evidence. They are references, not always ground truth. A source version/offset/tempo mismatch must surface a warning.
-- Do not call heavyweight Python from realtime playback callbacks. Offline reanalysis may run after song playback if #43 decides it would threaten audio latency.
+- 段階別・曲全体で、試行回数、解析窓の最大長、時間・CPU・VRAM、キャンセル確認点を制限する。「正解になるまで無限再試行」はしない。
+- 各試行のIDと親成果物hashを記録し、元の観測を消さない。再解析区間が変更された場合、入力hashが変化した下流段階だけ再生成する。
+- 候補を比較する指標は歌詞・時刻・音符ごとに分ける。歌詞が滑らかな文章であることを正確さとして過大評価しない。
+- 安全なフォールバックを優先する。文字時刻が不明なら行時刻だけ示し、音符が不確かなら確かな箇所だけ音程バーを出し、採点根拠が弱ければ練習モードで再生する。
+- 任意の既存歌詞・MIDIは強い参考情報として使えるが、必ずしも正解ではない。原曲の版・オフセット・テンポが一致しない場合は警告する。
+- リアルタイム音声callbackへ重いPython推論を持ち込まない。#43で再生遅延へ悪影響があると判断した再解析は、歌唱後または再生停止中に実行する。
 
-## Model selection and reproducibility
+## モデル選択と再現性
 
-The model UI currently records a **role-level selection** and can resolve it for individual analysis Jobs. Full-song `SongAdapter` selects internal stages from `options.models` or the registry default, not from stored role selections. Also, a package manifest can identify a registered backend without loading distinct weights. Therefore **“package available” does not mean the weights in its folder are in use**.
+現在のモデル画面は、役割ごとにモデル選択を保存して個別解析Jobへ反映できる。ただし全曲の`SongAdapter`は各段階の`options.models`またはRegistry既定値を使い、**保存済みの役割別選択はまだ反映しない**。
 
-Before full-song analysis starts, create an **effective model plan snapshot**:
+また、パッケージmanifestで既存Backendを指定できても、そのフォルダ内の異なる重みを実際に読み込むとは限らない。**「パッケージが利用可能」と「その重みで解析した」は別**。
+
+全曲解析の開始時に、実効モデル計画を変更不能なスナップショットへ確定する。
 
 ```text
-request explicit model/override
-    > valid stored selection
-    > product default
+リクエストで明示したモデル
+    ＞ 有効な保存済みモデル選択
+    ＞ 製品の既定モデル
 ```
 
-Per stage capture requested ID, actual adapter, model artifact/weight checksum, backend/runtime version, expected language, device, options, and reason for any fallback. Pass the plan to the Job as immutable input; do not resolve defaults again in later stages. If a previously selected model disappears, default fallback may be allowed for ordinary use **only with an explicit UI notice**; an evaluator or reproducibility mode must **fail closed** rather than silently compare different models.
+各段階で、要求したID、実際のAdapter、重みファイルhash、Backend・Runtimeの版、期待言語、デバイス、確定オプション、フォールバック理由を記録する。開始後に設定を解決し直さない。保存済みモデルが消えた場合、通常利用では通知付きの既定モデルへ切り替えてよいが、Evaluatorなど再現性が必要なモードでは**黙って別モデルで比較せず失敗**させる。
 
-User-installed MOD licenses are **not** blocked by model loader policy; this is separate from official distribution screening. But third-party Python code is executable and not inherently sandboxed. A manifest's readability/availability must not be presented as runtime safety verification.
+ユーザー導入MODはライセンスの種類だけを理由にローダーが拒否しない。これは公式配布物のライセンス審査とは別である。ただし外部のPythonコードには実行権限があり、manifestを読めることは安全な隔離や検証済み動作を意味しない。
 
-## Accuracy evaluation gates and realistic data
+## 精度評価のゲートと実データ
 
-The project already has dataset manifest validation, synthetic CER regressions and a private-data reporting interface. That is valuable infrastructure, but much of the accuracy evidence remains **synthetic**. `kind=lyrics` annotations are currently the more developed path; real-singing datasets and cross-task reference annotations are still work under #42/#18.
+現在もデータセットmanifestの検証、合成CER回帰、非公開データ向け集計基盤が存在する。しかし多くの評価は**合成データ**のままである。`kind=lyrics`の注釈は先行しているが、複数タスク共通の実歌唱データと正解注釈は#42/#18で継続整備する。
 
-Required comparisons:
+必要な評価軸:
 
-| Dimension | Metrics / diagnostic | Important stratification |
+| 対象 | 指標 | 分けて測る条件 |
 |---|---|---|
-| Source separation | SI-SDR/SDR and human listening panel | Solo/chorus, instrumental density, reverb, duet, bleed |
-| Lyrics | CER, deletion/hallucination rate, repetition behavior | Japanese/other languages, lyrics style, breaths, fast passages |
-| Lyric alignment | Boundary median/p95 milliseconds, coverage and missing lines | Held vowels, melisma, repeated lyrics, backing leakage |
-| Pitch | Cent median/p95, voicing precision/recall, octave error | Low/high voices, falsetto, noise, instrument bleed |
-| Note generation | Pitch/onset/offset F1, over/under segmentation, inter-rater agreement | Legato, vibrato, scoops, rap, chromatic passages |
-| Realtime scoring | Monotonicity, timing fairness, per-note reproducibility, correlation with blinded human ratings | Mic/interface types, USB latency, singers, genres |
-| User experience | Time-to-first-song, import success, first-run failures, device recoverability, user edits required | CPU-only/low RAM, no network, high DPI, accessible input |
+| 音源分離 | SI-SDR/SDRと人間の聴取評価 | 独唱/コーラス、伴奏密度、リバーブ、デュエット、声の漏れ |
+| 歌詞 | CER、脱落・幻覚率、反復の誤り | 日本語/他言語、歌い回し、息継ぎ、速いフレーズ |
+| 歌詞整列 | 境界誤差の中央値/p95、整列率、行欠落 | 長音、メリスマ、反復、伴奏漏れ |
+| 音高 | cent誤差の中央値/p95、有声判定precision/recall、オクターブ誤り | 低音/高音、裏声、ノイズ、楽器混入 |
+| 音符生成 | 音高/開始/終了F1、過分割・不足分割、人手注釈者間の一致 | レガート、ビブラート、しゃくり、ラップ、半音進行 |
+| リアルタイム採点 | 得点の単調性、時刻補正の公平性、再現性、匿名の人間評価との相関 | マイク/オーディオ機器、USB遅延、歌手、ジャンル |
+| 使いやすさ | 最初の1曲までの時間、取込成功率、初回失敗、機器復旧、必要な手修正回数 | CPUのみ・低メモリ、オフライン、高DPI、アクセシビリティ |
 
-- Split by song/recording/singer/session **groups**, not random tiny windows, to avoid leakage from repeat choruses or near-duplicate audio.
-- Keep `development` and `holdout` independent; don't tune to holdout repeatedly. Version inputs, annotations, model weights, options and thresholds.
-- Use rights-cleared recordings/annotations and explicit publication policy. Do **not** upload private music, raw vocals, lyrics or ID-bearing individual reports as public CI artifacts.
-- Synthetic fixtures are used for fast deterministic regressions; actual model-load smoke is separate; human-annotated recordings are used for threshold calibration; Windows physical-device tests are the final product gate.
-- Define per-metric candidate thresholds only after a baseline dataset exists. Do **not** invent a “production-grade” CER/F1/latency target in advance.
+- 反復サビや近似音源が評価用と調整用へ混ざらないよう、**曲・録音・歌手・セッション単位**で分離する。短い音声窓を無作為に分けただけでは独立評価にならない。
+- `development`と`holdout`を分け、holdoutへ繰り返し過学習しない。入力・注釈・重み・設定・閾値を版管理する。
+- 権利処理済みの録音・歌詞・注釈のみ評価に使い、公開可能範囲を明示する。非公開の原曲・ボーカル・歌詞・個別識別子付きレポートは公開CI成果物へアップロードしない。
+- 合成fixtureは高速・決定的な回帰に、実モデルsmokeは読み込み経路に、人手注釈付き実録は品質閾値の校正に、Windows実機は製品の最終確認に使う。
+- ベースラインデータを収集する前に「本番品質を満たすCER/F1/遅延」の架空の閾値を決めない。
 
-## First-run and daily-use UX (proposed)
+## 初回利用と普段の操作（設計案）
 
-### First launch (no developer tooling exposed to ordinary users)
+### 初回起動（開発者向け環境設定を要求しない）
 
-1. Check packaged Rust/Core/Python runtime and installed models locally. Show **installed and verified**, **download available**, **runtime missing**, **unsupported**, **user-provided/unverified** as distinct states.
-2. Ask which microphone and output device to use; play a safe low-volume test, then show an input level/VU meter. If available, measure input/output path delays; otherwise mark `uncalibrated` and offer practice mode. Do not suggest that 0 ms was measured.
-3. Show available disk space, approximate model footprint (from actual package manifest), network/offline requirements and progress/cancel before downloading. An offline/manual model package remains optional.
-4. Save device profiles per stable physical device ID + buffer/rate/backend; names alone are not reliable and duplicate-name devices are possible. Device changes invalidate measured latency.
-5. Allow skipping optional fine-tuning. First-run setup must not become an obstacle to playing a supplied accompaniment + MIDI score.
+1. 同梱したRust/Core/Pythonの実行環境とモデルを確認し、**導入・検証済み**、**ダウンロード可能**、**Runtime不足**、**非対応**、**ユーザー導入・未検証**を区別して表示する。
+2. マイクとスピーカーを選択できるようにし、安全な小音量で再生テストを行ってから入力レベルメーターを見せる。遅延測定が可能なら実施し、測定できなければ`uncalibrated`のまま練習モードを案内する。測定していない0msを表示しない。
+3. ダウンロード前に空き容量、manifestに記載されたモデルサイズ、ネット接続条件、進捗とキャンセルを示す。オフライン/手動モデル導入も選択肢として残す。
+4. 設定は機器の安定識別子とBackend/サンプルレート/Buffer条件に紐づけて保持する。表示名だけでは同名デバイスを区別できない。機器変更時に旧遅延校正を無効化する。
+5. 任意の細かな設定はスキップできるようにする。既存の伴奏とMIDIがあるのに初回設定のため歌えなくなる状態を避ける。
 
-### Song import, analysis and playback
+### 曲の取込・解析・歌唱
 
 ```text
-Choose local song / accompaniment
-    → optional existing lyrics or MIDI
-    → preflight media, devices, models and space
-    → prepare (stage progress + cancellable task)
-    → ready / ready with warnings / input action required
-    → sing (one-click)
-    → result with explainable per-note metrics
-    → optional edit/retry the uncertain passage
+原曲・伴奏ファイルを選ぶ
+    → 任意で既存歌詞・MIDIを指定
+    → 音源・機器・モデル・空き容量を事前確認
+    → 段階別進捗とキャンセル付きで準備
+    → 準備完了／警告付き完了／対応が必要
+    → 1操作で歌唱開始
+    → 理由が分かる音符別の結果を表示
+    → 必要な区間だけ編集・再解析（任意）
 ```
 
-- Support two production paths: **auto-generated** song and **supplied accompaniment + MIDI/lyrics**. Current MIDI importer and core SongStore should be reused, not rewritten inside GUI.
-- A multi-minute analysis progress UI should identify the stage, model, input errors and last durable cache checkpoint. Only show an ETA if measured empirically; never derive one solely from a nominal percentage.
-- Show **why** a song is not ready and the one action that fixes it (e.g. missing Python runtime, missing weight, bad audio format, no microphone). Transport/network retry must not re-import or double-register a song.
-- Distinguish expected content warnings from blocking errors. Keep user-edited lyrics/notes in a separate versioned layer so optional reanalysis does not overwrite edits.
-- During karaoke, show one clear current/next lyric pair, stable high-contrast pitch bars, a distinct singer pitch trace, and controls for play/pause, mic/music/effect gain and seek. Avoid dense diagnostics on the singing screen.
-- On-device audio health indicators (clip/low input/overflow) must be actionable and not masquerade as singing mistakes. Show scoring as **provisional** when chart or latency calibration is unverified.
-- Responsive layout must account for high DPI, small/larger stage displays, keyboard input, dark mode and high contrast. Headless UI screenshots are useful but not a substitute for real Windows accessibility/IME/device testing.
+- **AI自動生成**と**既存伴奏＋MIDI/歌詞**の2経路を用意する。既存のMIDI Importer・SongStoreを再利用し、GUIの中で変換処理を作り直さない。
+- 長い解析では段階名・モデル・入力の問題・最後に保存できた中間成果物を示す。残り時間は実測に基づくときだけ提示し、進捗率だけから根拠のないETAを生成しない。
+- 曲を利用できない場合は**理由と、次に押す操作**を示す（Runtime不足、重み未導入、不正音源、マイクなし等）。通信リトライで同じ曲を二重登録しない。
+- 内容品質の警告と利用不可のエラーを区別する。ユーザーの歌詞・譜面編集を別版として保存し、再解析で勝手に上書きしない。
+- 歌唱画面は現在/次の歌詞、見やすい目標音程バー、歌唱者の音程線、再生/停止・マイク/伴奏/エフェクト音量・シークを中心とする。診断値を大量に並べない。
+- クリップ・入力不足・オーバーランは対処可能な機器状態として示し、歌唱ミス扱いしない。譜面品質や校正が未検証なら採点結果を**暫定**と明示する。
+- 高DPI、大画面/小画面、キーボード操作、ダークモード、高コントラストへ対応する。headless画像テストだけではWindows実機のIMEやアクセシビリティは保証できない。
 
-### Failure and cancellation behavior
+### 異常・キャンセル時の利用者向け動作
 
-| Failure | Expected UI/core behavior |
+| 状況 | GUI/Coreの期待動作 |
 |---|---|
-| Model missing/unavailable | Offer installed official-compatible option or safe setup route; do not quietly call a different model in reproducibility mode |
-| Analysis stage error | Preserve earlier **verified, immutable cache** if valid, but do not publish a partial SongBundle as complete |
-| Very low-confidence lyric/note section | Offer local retry or continue playing with quality warning, avoid blocking the full song |
-| Device disconnected | Pause session with explicit reason; reselect device, re-anchor clock and invalidate calibration |
-| Repeated seek/restart | Epoch-scoped pitch and score frames dropped; UI returns to authoritative Core position |
-| No reliable score available | Allow practice playback with pitch bars where reliable; don't award fictitious grade |
-| Disk full / interrupted import | Don't corrupt SongStore; make retry/resume conditions explicit |
-| Core restart | Lost in-memory Job not shown as completed; reconnect/reauthenticate via #41, retain persisted songs |
+| モデルが未導入・利用不可 | 対応するモデルの導入方法を案内。再現性を求める評価モードでは別モデルへ黙って切替えない |
+| 解析の段階で失敗 | 検証済みの不変cacheがあれば残す。ただし未完成のSongBundleを完成曲として登録しない |
+| 歌詞・音符の一部が低信頼 | 対象区間の再解析、または警告付きでの継続を案内し、曲全体を不用意に禁止しない |
+| デバイス切断 | 理由付きで一時停止し、再選択・クロック再基準化・校正無効化を行う |
+| 連続シーク・Core再起動 | 旧epochの音程/採点を捨て、Coreの正しい位置へ表示を戻す |
+| 正しい採点ができない | 有効な音程バーは使って練習できるようにし、架空の得点を付けない |
+| 容量不足・曲登録中断 | SongStoreを破損させず、再試行/再開できる条件を示す |
+| Core再起動 | メモリ内Jobを完了扱いにせず、#41の契約で再接続・再認証する。保存済み曲は残す |
 
-## Acceptance and implementation order
+## 受け入れ条件と実装順序
 
-**P1:** Complete actual song registration from arbitrary WAV/MP3/MP4 import (#36); define Core-owned karaoke session; realtime pitch/scoring (#14); real-singing dataset and objective quality gates (#42/#18); measured latency method (#40).
+**P1:** WAV/MP3/MP4からの全曲登録を結合する#36、Core歌唱セッション#107、リアルタイム採点#14、実歌唱データセットと品質ゲート#42/#18、実測遅延#40。
 
-**P2:** Integrate the mixer and device settings (#13), UI playback and current/next lyric / pitch trace (#16), effective model-plan snapshot and honest status (#17), resource isolation (#43), packaging (#39), first-run device preflight. The later editable lyric/note editor (#38) remains optional in the normal flow but a 1.0.0 requirement.
+**P2:** Mixerとデバイス設定#13、歌唱GUI#16、実効モデル計画・選択状況#17/#109、資源競合の分離#43、配布#39、初回機器確認#110。任意編集#38は通常操作の後工程だが1.0.0の要件からは外さない。
 
-**P3:** Explore multi-ASR, song-global reanalysis or LoRA (#44) only after the simpler objective baselines expose where current models fail.
+**P3:** 複数ASR・全曲合議・LoRA研究#44は、基礎モデルを実歌唱で評価して改善すべき箇所が判明してから着手する。
 
-Other design risks: Japanese-only initial CTC aligner despite multilingual Whisper; a single model cannot assume every supported song language, and fallback must never fabricate timings. Name-based WASAPI device selection cannot reliably survive replug. Evaluate confidence before using it to declare precision; keep the GUI/score consistent with the chosen annotation and analysis snapshot.
+その他の設計上の注意：Whisperが多言語でも初期のCTC Alignerは日本語向けであり、全対応言語を同じように整列できるとは限らない。対応不可の場合に架空の文字時刻を生成しない。WASAPIデバイスを名前だけで保存すると抜き差し後の同名機器を識別できない。confidenceは校正前に正解確率とみなさず、UI/採点が使う注釈・解析版を一致させる。
 
 ## #108 実装詳細設計：品質判定と限定再解析
 
