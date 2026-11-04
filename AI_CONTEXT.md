@@ -9,7 +9,7 @@ Rust Core / Python Analysis Service / C#・Avalonia GUI のモノレポ。
 0. 共通規則([共同作業ルール](docs/collaboration.md)): 作業前に必ず`git pull --ff-only`、終了時は必ずPR、CIと自己レビューが問題なければマージ。
 1. 今回の依頼と対象Issueを確認する。「次」の場合もIssueの状態を取得する。
 2. [Remote delta](docs/ai_workflow.md#remote-delta)でブランチ・差分・未統合PRを確認し、統合済み・他者作業中の実装と重複しないことを確かめる。
-3. [Task routes](docs/ai_workflow.md#task-routes)の該当行からsourceとtestsだけを選ぶ。
+3. **[実装者向け編集マップ](docs/implementation_navigation.md#issueから編集箇所を選ぶ)の対象Issue1行**から設計書・編集する型/関数・触らない境界・最初のテストを決める。[Task routes](docs/ai_workflow.md#task-routes)は必要時だけ補助で参照する。
 4. Goal / Required / Acceptance / Working setを短く決め、必要な根拠が揃ったら実装へ進む。
 5. 対象検証から始め、共有契約の変更や不明な影響があれば検証範囲を広げる。
 6. 終了時はPRを作り、最新SHAのCIと自己レビューを確認してからマージする。
@@ -20,7 +20,7 @@ Rust Core / Python Analysis Service / C#・Avalonia GUI のモノレポ。
 - 要件・責務: [requirements](docs/requirements.md)、[architecture](docs/architecture.md)。必要な節だけ読む。
 - 実際の挙動・互換性: 作業対象SHAのsource、matching tests、API・保存形式の定義。
 - 共同作業の手順(pull・ブランチ・PR・CI・自己レビュー・マージ): [collaboration](docs/collaboration.md)。
-- コーディングルール: [coding rules](docs/coding_rules.md)（JSON-like宣言コメントを含む。「必須」は必ず守る）。設計背景は[architecture](docs/architecture.md)を参照する。
+- コーディングルール: [coding rules](docs/coding_rules.md)（JSON-like宣言コメントは必須）。既存不足の実例は[監査](docs/comment_coverage.md)。追加・署名変更の検査は`check_local.ps1`とCIへ接続。設計背景は[architecture](docs/architecture.md)。
 - 検証手順: [development](docs/development.md)、`scripts/check.ps1`、`.github/workflows/`。
 - 現在の実装と未評価範囲: [Current status](docs/current_status.md)。記載日のmain SHAと作業対象のSHAを区別する。
 - 歌詞抽出 #7（実装あり・Issue受け入れ条件は要確認）: [Lyric transcription](docs/lyric_transcription.md)、`python/src/open_karaoke_analysis/lyrics.py`、`whisper_backend.py`、`lyric_evaluator.py`、`python/tests/test_lyric*.py`。実録歌唱の評価は別途確認する。
@@ -34,6 +34,8 @@ Rust Core / Python Analysis Service / C#・Avalonia GUI のモノレポ。
 仕様・コード・Issueの不一致は明示する。要約で原典を上書きしない。
 
 ## 探索を増やさない
+
+- 最初に読むのは**IssueのAcceptance、編集マップの該当1行、設計書の該当節、編集対象sourceと対応テスト**まで。全体のフローと触らない責務は編集マップにある。
 
 - `git diff --name-only` / `git grep -n` / ファイル名・見出しで絞ってから対象行を読む。
 - 同じSHAの既読ファイルやツールスキーマを繰り返し取得しない。
