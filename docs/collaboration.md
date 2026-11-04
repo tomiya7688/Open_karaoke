@@ -35,6 +35,39 @@ git pull --ff-only origin main
 
 ## 2. 作業中
 
+### 設計書は実装前に作り、実装中に更新する（必須）
+
+**設計は完了後の議事録ではない。** 追加する動作の責務・契約・状態遷移・失敗時の扱いを
+決めながら`docs/`の該当設計書を編集する。Issue本文の箇条書きや、PRがCloseされたという事実を
+設計書の代わりにしない。
+
+実装系Issueは次の順で作業する。
+
+1. **実装前**: 正本となる設計書のパスを決める。該当設計書がなければ新設し、同じ内容の文書を乱立させない。
+   受け入れ条件のうち設計が必要な動作を**型・操作・イベント・データフロー・状態遷移・不変条件・失敗時・テスト**へ落とす。
+   実装済み/提案/未決定を分け、先行仕様と違う決定は理由と影響範囲を記す。
+2. **実装中**: 設計上の曖昧さが見つかったらコードを推測で固めず、まず設計書のその節を更新してから実装・テストを揃える。
+   小さな差分は同じコミット、大きな設計変更は同じPR内の先行コミットで更新し、レビューで追える形にする。
+3. **レビュー前**: 設計書の公開型・操作・API/保存形式・状態遷移・エラー・検証範囲と
+   実際のsource/matching testsを突き合わせる。**「設計済み」だけで「実装済み」とは記さない**。
+4. **マージ/Close時**: 実装済みの契約と残った制約、検証できた範囲が設計書に反映されているか確認する。
+   未達ならIssueをCloseせず既存Issueに残すか、独立した後続Issueへ対象・依存・受け入れ条件を引き継ぐ。
+
+設計書には最低限、**なぜこの責務を分けるか、似た役割の命名と委譲関係、
+入力/出力/状態の型と所有者、通常/失敗/キャンセル経路、バージョン/互換性、対応テスト**を書き、
+可能ならsource/testのパスへ直接リンクする。実装で使わない抽象基底クラスや不要な図表を増やさず、
+**コードを書く人が迷わず実装できる具体度**を優先する。
+実機・実モデルの計測が必要な決定は未確定のままにし、どう検証するかを示す。
+
+純粋な誤字/整形等の**設計に影響しない変更**では新しい設計書を作らない。
+その場合もPR本文で「設計変更なし」と理由を明示する。
+既存の契約が変わる小さなバグ修正では、別文書を作らず対応する設計書の節を更新する。
+
+**実例:** [歌唱セッションの実装詳細設計](karaoke_session_design.md#107-実装詳細設計オーディオ経路と状態所有)では、
+`AudioIo`・`WavFeeder`・`Mixer`の現状の非接続を確認した上で、
+新設するPCMのキュー所有者、委譲、epoch/seek、API、テストを定義する。
+
+
 - 1ブランチ・1PR・1つの実装単位。無関係なリファクタリングや別Issueの変更を混ぜない。
 - [coding_rules.md](coding_rules.md)に従う。特に、宣言コメント(JSON-like)、境界での検証、48 kHz整数sample、テストの用意は必須。
 - 仕様・共有契約・テスト・必要な文書を一緒に更新する。コードと文書が食い違う状態でPRにしない。
@@ -57,9 +90,12 @@ git pull --ff-only origin main
 Goal / Issue: Closes #N / Refs #N
 Agent: Claude Code | Codex | ChatGPT | Copilot | human
 Base -> Head SHA:
-Changed files / decision:
+Design (canonical docs path, changed sections/decisions):
+Code/Tests (interfaces, state transitions, errors, source+matching test):
+Design drift (none / proposed decisions changed during implementation):
 Verified: command, result
 Unverified: skipped / unavailable / real-data limitations
+Follow-up: remaining contracts and linked Issue (if any)
 Self-review: (4. の結果。指摘と対処)
 ```
 
@@ -81,6 +117,7 @@ CIの結果と自己レビューの**両方**が問題なしのときだけ、�
 自分のdiff全体を、PR画面または`git diff origin/main...HEAD`で読み直す。次を確認し、結果をPRへ残す。
 
 1. [coding_rules.md](coding_rules.md)の「実装時の確認」6項目に適合しているか(責務、状態の所有、UI/Process/Data境界、時刻・保存形式の契約、宣言コメント、テスト)。
+1a. 設計書を実装前/実装中に作成・更新し、型/イベント/状態/エラー/テストとコードが一致しているか。設計提案を実装済みと誤表示していないか。
 2. 受け入れ条件を満たしているか。満たさない部分は`Refs`にして`Unverified`へ書く。
 3. 範囲外の変更、デバッグ用コード、不要なファイル、秘密情報、重み・データの混入がないか。
 4. 公開API・保存形式・共有契約の変更で、利用側と互換性・移行を確認したか。
@@ -121,7 +158,7 @@ git pull --ff-only origin main
 ```
 
 - 作業ブランチを削除する(`--delete-branch`で消えていなければ`git branch -d`)。
-- Issueの着手宣言を更新する。完了なら閉じる。未達の受け入れ条件があれば残りをIssueへ書く。
+- Issueの着手宣言と設計書参照先を更新する。source/tests/設計書が同じ契約を示し、受け入れ条件を満たす場合だけ閉じる。未達は後続Issueへ具体的に引き継ぎ、元の設計書にもリンクする。
 - 次の作業は、また[1. 作業開始](#1-作業開始)から始める。
 
 ## 7. 衝突・例外
