@@ -29,4 +29,4 @@ Refs #（全条件を満たす場合のみ Closes #）
 
 > 設計書はPRやIssueのClose後にまとめて書くのではなく、
 > 実装前に契約を定義し、実装中に判断が変われば同じPRで更新する。
-> 進め方は [共同作業ルール](../docs/collaboration.md#2-作業中)。
+> 進め方は [共同作業ルール](https://github.com/tomiya7688/Open_karaoke/blob/main/docs/collaboration.md#2-作業中)。
