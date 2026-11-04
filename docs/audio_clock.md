@@ -218,6 +218,12 @@ These tests are included in the existing Rust `--all-targets` CI. They cover:
 - output underrun silence preserving continuous logical time and unknown calibration;
   clean observations never inventing anchors
 
+`audio_clock_calibration` (`summarize_latency`, `capture_calibration`, `estimate_drift`)
+turns raw hardware observations into the median/p95/standard deviation (samples and ms),
+a `Measured` calibration, and a least-squares ppm estimate. It requires at least 30
+impulses and a 30 minute, strictly monotonic observation span, and is tested with
+synthetic numbers only; it is not a hardware measurement.
+
 The following **physical** checks are required before Issue #40 is fully accepted
 and prior to 1.0.0; they are not automated by the current code:
 
