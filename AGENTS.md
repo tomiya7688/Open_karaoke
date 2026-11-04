@@ -10,7 +10,7 @@ Claude Code / Codex / ChatGPT / GitHub Copilot / 人間の共通規則。手順�
 
 1. **毎回、作業前に必ず pull する。** `git fetch` → `git switch main` → `git pull --ff-only origin main`。最新の `main` からブランチを作る。
 2. 着手前に、同じIssue・ファイルの未統合PR/ブランチや統合済みの実装がないか確認し、Issueへ着手を宣言する。
-3. **コーディングルール [docs/coding_rules.md](docs/coding_rules.md) の「必須」には必ず従う。**
+3. **設計書を実装前に書き、実装中に更新する。** [共同作業ルール §2](docs/collaboration.md#2-作業中)に従い、型・API・状態・失敗経路を正本の設計書へ定義してからコードとテストを揃える。コーディングルール [docs/coding_rules.md](docs/coding_rules.md) の「必須」に従う。
 4. PR作成前のローカル検査は[共同作業ルール §3](docs/collaboration.md#3-作業終了-prを作る)に従う。
 5. **作業終了時は必ずPRを作成する。** `main` へ直接pushしない。
 6. CIの結果(最新head SHAで全て成功)と自己レビューの**両方**が問題なければ、`gh pr merge --squash --delete-branch` でマージする。問題があれば直して再検証し、判断が要る場合は[人へ確認する条件](docs/collaboration.md#5-マージ)に従いPRを開いたまま報告する。
