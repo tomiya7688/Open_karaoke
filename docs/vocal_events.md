@@ -2,8 +2,10 @@
 
 ## Purpose
 
-Generate one shared 48 kHz Vocal Event Timeline for downstream score generation and lyric
-alignment. The timeline keeps independent evidence and exposes two heuristic boundary scores:
+Generate one shared 48 kHz Vocal Event Timeline for **downstream score generation**.
+Lyric alignment is currently **upstream**, providing optional character timing evidence to
+the Event adapter; it does **not yet consume Event outputs for refinement**.
+The timeline keeps independent evidence and exposes two heuristic boundary scores:
 note_boundary_probability and lyric_boundary_probability.
 
 These values are bounded to 0..1 but are not calibrated probabilities of correctness.
@@ -49,6 +51,20 @@ vocal_event_evidence.json with F0, voiced probability, raw acoustic values, per-
 contributions, source artifacts, phase-cancellation flags and optional linguistic/note events.
 
 Candidate suppression defaults to 30 ms and does not alter per-frame probabilities.
+
+## Dataflow boundary and planned refinement
+
+The current full-song Job runs `alignment → pitch → events → notes`.
+Although `events` accepts an optional note onset artifact, the full-song default does not
+wire an already-generated note-candidate artifact into Events (Notes run later).
+So the shared Event evidence is currently used by Notes but not fed back into the first
+Alignment pass. Do not describe this as a bidirectionally refined alignment.
+
+A future **bounded second pass** may use immutable initial Alignment and Event evidence to
+refine uncertain lyric boundaries and regenerate dependent Notes with versioned hashes,
+without a cyclic dependency. Its implementation and real-singing evidence gates are
+tracked in [#108](https://github.com/tomiya7688/Open_karaoke/issues/108) and
+[Close済みIssue監査](closed_issue_coverage.md).
 
 ## Accuracy boundary
 
