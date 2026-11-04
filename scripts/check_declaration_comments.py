@@ -161,14 +161,24 @@ def inspect_changes(base: str, head: str = "HEAD") -> tuple[int, list[str]]:
       戻り値: [確認した宣言の概数と違反メッセージ]
       エラー: [git差分取得またはPython AST解析に失敗した場合は例外を送出する]
     }"""
+    paths = ["core/src", "python/src/open_karaoke_analysis",
+             "gui/OpenKaraoke.Client", "gui/OpenKaraoke.Gui"]
+    ref_args = [base] if head == "WORKTREE" else [base, head]
     diff = subprocess.run(
         ["git", "diff", "--no-ext-diff", "--unified=0", "--diff-filter=ACMR",
-         base, head, "--", "core/src", "python/src/open_karaoke_analysis",
-         "gui/OpenKaraoke.Client", "gui/OpenKaraoke.Gui"],
+         *ref_args, "--", *paths],
         cwd=ROOT, check=True, text=True, capture_output=True
     ).stdout
     rows = parse_added_lines(diff)
-    checked = 0
+    if head == "WORKTREE":
+        # git diff does not include untracked files; inspect their declarations too.
+        untracked = subprocess.run(
+            ["git", "ls-files", "--others", "--exclude-standard", "--", *paths],
+            cwd=ROOT, check=True, text=True, capture_output=True
+        ).stdout.splitlines()
+        for path in untracked:
+            if production_language(path):
+                rows[path] = set(range(1, len((ROOT / path).read_text(encoding="utf-8").splitlines()) + 1))
     failures: list[str] = []
     for path, added in sorted(rows.items()):
         lang = production_language(path)
@@ -179,11 +189,9 @@ def inspect_changes(base: str, head: str = "HEAD") -> tuple[int, list[str]]:
             check_python(content, added)
             if lang == "py" else check_slash_docs(content, added, lang)
         )
-        # Count is a lower bound (only source declaration lines are inspected).
-        checked += len(errors)
         for line_no, name, missing in errors:
             failures.append(f"{path}:{line_no}: {name}: 不足 {', '.join(missing)}")
-    return checked, failures
+    return len(rows), failures
 
 
 def main() -> int:
@@ -195,10 +203,10 @@ def main() -> int:
     }"""
     parser = argparse.ArgumentParser(description="PR差分の宣言コメントを確認")
     parser.add_argument("--base", required=True, help="比較元git commit/ref")
-    parser.add_argument("--head", default="HEAD", help="比較先git commit/ref")
+    parser.add_argument("--head", default="HEAD", help="比較先git commit/ref（WORKTREEも指定可能）")
     opts = parser.parse_args()
     try:
-        checked, errors = inspect_changes(opts.base, opts.head)
+        files, errors = inspect_changes(opts.base, opts.head)
     except (OSError, UnicodeError, SyntaxError, subprocess.CalledProcessError) as error:
         print(f"UNVERIFIED: 宣言コメント差分検査を実施できません: {error}", file=sys.stderr)
         return 2
@@ -207,7 +215,7 @@ def main() -> int:
     print(
         f"宣言コメント差分検査: {'FAIL' if errors else 'PASS'}。"
         "対象: 追加/署名変更された本番ソースの宣言（既存コード全体は未監査）。"
-        f" 違反={len(errors)}。"
+        f" 対象ファイル={files}、違反={len(errors)}。"
     )
     return 1 if errors else 0
 
