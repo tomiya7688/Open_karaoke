@@ -52,6 +52,17 @@ body:
     validations:
       required: false
   - type: textarea
+    id: design_contract
+    attributes:
+      label: 設計書・変更する契約
+      description: "実装系はdocs/内の正本の設計書と更新予定の節（または新設するファイル名）、主要な責務・型/操作・状態/エラーを記載。調査/事務タスクならN/Aと理由。Close後の記録だけでなく実装前・実装中に設計書を更新します。"
+      placeholder: |
+        設計書: docs/xxx.md（新設予定 / 既存の○○節）
+        主な決定: ○○が状態を所有し△△へ処理を委譲する
+        未確定: 実機測定が必要な事項と確認方法
+    validations:
+      required: true
+  - type: textarea
     id: acceptance
     attributes:
       label: 完了条件
