@@ -47,7 +47,7 @@ GitHub connectorだけの環境では対象Issue、対象PRのhead/base SHA、�
 
 ## Task routes
 
-パスはrepo root基準。該当する行だけ読む。予定ファイルを既存ファイルと取り違えない。
+**先に[実装者向け編集マップ](implementation_navigation.md)の対象Issue行を読み、編集してよい責務と触らない境界を決める。** この表は既存の細かなTask routesを補うもの。表にある過去の状態を現行実装と取り違えない。パスはrepo root基準。
 
 | Task | 最初のsource / responsibility | Matching tests / 詳細仕様 |
 |---|---|---|
@@ -71,7 +71,7 @@ GitHub connectorだけの環境では対象Issue、対象PRのhead/base SHA、�
 | Score generation #11 | [Score generation task](#score-generation-task) | `docs/score_generation.md`、`python/tests/test_note*.py` |
 | MIDI/譜面取込 #37 | `python/src/open_karaoke_analysis/score_import.py`（Importer API）、`midi_import.py`（SMF） | `python/tests/test_midi_import.py`、`docs/midi_import.md`。tempo/拍子/重なり/track選択の方針 |
 | Audio engine #12 | [Audio engine task](#audio-engine-task) | `docs/audio_engine.md`、`core/src/audio_*.rs`、`core/examples/wasapi_smoke.rs` |
-| GUI | `gui/OpenKaraoke.Gui/`の対象view/code-behind | `gui/OpenKaraoke.sln`、`docs/architecture.md`。現在はbootstrap shell |
+| GUI | `gui/OpenKaraoke.Client/KaraokeViewModel.cs`・`ShellViewModel.cs`と`gui/OpenKaraoke.Gui/`の対象View | `gui/OpenKaraoke.Client.Tests/`、`gui/OpenKaraoke.Gui.Smoke/`、`docs/desktop_client.md`。Core接続/曲表示の基礎あり、歌唱E2Eは未実装 |
 | Build / CI | 対象manifest、`scripts/check.ps1`、`.github/workflows/` | `docs/development.md`、`docs/testing.md` |
 | 未着手の機能 | 対象Issueと`docs/implementation_plan.md`から担当領域を特定 | その領域の仕様節だけ確認。存在しないsourceを推測しない |
 
