@@ -210,3 +210,152 @@ Choose local song / accompaniment
 **P3:** Explore multi-ASR, song-global reanalysis or LoRA (#44) only after the simpler objective baselines expose where current models fail.
 
 Other design risks: Japanese-only initial CTC aligner despite multilingual Whisper; a single model cannot assume every supported song language, and fallback must never fabricate timings. Name-based WASAPI device selection cannot reliably survive replug. Evaluate confidence before using it to declare precision; keep the GUI/score consistent with the chosen annotation and analysis snapshot.
+
+## #108 実装詳細設計：品質判定と限定再解析
+
+この節は#108の**実装前の正本案**。既存の全曲 `SongAdapter`、個別Adapter、
+`song.import`の契約を参照しながら設計を確定する。数値閾値や候補モデルの有効性は
+実録データで校正するまで`Unverified`。実装がこの契約と異なった場合は
+**その差分を同じPRで本節へ反映**し、IssueのClose記録で代用しない。
+
+### 解析成果物の依存DAG
+
+現在の既定実行順は`stems → lyrics → alignment → pitch → events → notes`だが、
+再計算の**依存関係**は実行順そのものと異なる。
+
+```text
+original (48 kHz WAV)
+       │
+     stems ──────── vocals ───────────────────┐
+       │             ├── lyrics → alignment ─┤
+       │             └── pitch ────────────┐  │
+       │                                   v  v
+       └── accompaniment                events
+                                          │
+                    alignment ────────────┼──> notes
+                    pitch ────────────────┘
+```
+
+`notes`のオプション/参照候補も依存キーへ含める。実際には`events`も
+音声そのものを特徴量抽出に使用するので、`vocals`を必須の依存とする。
+全stageの再実行を毎回行うのではなく、**入力artifactの内容hashが変わった下流ノードだけ無効化**する。
+
+| 変更されたevidence | 再実行対象の最小集合（候補） |
+|---|---|
+| stemsのvocals | lyrics, alignment, pitch, events, notes |
+| ASR lyrics | alignment, events, notes。pitchの入力が同じなら再実行しない |
+| alignment | events, notes |
+| pitch | events, notes |
+| events | notes |
+| note candidates/参照MIDI | notesのみ（候補がevents入力へも供給される設計ならeventsも） |
+
+同じ曲の連続する二つの区間で再解析するときは、境界の共有部分と前後文脈を
+明示した`local_sample → song_sample`写像を用い、隣区間を不意に上書きしない。
+パスの名前だけで同一性判定をせず、
+`{source_sha256, model_id, model_version, weight_sha256, options_digest, parent_artifact_hashes}`
+をevidence identityの材料とする。digestはキー順など正規化方式を版で固定する。
+
+### 型・関数・責務（新設する設計契約）
+
+| 型/コンポーネント | 入力 | 出力 | 責務 |
+|---|---|---|---|
+| `ArtifactDependencyGraph` | stage role、入力sha、model/config snapshot | immutable node IDと下流依存 | 再解析後の無効化対象を一意に決定 |
+| `QualityAssessor` | 検証済みstage artifactと観測evidence | `QualityFinding[]` | **純粋判定**。データの読込・モデル推論・再実行はしない |
+| `RepairPlanner` | findings、dependency graph、model plan、budget | `RepairPlan` | 限定再実行するロール・区間・入力・budgetを決定 |
+| `RepairExecutor` | immutable plan、既存AdapterRegistry、Job Cancellation | 新しい版のartifactとattempt結果 | 非callbackのPython worker内で実行 |
+| `QualityPublisher` | 完全性検査済みartifact graphと最終findings | `quality_report.json` | 監査可能な結果を一括公開。壊れた曲はreadyにしない |
+
+**継承ではなく委譲**。既存の`ModelAdapter` Protocolは変更しない。
+各モデルが品質判定まで継承して抱える形にはせず、`QualityAssessor`から
+独立したdetector（`LyricRepeatDetector`, `PitchDisagreementDetector`等）の
+関数へ処理を委譲する。すべての役割に同じ「confidence」の意味を強制しない。
+
+必要最小のデータ契約案:
+
+```text
+QualityFinding:
+  artifact_id, stage, span_start_sample, span_end_sample,
+  diagnostic_code, severity, signal_name, signal_value,
+  calibration: "heuristic" | "calibrated" | "measured" | "unknown",
+  evidence_artifact_ids[]
+
+RepairPlan:
+  plan_version, input_fingerprint, selected_nodes[],
+  windows[{start_sample,end_sample,context_before,context_after}],
+  model_plan_snapshot, max_attempts, max_total_attempts,
+  downstream_invalidation[], cancellation_policy
+
+QualityReport:
+  report_version, song_fingerprint, parent_artifact_hashes[],
+  stage_findings[], applied_repairs[], skipped_repairs[],
+  output_readiness, unverified_reasons[]
+```
+
+内部は型付きモデルとして検証し、JSONへの変換時は`NaN`/`Infinity`・
+重複キー・不正sample span・未知の親artifactを拒否する。
+JSONファイルのパスだけを新しいモデルへ自由入力として渡さない。
+`report_version`は、既存の`song.json`/`notes.json`の`format_version`と独立にする。
+
+### 審査→計画→実行→公開の状態機械
+
+```text
+StageValidating
+  ├── structural failure → Failed (公開なし)
+  └── valid → QualityAssessing
+                   ├── no finding / no calibrated gate → Publishing
+                   └── findings → Planning
+                                      ├── no compatible repair / budget depleted → PublishingWithWarnings
+                                      └── plan → Executing → ValidatingRepaired
+                                                       ├── invalid artifact → Failed (新成果物は不採用)
+                                                       └── valid → Reassess → Publishing
+```
+
+- `quality: not_evaluated`は`ready`とも`blocked`とも異なる。
+  heuristicの閾値が低いだけで`blocked`にして曲を消さない。
+- 壊れたhash/Schema/PCMは**hard integrity failure**であり、
+  「気になる歌詞」を再解析する品質警告と混ぜない。
+- 1回の`analysis.song`実行で許可する再解析回数・区間長・CPU/VRAM・
+  経過時間の上限は`RepairBudget`へ設定する。値は実データで調整し、未測定の最適値を装わない。
+  制限到達は`skipped_repairs(reason=budget_exhausted)`として残す。
+- 計画は`input_fingerprint`と設定が同じなら決定的であるべきだが、
+  実行時間制限により終了した場合は同一結果になると保証しない。
+  比較評価モードでは任意のモデル自動fallbackを禁止する。
+- 再解析で前段を更新しても**SongStoreに既に確定した曲を上書きしない**。
+  一時Job領域へ新しい候補を作り、全下流の検査に成功したときだけ
+  `song.import`経由で明示的な登録/版管理を行う。
+- ユーザーの歌詞編集は`base analysis`とは独立したlayerとし、
+  再解析でユーザーが修正した内容を自動で消さない（#38と契約を合わせる）。
+
+### Vocal Event と Alignmentの二段階利用
+
+現在の初回`alignment`は`events`が生成される前に動くため、
+Closed #10が目指した「境界を歌詞整列へ戻す」接続がない。
+一度に相互参照する循環依存を作らず、**pass別の新しいartifact**を使う。
+
+```text
+alignment/pass1 → events/pass1
+                      │
+           optional alignment/pass2
+                      │
+                events/pass2 → notes/pass2
+```
+
+`pass2`実施条件は`pass1`の診断が一定条件を満たす区間に限定する。
+無限にpassを重ねず、開始sampleと終了sample、検出器versionと親hashを保存する。
+歌詞本文を改変しない整列修正と、ASRテキストを変更する再解析は**別のrepair**とする。
+音素・文字単位の正解境界がない実歌唱では、改善を証明したことにしない。
+
+### 実装と同時に追加するテスト
+
+| テスト（新設予定） | 確認内容 |
+|---|---|
+| `python/tests/test_quality_assessor.py` | 無音/反復/低voicing、機能別signalの意味、非有限値拒否 |
+| `python/tests/test_repair_planner.py` | 上限、区間重なり、モデル変更、同一入力時の決定性、未対応repairの明示 |
+| `python/tests/test_artifact_dependency_graph.py` | parent hash変更と下流無効化、境界マージ、別版の識別 |
+| `python/tests/test_song.py`追加 | 最終成果物の不可変性、キャンセル、段階失敗、二段階passとno fake success |
+| `python/tests/test_dataset_manifest.py`周辺 | development/holdout混在防止、権利参照のある実歌唱検証 |
+| `core/tests/song_import.rs`追加 | 構造不正なquality reportを歌える曲として確定させない |
+
+実装IssueとPRはここに書いた関数・データ・例外を**実コードとテストへ対応づける**。
+修正の必要が判明したら、本節を実装中に更新する。
+
