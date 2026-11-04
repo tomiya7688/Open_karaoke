@@ -125,6 +125,7 @@ Windowsでのセットアップ・ビルド方法は [Development](docs/developm
 - [Architecture](docs/architecture.md) — Rust / Python / Avaloniaの責務と全体構成
 - [Karaoke Session Design](docs/karaoke_session_design.md) — 再生・マイク・採点を一元管理するCoreセッション設計（提案）
 - [Accuracy & UX Design](docs/quality_and_ux_design.md) — AI精度の検証・再解析と歌唱までのUX設計（提案）
+- [実装者向け編集マップ](docs/implementation_navigation.md) — 全体の流れとIssue別に編集するファイル・型・テスト・触らない境界
 - [Implementation Plan](docs/implementation_plan.md) — 実装順序とIssue分割方針
 - [Development](docs/development.md) — 開発環境・ビルド・テスト
 
@@ -142,6 +143,7 @@ Windowsでのセットアップ・ビルド方法は [Development](docs/developm
 - [Analysis Pipeline](docs/analysis_pipeline.md) — 楽曲解析全体
 - [AI Workflow](docs/ai_workflow.md) — AI開発の参照先・差分確認・検証手順
 - [Code Design Review](docs/code_design_review.md) — 命名・委譲・継承の監査結果と後続改善
+- [宣言コメント準拠監査](docs/comment_coverage.md) — コメント不足の実例と差分自動検査の範囲
 - [Closed Issue Coverage](docs/closed_issue_coverage.md) — 完了済みIssueの設計引き継ぎ・未検証条件と後続Issue
 - [Stem Separation](docs/stem_separation.md) — vocals / accompaniment分離
 - [Lyric Transcription](docs/lyric_transcription.md) — Whisperによる歌詞生成
