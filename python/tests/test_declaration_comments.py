@@ -1,10 +1,10 @@
 """宣言コメントの差分ゲートを、gitへ接続せずに検証するテスト。"""
 
 import importlib.util
-from pathlib import Path
+import pathlib
 
 
-SCRIPT = Path(__file__).resolve().parents[2] / "scripts/check_declaration_comments.py"
+SCRIPT = pathlib.Path(__file__).resolve().parents[2] / "scripts/check_declaration_comments.py"
 SPEC = importlib.util.spec_from_file_location("check_declaration_comments", SCRIPT)
 assert SPEC is not None and SPEC.loader is not None
 checker = importlib.util.module_from_spec(SPEC)
