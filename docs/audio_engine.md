@@ -137,7 +137,7 @@ uses mock data, not WASAPI hardware. As of Issue #12, actual physical audible pl
 mic capture, latency, hot-plug recovery and long-running hardware stability remain
 **Unverified**, not passing quality claims.
 
-## Mixer and monitoring effects — Issue #13 (first slice)
+## Mixer and monitoring effects — Issue #13
 
 `core/src/mixer.rs` is pure 48 kHz sample processing with no device or UI dependency. Per
 block it takes the stereo accompaniment and the **raw mono microphone** and writes a separate
@@ -149,18 +149,52 @@ the scoring signal that `read_microphone*` returns.
   previous settings stay.
 - `effects_bypass` monitors the microphone directly. Entering bypass clears the echo/reverb
   state so an old tail does not return when effects are switched back on. Bypass is an
-  immediate cut (no fade-out of the existing tail); effect levels fade back in over one block. Only the four volumes ramp; delay and feedback\n  changes are immediate. The limiter acts on the final output only, not inside the echo loop.
+  immediate cut (no fade-out of the existing tail); effect levels fade back in over one block.
+  Only the four volumes ramp over a block; feedback changes are immediate. The limiter acts on
+  the final output only, not inside the echo loop.
 - Echo and reverb are fed **after** `mic_gain` (post-fader send), so lowering the microphone
-  volume lowers the effects with it. Changing `echo_delay_frames` while playing moves the read
-  position at once and can click; change it between songs or accept the artifact.
-- The dry and bypassed microphone paths add **no latency** (`ADDED_MONITOR_LATENCY_FRAMES`);
-  echo repeats are intentional delay. Setting changes ramp linearly over the next block.
+  volume lowers the effects with it.
+- **Echo delay changes crossfade.** When `echo_delay_frames` changes, the mixer reads both the
+  old and the new position and fades from one to the other over
+  `ECHO_DELAY_CROSSFADE_FRAMES` (480 frames, 10 ms), so the tap moves without a click and
+  without a pitch shift. A further change during a fade waits for the fade to finish.
+- The dry and bypassed microphone paths add **no latency in the mixer**
+  (`ADDED_MONITOR_LATENCY_FRAMES`); echo repeats are intentional delay.
 - Output is limited to ±1 and `MixerCounters` reports frames, clipped frames and replaced
   non-finite samples. `process` allocates, locks and logs nothing after construction.
-- Deterministic tests in `core/tests/mixer.rs` cover impulse position, exact gains, echo
-  repeats, reverb pre-delay and decay, bypass, saturation, block-size independence and
-  rejection of bad settings.
 
-**Not done yet:** connecting the mixer to the output callback, a Core API / GUI for the
-controls, and a physical loopback measurement of microphone-to-speaker latency. The values
-above are properties of the DSP only, not of a device.
+### Wiring into the output callback
+
+- `AudioIo::render_monitored` (used by the WASAPI output stream; `render` is unchanged and
+  still the plain path) pops the accompaniment exactly like `render`, takes the monitor
+  microphone from a **separate tap ring**, runs `Mixer::process` in fixed
+  `MONITOR_BLOCK_FRAMES` (1024) blocks and writes the device channels. Clock, underrun and
+  presentation-time bookkeeping are shared with `render` (`pop_music_frame`/`publish_render`).
+- The capture callback pushes each raw sample to the scoring ring as before and **also**, only
+  while `mic_monitor` is on, to the tap ring. Scoring never reads the tap and the mixer never
+  writes the scoring ring, so the raw microphone stays read-only for scoring
+  (`scoring_still_reads_the_raw_microphone_whatever_the_mixer_does`).
+- Settings travel through `MixerControl` (`core/src/mixer_control.rs`): a sequence-locked set of
+  atomics. The callback reads a consistent snapshot without locks or allocation, keeps its
+  previous values if a writer is mid-update, and applies a change at the start of the next
+  callback. `MonitorMixer` owns the `Mixer` and its work buffers, allocated before the stream
+  exists. Writers are serialized by a mutex that no callback touches.
+- `mic_monitor` (default **off**, to avoid feedback through speakers) is the on/off switch for
+  playing the microphone back. When it is off the tap is drained and the microphone input to
+  the mixer is silence; the accompaniment gain still applies.
+- If the tap backlog exceeds two callback blocks, the oldest samples are dropped so
+  monitoring does not accumulate delay.
+- Paused output is exact silence, as before. Timestamps and counters are unchanged.
+
+### Tests
+
+`core/tests/mixer.rs` (DSP, including the delay-crossfade step bound and the new read
+position), `core/tests/monitor_mixer.rs` (engine: sample-aligned dry microphone, scoring
+raw capture bit-exact, settings reaching the callback, backlog trimming, mono/paused output)
+and the `/mixer` route tests in `core/tests/job_api.rs`.
+
+**Unmeasured:** the microphone-to-speaker latency on a real device. The mixer adds zero
+frames, but the capture/render callback sizes, WASAPI shared-mode buffering and the tap queue
+add latency that no test here measures; there is no physical loopback measurement, and no
+audible check on hardware has been done. Treat latency, glitch-free playback and feedback
+behaviour on real hardware as **Unverified**.

@@ -22,6 +22,8 @@ stdinを保持する起動元がセッションを所有し、閉じるとCore�
 |---|---|---|
 | GET | `/health` | Coreの生存確認。`api_version: 1`、秘密情報なし |
 | GET | `/session` | 認証済みのinstance_idとAPI版 |
+| GET | `/mixer` | モニタ音量・エコー・リバーブ・bypass・マイクモニタの現在設定（#13） |
+| PUT | `/mixer` | 8項目すべてを指定して置換。範囲外の有限値は丸め、適用後の値を返す。必須項目の欠落・未知項目は422 |
 | GET | `/devices` | Windows WASAPIデバイス一覧（他OSは503） |
 | GET | `/analysis/health` | 監視中Python workerのhealth |
 | GET | `/models` | workerに登録済みのAdapter一覧 |
@@ -37,6 +39,15 @@ stdinを保持する起動元がセッションを所有し、閉じるとCore�
 
 GUI・Evaluatorはこの境界だけを利用する。Python workerの `POST /analysis/{role}` は
 別の認証情報を持つ内部APIであり、GUIから直接接続しない。
+
+## ミキサー設定（`/mixer`）
+
+本文は `music_gain` / `mic_gain`(0..2)、`echo_level` / `reverb_level`(0..1)、
+`echo_delay_ms`(1..1000)、`echo_feedback`(0..0.9)、`effects_bypass`、`mic_monitor`（既定false）。
+JSONに表せない非有限値は拒否し、範囲外の有限値は範囲へ丸める。応答は実際に適用した値。
+値は共有の `MixerControl` に書かれ、音声callbackは次の処理で反映する（API側は音声状態を触らない）。
+Core単体ではデバイスを開かないため、デバイスを開く側が `AppState::mixer_control()` を
+`AudioDeviceStreams::open_with_mixer_control` へ渡して接続する。物理遅延は未測定。
 
 ## Jobの種類
 

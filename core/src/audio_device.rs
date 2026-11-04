@@ -5,7 +5,7 @@
 
 use serde::Serialize;
 
-use crate::audio_engine::AudioIo;
+use crate::{audio_engine::AudioIo, mixer_control::MixerControl};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -47,7 +47,9 @@ mod platform {
 
     use crate::audio_engine::SAMPLE_RATE;
 
-    use super::{AudioDeviceInfo, AudioIo, DeviceDirection, WasapiMode};
+    use super::{AudioDeviceInfo, AudioIo, DeviceDirection, MixerControl, WasapiMode};
+
+    use crate::mixer_control::MonitorMixer;
 
     fn host() -> Result<Host, String> {
         cpal::host_from_id(cpal::HostId::Wasapi).map_err(|error| error.to_string())
@@ -202,22 +204,31 @@ mod platform {
         let channels = usize::from(config.channels);
         let data_io = io.clone();
         let error_io = io.clone();
+        // The mixer and its work buffers are allocated here, before the callback exists.
+        let mut monitor =
+            MonitorMixer::new(io.mixer_control()).map_err(|error| error.to_string())?;
         let stream = match format {
             SampleFormat::F32 => device.build_output_stream(
                 config,
-                move |buffer: &mut [f32], _| data_io.render(buffer, channels),
+                move |buffer: &mut [f32], _| {
+                    data_io.render_monitored(buffer, channels, &mut monitor);
+                },
                 move |_| error_io.mark_output_device_error(),
                 None,
             ),
             SampleFormat::I16 => device.build_output_stream(
                 config,
-                move |buffer: &mut [i16], _| data_io.render(buffer, channels),
+                move |buffer: &mut [i16], _| {
+                    data_io.render_monitored(buffer, channels, &mut monitor);
+                },
                 move |_| error_io.mark_output_device_error(),
                 None,
             ),
             SampleFormat::U16 => device.build_output_stream(
                 config,
-                move |buffer: &mut [u16], _| data_io.render(buffer, channels),
+                move |buffer: &mut [u16], _| {
+                    data_io.render_monitored(buffer, channels, &mut monitor);
+                },
                 move |_| error_io.mark_output_device_error(),
                 None,
             ),
@@ -278,6 +289,26 @@ mod platform {
             mode: WasapiMode,
             capacity_frames: usize,
         ) -> Result<Self, String> {
+            Self::open_with_mixer_control(
+                output_name,
+                input_name,
+                mode,
+                capacity_frames,
+                MixerControl::default(),
+            )
+        }
+
+        /// Like `open`, but monitoring uses the caller's shared mixer settings.
+        ///
+        /// # Errors
+        /// Reports devices, invalid configurations and stream initialization failures.
+        pub fn open_with_mixer_control(
+            output_name: Option<&str>,
+            input_name: Option<&str>,
+            mode: WasapiMode,
+            capacity_frames: usize,
+            mixer: MixerControl,
+        ) -> Result<Self, String> {
             if mode == WasapiMode::Exclusive {
                 return Err(
                     "Exclusive WASAPI needs explicit low-level latency and ownership support; only shared mode is implemented"
@@ -288,7 +319,8 @@ mod platform {
             let output_device = find_device(&host, DeviceDirection::Output, output_name)?
                 .ok_or_else(|| "No output audio device found".to_owned())?;
             let input_device = find_device(&host, DeviceDirection::Input, input_name)?;
-            let audio = AudioIo::new(capacity_frames).map_err(|error| error.to_string())?;
+            let audio = AudioIo::with_mixer_control(capacity_frames, mixer)
+                .map_err(|error| error.to_string())?;
             let (output_config, output_format) =
                 configure(&output_device, DeviceDirection::Output)?;
             let output = output_stream(&output_device, &output_config, output_format, &audio)?;
@@ -379,6 +411,18 @@ mod platform {
             _input_name: Option<&str>,
             _mode: WasapiMode,
             _capacity_frames: usize,
+        ) -> Result<Self, String> {
+            Err("The current production CPAL/WASAPI device backend requires Windows".to_owned())
+        }
+
+        /// # Errors
+        /// Native WASAPI is not available on non-Windows platforms.
+        pub fn open_with_mixer_control(
+            _output_name: Option<&str>,
+            _input_name: Option<&str>,
+            _mode: WasapiMode,
+            _capacity_frames: usize,
+            _mixer: super::MixerControl,
         ) -> Result<Self, String> {
             Err("The current production CPAL/WASAPI device backend requires Windows".to_owned())
         }

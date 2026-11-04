@@ -274,6 +274,8 @@ mod tests {
             ("GET", "/model-selection"),
             ("POST", "/model-selection"),
             ("GET", "/devices"),
+            ("GET", "/mixer"),
+            ("PUT", "/mixer"),
             ("GET", "/analysis/health"),
             ("GET", "/session"),
             ("POST", "/jobs"),

@@ -25,7 +25,7 @@
 | 音声込み曲登録・一覧 | 完了済み解析Jobから検査・一括公開、再登録確認、永続化、一覧/詳細APIあり | `song_api.rs` / `song_library/`、[SongStore import](song_import.md)、#36 |
 | Rust音声入出力 | 48kHz WASAPI shared・raw mic・bounded ring/WAV feederあり。PCMにepochとsample位置を付与 / 実機未検証 | [Audio engine](audio_engine.md)、#12 |
 | Clock/latency契約 | 整数変換・不連続観測・旧epoch PCM除外・drift/遅延補正の合成テストあり / 物理校正未完 | [Audio clock](audio_clock.md)、#40 |
-| Mixer / DSP | 音量・エコー・リバーブ・bypass・飽和制限のサンプル処理あり。デバイス接続・API・GUI・物理遅延測定は未実装 | `mixer.rs`、[Audio engine](audio_engine.md)、#13 |
+| Mixer / DSP | 音量・エコー・リバーブ・bypass・飽和制限のサンプル処理あり。エコー遅延変更はクロスフェード。出力callbackへの接続（`render_monitored`、専用マイクtap、lock-free設定）、`GET/PUT /mixer`、GUIの「ミキサー」タブあり。マイクモニタは既定オフ。物理遅延・実機の音は未測定/未検証。Core本体はまだデバイスを開かず、`MixerControl`を共有して接続する | `mixer.rs`、`mixer_control.rs`、`mixer_api.rs`、[Audio engine](audio_engine.md)、#13 |
 | リアルタイム採点 | 未実装 | [Scoring](scoring.md)、#14 |
 | Avalonia GUI | 認証付き起動・設定・接続・mock Job進捗/キャンセル/error | [Desktop client](desktop_client.md)、#15 |
 | GUIの原曲取込・曲一覧操作 | 未接続。Core登録APIと画面の完成を区別 | #36/#15 |

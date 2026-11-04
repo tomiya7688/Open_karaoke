@@ -31,6 +31,8 @@ Rust Core / Python Analysis Service / C#・Avalonia GUI のモノレポ。
 - MIDI/譜面取込 #37: [MIDI import](docs/midi_import.md)、`score_import.py`（Importer API）、`midi_import.py`（自己完結SMF reader）、`python/tests/test_midi_import.py`。hand-authored fixture回帰のみで実在MIDI corpusは未評価。
 - Rust Audio Engine #12: [Audio engine](docs/audio_engine.md)、`core/src/audio_engine.rs`、`audio_device.rs`、`audio_wav.rs`、`core/examples/wasapi_smoke.rs`。CIはmockとWindowsビルド、物理デバイスの音声・遅延・hot-plugは未検証。
 
+- Mixer #13: [Audio engine](docs/audio_engine.md)のMixer節、`core/src/mixer.rs`・`mixer_control.rs`・`mixer_api.rs`、`core/tests/mixer.rs`・`monitor_mixer.rs`、GUI `MixerViewModel.cs`。DSP・callback接続・APIまで。実機の遅延・音は未測定。
+
 仕様・コード・Issueの不一致は明示する。要約で原典を上書きしない。
 
 ## 探索を増やさない

@@ -47,6 +47,8 @@ internal static class Program
             ("summarize model packages without breaking connect", ModelPackageTests.Summary),
             ("read and write the model selection through Core", ModelPackageTests.SelectionClient),
             ("choose, refresh and clear model selection in the view model", ModelPackageTests.SelectionViewModel),
+            ("read and write the mixer settings through Core", MixerTests.ClientRoute),
+            ("send mixer edits in order and reset on disconnect", MixerTests.ViewModel),
         };
         if (args.Length == 2) tests.Add(("live C# to Rust to Python lifecycle", () => NativeTests.RunAsync(args[0], args[1])));
         var passed = 0;
