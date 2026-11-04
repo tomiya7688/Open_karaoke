@@ -74,6 +74,14 @@ The baseline does not bundle Basic Pitch code or weights. This Issue establishes
 boundary so an independently licensed/validated provider can be added without coupling it to the
 optimizer or notes.json.
 
+**Current integration boundary:** `NotesAdapter` can consume `candidate_artifact` directly
+in the notes role, but `SongAdapter` rejects all `stage_options.*_artifact` overrides to
+protect pipeline-owned wiring. Therefore user-supplied MIDI/other candidate evidence is **not
+yet connected to the default full-song Job**. A dedicated validated input snapshot rather
+than disabling the pipeline safety check is required by
+[Issue #37](https://github.com/tomiya7688/Open_karaoke/issues/37).
+See [Close済みIssue監査](closed_issue_coverage.md).
+
 ## Boundary and expressive-motion normalization
 
 The score must model intended notes, not every singer fluctuation.
