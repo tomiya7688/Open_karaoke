@@ -1,118 +1,118 @@
-# Karaoke session integration design
+# 歌唱セッション統合設計
 
-> Status: **proposed design, not an implemented playback API**. Source review: `main` `907d166b2ca0bcfbaf739593a53004d9e0eef02e` (2026-11-04). Issue #106.
+> 状態：**実装前の設計案**。再生用のCore APIや統合セッションが実装済みという意味ではない。
+> 確認対象：2026-11-04時点の `main` `907d166b2ca0bcfbaf739593a53004d9e0eef02e`。Issue #106。
 >
-> See [Audio Engine](audio_engine.md), [Clock](audio_clock.md), [Scoring](scoring.md), [Desktop Client](desktop_client.md). PR #95 may change API reconnection/versioning; do not assume its unmerged changes are present.
+> 関連文書：[音声エンジン](audio_engine.md)、[音声クロック・遅延](audio_clock.md)、[採点](scoring.md)、[デスクトップクライアント](desktop_client.md)。
+> PR #95 はCore APIの再接続・バージョン方針を変更する可能性があるが、現時点で未統合のため現在の実装として扱わない。
 
-## Why this contract is needed
+## この設計が必要な理由
 
-Today, Rust has CPAL/WASAPI streams, a bounded audio queue, WAV feeder, clock/epoch mapping, and an independent mixer. Python can generate a song bundle and Rust can import it. Avalonia can fetch that bundle and draw a **static position-selected** lyric/pitch view. However, no one component yet owns **start song → audible playback + raw mic → realtime pitch/scoring → UI positions → result**.
+現在のRust CoreにはCPAL/WASAPIストリーム、容量制限付き音声キュー、WAV供給処理、クロック・epoch変換、独立したMixerがある。
+Pythonは曲データを生成でき、RustはそれをSongStoreへ取り込める。Avaloniaも曲データを読み、手動で指定した時刻の歌詞・目標音程を描画できる。
 
-**The missing owner is a Rust `KaraokeSessionController`.** It should coordinate existing parts via *composition*, not by making UI, audio device, or model Adapter classes inherit behavior from each other.
+しかし、**選曲→伴奏再生→マイク入力→リアルタイム音高・採点→同期表示→結果保存**を一貫して管理する所有者が存在しない。
 
-## Responsibility and ownership
+そこでRust Coreに `KaraokeSessionController` を設け、既存部品を**保持・委譲して組み合わせる**。UI・音声デバイス・モデルAdapterの具象クラスを継承して振る舞いを再利用しない。
 
-| Module / object | Owns | Must not own |
+## コンポーネントの責務と所有関係
+
+| コンポーネント | 所有する責務 | 所有しない責務 |
 |---|---|---|
-| `KaraokeSessionController` (new Rust service) | Session state machine, `SongBundle`/asset validation, device lease, current transport epoch, worker lifetimes, start/pause/seek/stop, diagnostics and event publication | Physical callback sample conversions; Python inference; GUI rendering |
-| `AudioDeviceStreams` + `AudioIo` (existing Rust) | Hardware stream, bounded queues, callback I/O, tagged playback/capture frames and counters | Song selection, grading, persistence |
-| `ClockSession` (existing Rust) | 48 kHz integer `ClockEpoch`, separate output/capture anchors, latency quality, discontinuity detection | Device measurement or an independent GUI clock |
-| `WavFeeder` (existing Rust) | Read normalized accompaniment on a bounded worker and enqueue tagged frames | Score computation |
-| `Mixer` (existing Rust) | Gain, echo/reverb, monitor mixing into an output block; preallocation of DSP state | Raw microphone score samples; network/filesystem I/O |
-| `RealtimePitchDetector` (proposed Rust trait) | Analyze bounded **raw pre-effect microphone** frames and return timestamped F0/voicing evidence | Device callbacks or offline Python model execution |
-| `ScoringEngine` (proposed Rust struct) | Assign pitch observations to target notes, calculate independent metrics, persist versioned results | Model selection/download, GUI state |
-| Avalonia `KaraokeViewModel` (existing) | Display current/next lyric, pitch bars, scores and actionable errors from Core snapshots | Audio clock, device selection implementation, note grading |
-| Python Analysis Service (existing) | Offline song generation, optional reanalysis, provenance | Live audio callback or runtime grading |
+| `KaraokeSessionController`（新設） | セッション状態遷移、`SongBundle`・音声asset検証、デバイス利用権、transport epoch、workerの生存期間、再生・一時停止・シーク・停止、診断とイベント公開 | callback内のPCM変換、Python推論、GUI描画 |
+| `AudioDeviceStreams` / `AudioIo`（既存） | 実デバイス、固定容量キュー、callback入出力、時刻付き再生/録音フレーム、カウンター | 曲選択、採点、保存 |
+| `ClockSession`（既存） | 48kHz整数サンプルの`ClockEpoch`、再生/録音別の基準点、遅延品質、時刻不連続の検出 | 遅延の物理測定、GUI独自の時計 |
+| `WavFeeder`（既存） | 正規化済みWAVの非callback読込と時刻付きキュー投入 | 採点 |
+| `Mixer`（既存） | 伴奏/監視マイクの音量、エコー・リバーブ、出力ブロック生成、DSP状態の事前確保 | 採点用rawマイク、通信・ファイルI/O |
+| `RealtimePitchDetector`（新設予定のRust trait） | **エフェクト前の生マイク**から有界時間でF0・有声判定・時刻情報を生成 | デバイスcallback、オフラインPython実行 |
+| `ScoringEngine`（新設予定） | 音程観測と目標ノートの対応、独立した評価指標、版付き採点結果 | モデル導入、GUI状態 |
+| `KaraokeViewModel`（Avalonia側・既存） | Core状態を歌詞・音程バー・採点・回復操作の画面表示へ変換 | 音声クロックの正本、デバイス実装、採点計算 |
+| Python Analysis Service（既存） | オフライン譜面/歌詞生成、必要な再解析、出典情報 | リアルタイムcallbackや歌唱中の採点 |
 
-Only one controller holds the active output-device lease in v1. A second user-facing session must be rejected or queued explicitly; it must never silently mix two songs.
+初期版では、**再生用デバイスの利用権を保持するセッションは1つだけ**とする。2曲目の開始要求は明示的に拒否または順番待ちとし、意図せず2曲を混ぜない。
 
-### Real-time topology (corrected; implementation contract is KS-03/KS-04)
+### リアルタイム音声経路（KS-03/KS-04の設計）
 
-The **existing** `WavFeeder` writes directly into `AudioIo`; a mixer cannot be inserted
-by adding another output writer. The intended integrated graph first decodes to a separate
-music queue, routes the single raw capture consumer through a dispatcher, mixes on a
-noncallback worker, and **only then** writes to the device output queue:
+現行の `WavFeeder` は `AudioIo` の出力キューへ直接PCMを投入する。そのまま別の書き手からMixer出力を追加すると伴奏を重複出力する。
+
+**統合版では別の伴奏キューを作り、唯一の録音consumerで採点・監視へ分配し、Mixer出力だけを音声出力キューへ渡す。**
 
 ```text
-verified WAV → bounded MusicQueue ─────┐
-                                       v
-raw mic → AudioIo capture → Dispatcher → MonitorQueue → MixWorker → AudioIo output → WASAPI
-                                │                  ^
-                                └→ ScoringQueue    Mixer
-                                    │
-                              Realtime pitch → ScoreEngine
+検証済みWAV → 伴奏デコード → MusicQueue ────────┐
+                                                    v
+マイク → AudioIo録音 → CaptureDispatcher → MonitorQueue → PlaybackMixWorker → AudioIo再生 → WASAPI
+                               │                         ↑
+                               └→ ScoringQueue → F0/採点  Mixer
 ```
 
-The design of `MusicDecodeWorker`, `CaptureDispatcher` and `PlaybackMixWorker` is specified
-under [#107 implementation details](#107-実装詳細設計オーディオ経路と状態所有).
-No such integrated graph is implemented yet. The callback must not block, allocate,
-read files or execute a Python model.
+`MusicDecodeWorker`・`CaptureDispatcher`・`PlaybackMixWorker`の型と処理順は
+[後半の#107実装詳細設計](#107-実装詳細設計オーディオ経路と状態所有)に定義する。
+**この統合経路は未実装**。音声callbackでロック待ち、メモリ確保、ファイル読込、Python推論を行わない。
 
-## Session state machine
+## セッションの状態遷移
 
-| State | Allowed commands/events | Contract |
+| 状態 | 受け付ける操作・遷移 | 不変条件 |
 |---|---|---|
-| `preparing` | validation succeeds → `ready`; failure → `failed`; cancel → `stopped` | Verify stored song, backing WAV, note/lyric versions and model-provenance references before owning devices |
-| `ready` | `play`, `seek`, `stop` | No score recorded. Input/output devices and latency status visible |
-| `playing` | `pause`, `seek`, `stop`, end-of-song | Output position comes from Core presentation timestamp, **not** number of frames queued |
-| `paused` | `resume`, `seek`, `stop` | Samples/score don't advance while paused; resume may require fresh epoch |
-| `interrupted` | device reselect/recalibration → `ready` or `paused`; `stop` | Device removed, clock discontinuity, unrecoverable stream overrun; no hidden auto-switch |
-| `finished` / `stopped` / `failed` | read final state, release resources | Terminal for this session, no stale events or duplicate final score |
+| `preparing` | 検証成功→`ready`、失敗→`failed`、取消→`stopped` | デバイスを占有する前に保存曲・WAV実体・歌詞/譜面の版・モデル出典を検査 |
+| `ready` | `play`、`seek`、`stop` | 採点はまだ確定しない。入出力デバイスと遅延校正状態を取得可能 |
+| `playing` | `pause`、`seek`、`stop`、曲末イベント | 現在位置は**Coreの再生提示時刻**を正本とし、投入済みフレーム数から推測しない |
+| `paused` | `resume`、`seek`、`stop` | 採点と再生位置を進めない。再開でepoch更新が必要な場合がある |
+| `interrupted` | デバイス再選択・再校正→`ready`または`paused`、`stop` | 機器切断・クロック不連続・復旧不能な欠落を隠さず、無断で別デバイスへ切替えない |
+| `finished` / `stopped` / `failed` | 状態の参照、資源の解放 | 終端状態。古いイベントや二重の採点確定を認めない |
 
-A session state revision and `instance_id` accompany updates. `play` and `stop` should be idempotent; repeated/reordered commands must not create duplicate streams or grades. Termination cleans workers, queue ownership, and stream handles on every error path.
+更新イベントにはセッションの状態revisionと`instance_id`を付ける。`play`・`stop`等の冪等性を保証し、重複・順序違いのコマンドでストリームや採点を二重作成しない。正常・異常いずれの終了でもworkerとキュー・デバイスハンドルを解放する。
 
-**Seek policy:** Increment the clock epoch, invalidate buffered playback/capture, reanchor and suppress scoring until aligned. A seek makes the current run a **practice attempt** or starts a new scoring segment; do not double-count already scored notes. A final, comparable whole-song score requires uninterrupted coverage or an explicitly defined policy for practice-segment aggregation. UI must show this distinction.
+**シーク時:** epochを増やし、古い再生/録音バッファを無効化してから再基準化する。同期が戻るまでは採点を抑止し、すでに採点した音符を二重加点しない。途中シークした歌唱は練習として扱うか、新しい採点区間を開始する。全曲比較可能な最終得点は、連続歌唱または別途定義した練習区間集計ポリシーを満たす場合だけ確定する。
 
-**Crash/restart policy:** Core process restart changes `instance_id`. Old sessions and in-memory Job IDs are not resurrected. GUI must rebootstrap/reauthenticate and offer to re-open a saved song; never resubmit a singing attempt automatically. Coordinate with PR #95.
+**クラッシュ・再起動時:** Coreの`instance_id`は変わる。旧セッションとメモリ内Jobは復活させない。GUIは認証を再確立して保存曲の開き直しを案内し、旧歌唱Jobを勝手に再送しない。PR #95と互換性を照合する。
 
-## Proposed Core API boundary
+## Core APIの公開境界（提案）
 
-The API is **not yet implemented**. The design's preferred form is a single
-versioned command endpoint with idempotency keys; alternative individual
-`/play`/`/pause` paths must not be implemented in parallel without a
-protocol compatibility decision.
+**現在は未実装。** 設計上は、冪等性キー付きの単一コマンドendpointを推奨する。個別の`/play`・`/pause`などを並行実装するとAPI契約が曖昧になるため、初回実装で正規形を1つに決める。
 
-See [wire contract under #107](#core-apiのワイヤ契約案41との統合前) for exact proposed
-requests, snapshot fields, expected revisions, stale epochs, bounded SSE and errors.
-#41 (PR #95) owns the final Core API migration rules.
+要求形式・状態スナップショット・期待revision・旧epoch・購読上限・エラーは
+[後半のワイヤ契約案](#core-apiのワイヤ契約案41との統合前)を参照する。
+公開APIの最終版管理・移行方針は#41（PR #95）と統合して決定する。
 
-## Clock and observability rules
+## クロックと診断の規則
 
-- **Output counter is not acoustic presentation time.** Compute song presentation from hardware measurements or explicitly marked estimated correction; if unknown, report `clock_quality: unknown`.
-- Raw capture frames carry `epoch`, `stream_sample`, valid/invalid and discontinuity indicators. Clock mapping uses output/capture anchors separately; do not reuse echo latency for scoring.
-- Score observations from stale epochs or input-frame gaps are **excluded and reported**, not treated as missed singing. Record the count and duration of excluded samples.
-- An OS-provided timestamp is not automatically a calibrated acoustic delay. 30+ minute drift and physical loopback p95 belong to #40/#12/#19.
-- The UI may interpolate smoothly between **validated** Core snapshots with a bounded, locally monotonic display estimator, but the estimator is never the scoring truth. Do not compare GUI-host and Core-host monotonic timestamps as if they had the same origin.
+- **出力したフレーム数は実際に音が聞こえる時刻ではない。** ハードウェア実測値または明示的な推定遅延補正から提示時刻を求める。未測定は`clock_quality: unknown`。
+- 生マイクのフレームには`epoch`・`stream_sample`・有効/無効・不連続を付与する。出力と録音で独立した基準点を使い、エコー遅延を採点へ流用しない。
+- 古いepochやマイク欠落区間の観測は**採点から除外して件数・長さを記録**する。「歌わなかった」と誤判定しない。
+- OSの時刻が得られても、それだけで音響遅延を校正したことにはならない。30分以上のドリフトと物理loopbackのp95は#40/#12/#19で検証する。
+- GUIは検証済みCoreスナップショット間の表示だけを、単調で有界な補間により滑らかにしてよい。ただし表示補間を採点の正本にしない。異なるホストの単調時計を共通の基準点として比較しない。
 
-## Real-time pitch and scoring contract
+## リアルタイム音程・採点の契約
 
-This is a **target** for #14; the offline `pitch.py` ensemble is not a realtime microphone implementation.
+以下は#14向けの**未実装設計**である。既存のオフライン`pitch.py`合議を、リアルタイムマイク音程検出が完成したと解釈しない。
 
-1. The realtime worker consumes timestamped raw mono 48 kHz PCM with bounded latency. A lightweight input-health stage detects silence, saturation, noise, gaps and low-energy frames; it must not silently invent an F0 on unvoiced inputs.
-2. A replaceable Rust `RealtimePitchDetector` returns finite `f0_hz | null`, `voiced`, diagnostic `confidence` and `voiced_probability`, the observation window `[start_sample,end_sample)`, `epoch`, algorithm/version, and rejection reason. These values are **not automatically calibrated accuracy probabilities**.
-3. `ScoringEngine` maps the observation's measured/estimated **acoustic** time into the canonical song timeline, then matches the normalized target notes. At note boundaries use a documented transition allowance, not unlimited lag forgiveness.
-4. Preserve independent `pitch`, `timing`, `coverage`, `stability` metrics and a mask of invalid/uncalibrated intervals. For voiced observations with valid target note, define signed cent error as `1200 * log2(f0_hz / target_hz)`. Refuse nonfinite/zero pitch.
-5. Realtime indicators are **provisional** and use causal (bounded-lookahead) smoothing. Optional post-song DTW may correct a bounded singer timing variation, but its warp budget and version must be fixed; unlimited DTW would make timing mistakes look correct.
-6. Final score includes `score_version`, `note_chart_version`, `detector_version`, `latency_calibration_id`, `unscored_reason_counts`, and confidence/coverage of usable data. Without calibrated human ground truth, do not advertise a scientifically validated 0–100 result.
+1. 音程workerは48kHz、mono、時刻付きのrawマイクPCMを有界の遅延で消費する。入力品質検査で無音・飽和・ノイズ・フレーム欠落・低エネルギーを区別し、無声音に架空のF0を補わない。
+2. 差し替え可能な`RealtimePitchDetector`は有限な`f0_hz | null`、`voiced`、診断用`confidence`と`voiced_probability`、観測区間`[start_sample,end_sample)`、`epoch`、アルゴリズム版、拒否理由を返す。これらのconfidenceは**校正済みの正解確率とは限らない**。
+3. `ScoringEngine`は観測時刻を測定済み/推定済みの音響遅延を使って曲の48kHz整数タイムラインへ写像し、正規化済み目標ノートへ対応づける。音符境界に許すずれは明示し、無制限の遅延許容を設けない。
+4. `pitch`・`timing`・`coverage`・`stability`の指標を分離し、無効・未校正区間のマスクを保存する。目標ノートがあり有声と判定した区間の符号付きcent誤差は`1200 * log2(f0_hz / target_hz)`で求め、ゼロ以下や非有限の音高を拒否する。
+5. リアルタイム表示は**暫定結果**とし、有界な先読みで因果的に平滑化する。曲終了後にDTWを使う場合も歌唱タイミングの補正幅を版付きで制限する。無制限のDTWでタイミングの誤りを正解扱いしない。
+6. 最終得点は`score_version`・`note_chart_version`・`detector_version`・`latency_calibration_id`・`unscored_reason_counts`・有効データのcoverageと信頼性を持つ。人間評価と照合していない段階で、科学的に検証された0〜100点を宣伝しない。
 
-No score input flows from the effect-processed monitoring branch. If the chart cannot be trusted or hardware timing is unknown, keep a playable practice mode and mark grading as provisional or unavailable.
+採点入力へエコー・リバーブ後の監視マイクを流さない。譜面品質が不確か、または機器遅延が不明な場合も練習として再生できるようにし、採点は暫定または利用不可と明示する。
 
-## Validation matrix / exit criteria
+## 検証項目と合格判定の範囲
 
-| Test | Automated expectation | Not proved by it |
+| テスト領域 | 自動検証する契約 | そのテストでは証明できないこと |
 |---|---|---|
-| State machine contract | Play/pause/seek/stop, repeated requests, Core restart, stale event handling | Physical device stability |
-| Clock/epoch | Simulated ±drift, negative offsets, queue gaps, seek/device change and invalid timestamps | Measured acoustic latency |
-| Audio/Mixer | No allocation/lock in callback, bounded queues, device outage/overflow, raw mic not effected | Singing accuracy |
-| Scoring | Artificial ±cents, offsets, silence, octave errors and device gaps; monotonic metrics; score version | Human judged quality |
-| GUI integration | UI follows only Core authoritative position, stale epochs discarded, large song pages, zoom/keyboard/high DPI smoke | Real monitor/presentation synchronization |
-| Physical release | Windows WASAPI devices, measured loopback median/p95, drift, mic/speaker switching, long playback | Claims on untested devices |
+| セッション状態機械 | 再生/一時停止/シーク/停止、重複要求、Core再起動、古いイベントの排除 | 物理デバイスの安定性 |
+| クロック/epoch | 疑似ドリフト、負の補正値、キュー欠落、シーク/機器切替、異常時刻 | 実測の音響遅延 |
+| Audio/Mixer | callbackでのメモリ確保・ロック回避、有界キュー、機器停止、rawマイクの分離 | 実歌唱精度 |
+| 採点 | 人工的な±cent/時刻ずれ、無音、オクターブ誤り、欠落、評価値の単調性、結果の版 | 人間評価との一致 |
+| GUI統合 | Core位置への追従、旧epochの排除、大量曲一覧、拡大率・キーボード・高DPIのsmoke | 実際の監視音声との同期 |
+| 物理リリース検証 | Windows WASAPI実機、loopback中央値/p95、ドリフト、機材切替、長時間稼働 | 未検証機材での動作保証 |
 
-A useful **first vertical slice** is to render a manually supplied MIDI chart over a real WAV and display timestamped mic pitch in practice mode, without requiring high-quality automatic note generation. Then attach scoring and the full-song analysis import flow.
+**最初の縦断実装**は、既存の伴奏WAVと手元のMIDI譜面を使い、練習モードで歌詞/目標音程と時刻付きマイク音程を表示する。高精度の自動譜面生成を完成の前提にしない。その後に採点・全曲自動解析の登録経路を接続する。
 
-## Dependencies and sequencing
+## 依存関係と実装順序
 
-P1: #40 clock measurement, #41 API, #14 realtime pitch/scoring, #36 Core import, #42 real-singing set. P2: #13 mixer connection, #16 GUI, #43 resource isolation, #39 Windows packaging. Keep #38 optional editor as later work; keep #44 advanced ASR research after objective baselines.
+**P1:** #40（クロック実測）、#41（Core API）、#14（リアルタイム音程・採点）、#36（曲取込）、#42（実歌唱評価）。
+**P2:** #13（Mixer接続）、#16（GUI）、#43（資源競合の分離）、#39（Windows配布）。
+#38の任意編集は後続に回し、#44の高度ASR合議研究は定量的な基線評価の後に着手する。
 
 ## #107 実装詳細設計：オーディオ経路と状態所有
 
