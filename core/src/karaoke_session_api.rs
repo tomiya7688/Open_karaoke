@@ -203,6 +203,22 @@ impl KaraokeSessionHost {
     }
 
     /// {
+    ///   責務: [`recover`: 中断(interrupted)したセッションを自動再生せずに復旧する(Controller用)]
+    ///   処理: [1: 状態機械のrecoverを呼ぶ, 2: 生じたイベントを配信する]
+    ///   引数: [session_id]
+    ///   戻り値: [`Result<SessionSnapshot, KaraokeError>`: ready/pausedへ戻った状態]
+    ///   エラー: [`SessionNotFound` `Terminal` `NotReady`(中断中でない)]
+    /// }
+    ///
+    /// # Errors
+    /// Returns `Terminal` or `NotReady` unless the session is interrupted.
+    pub fn recover(&self, session_id: Uuid) -> Result<SessionSnapshot, KaraokeError> {
+        self.mutate(session_id, |registry| {
+            registry.session_mut(session_id)?.recover()
+        })
+    }
+
+    /// {
     ///   責務: [`execute`: クライアントのコマンドを適用してイベントを配信する]
     ///   引数: [envelope]
     ///   戻り値: [`Result<CommandOutcome, KaraokeError>`]
