@@ -45,6 +45,15 @@ python -m open_karaoke_analysis.release_evaluation <report.json>   # 0: リリ�
 
 [release_evaluation/procedures/real_device.md](../release_evaluation/procedures/real_device.md)。手順書であり、実施結果ではない。
 
+## 基準値の校正手順（19.4）
+
+[release_evaluation/procedures/calibration.md](../release_evaluation/procedures/calibration.md)。版付き台帳は[release_evaluation/thresholds.json](../release_evaluation/thresholds.json)（現在は全て`null`=未校正）。`python -m open_karaoke_analysis.release_calibration <thresholds.json> [report.json]`で台帳を検証し、台帳の閾値で`pass/fail`を再判定する。手順書であり、校正済みの値は存在しない。
+
+## 配布物・ライセンス監査（19.5）
+
+`python -m open_karaoke_analysis.distribution_audit <tools/ffmpeg> <runtime-manifest.json> --inventory <ffmpeg-inventory.json> --evidence-ref <ref>`。
+`scripts/dependency-inventory.ps1 -FfmpegDirectory`が出力する`ffmpeg-inventory.json`（実体hash・buildconf hash）、`runtime-manifest.json`の`ffmpeg`台帳、`NOTICE.txt`、実バイナリの対応と、buildconfにGPL/nonfreeが無いことを検査する（規則は`core/src/ffmpeg_bundle.rs::verify_bundle`と同じ）。結果は`distribution/license_inventory_match`の行（全件一致=`1.0`、閾値`1.0`は規則でありデータ校正値ではない）。必須ファイルまたはinventoryが無い場合は`unverified`。SBOM・モデルライセンス・署名/Attestation(`distribution/signature_attestation`)は#39/#67の成果物待ちで本検査の範囲外（`unverified`のまま）。
+
 ## 後続（本書の範囲外）
 
-19.4 基準値の校正手順(#42後)、19.5 配布物監査の組込み(#39/#67)、19.6 リリース判定ゲートworkflow。
+19.6 リリース判定ゲートworkflow。
