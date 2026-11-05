@@ -121,7 +121,7 @@ fn edit_survives_reload_and_new_library_instance() {
         )
         .unwrap();
     assert_eq!(saved.generation, 2);
-    assert!(saved.pending.is_empty());
+    assert_eq!(saved.pending, Vec::<ArtifactKind>::new());
 
     let reopened = SongLibrary::open(&harness.artifacts, &harness.songs).unwrap();
     let after = reopened.load(harness.id).unwrap();
@@ -132,7 +132,7 @@ fn edit_survives_reload_and_new_library_instance() {
     assert_eq!(harness.snapshot()["audio/vocals.wav"], audio_before);
     let page = reopened.list(None, 10).unwrap();
     assert!(page.songs[0].error.is_none());
-    assert!(harness.leftovers().is_empty());
+    assert_eq!(harness.leftovers(), Vec::<String>::new());
 }
 
 #[test]
@@ -189,7 +189,7 @@ fn invalidate_propagates_and_is_cleared_by_regeneration() {
         .library
         .edit_song(harness.id, &harness.command(2, vec![note_edit(60)]))
         .unwrap();
-    assert!(second.pending.is_empty());
+    assert_eq!(second.pending, Vec::<ArtifactKind>::new());
     let bundle = harness.library.load(harness.id).unwrap();
     assert_eq!(bundle.song.artifacts[&ArtifactKind::Notes].generation, 2);
     assert_eq!(edit_generation(&bundle), 3);
@@ -211,7 +211,7 @@ fn rejected_edit_leaves_every_file_untouched() {
         .unwrap_err();
     assert!(matches!(error, SongEditSaveError::Edit(_)));
     assert_eq!(harness.snapshot(), before);
-    assert!(harness.leftovers().is_empty());
+    assert_eq!(harness.leftovers(), Vec::<String>::new());
 }
 
 #[test]
@@ -228,7 +228,7 @@ fn oversized_document_is_rejected_before_any_write() {
         SongEditSaveError::Library(ImportError::TooLarge)
     ));
     assert_eq!(harness.snapshot(), before);
-    assert!(harness.leftovers().is_empty());
+    assert_eq!(harness.leftovers(), Vec::<String>::new());
 }
 
 #[test]
@@ -264,7 +264,7 @@ fn interrupted_swap_is_recovered_before_the_next_edit() {
         .edit_song(harness.id, &harness.command(1, vec![lyric_edit("い")]))
         .unwrap();
     assert_eq!(saved.generation, 2);
-    assert!(harness.leftovers().is_empty());
+    assert_eq!(harness.leftovers(), Vec::<String>::new());
     assert_eq!(
         harness.library.load(harness.id).unwrap().lyrics.segments[0].text,
         "い"
@@ -317,7 +317,7 @@ fn racing_edits_with_the_same_base_never_both_succeed() {
     }
     let bundle = harness.library.load(harness.id).unwrap();
     assert_eq!(edit_generation(&bundle), 2);
-    assert!(harness.leftovers().is_empty());
+    assert_eq!(harness.leftovers(), Vec::<String>::new());
 }
 
 #[test]
@@ -354,7 +354,7 @@ fn reimport_after_a_crashed_swap_recovers_edits_instead_of_republishing() {
         .import(&harness.job, &ImportControl::default(), |_, _| {})
         .unwrap_err();
     assert!(matches!(error, ImportError::Conflict));
-    assert!(harness.leftovers().is_empty());
+    assert_eq!(harness.leftovers(), Vec::<String>::new());
     assert_eq!(
         harness.library.load(harness.id).unwrap().lyrics.segments[0].text,
         "い"
@@ -372,5 +372,5 @@ fn damaged_published_song_is_never_modified_by_an_edit() {
         .unwrap_err();
     assert!(matches!(error, SongEditSaveError::Library(_)));
     assert_eq!(harness.snapshot(), before);
-    assert!(harness.leftovers().is_empty());
+    assert_eq!(harness.leftovers(), Vec::<String>::new());
 }
