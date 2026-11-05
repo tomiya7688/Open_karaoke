@@ -113,5 +113,7 @@ GUIなしでのCI実行はJob APIまたは既存のEvaluator CLIによって可�
 - Windows配布物の同梱ランタイム/モデル/ライセンス・NOTICE
 - ユーザーによる手直しなしでの利用率
 
+評価領域・指標・証拠・担当Issueの表とreport.json契約、実機評価手順は[Release Evaluation](release_evaluation.md)に定義する（定義のみで、合格の記録ではない）。
+
 合格基準値は権利処理済み実評価セットで校正し、計測結果と判定根拠をリリースに紐付ける。
 未評価項目を「合格」と記載しない。詳細は [Issue #19](https://github.com/tomiya7688/Open_karaoke/issues/19)。

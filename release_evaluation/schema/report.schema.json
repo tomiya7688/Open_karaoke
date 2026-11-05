@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Open_karaoke release evaluation report",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["format_version", "app_sha", "dataset_manifest_hash", "model_snapshot", "results", "blocking"],
+  "properties": {
+    "format_version": {"const": 1},
+    "app_sha": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+    "dataset_manifest_hash": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "model_snapshot": {"type": "string", "minLength": 1, "maxLength": 256},
+    "blocking": {"type": "array", "minItems": 1, "items": {"type": "string", "pattern": "^[a-z_]+/[a-z0-9_]+$"}},
+    "results": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["area", "metric", "value", "threshold", "direction", "status", "evidence_ref"],
+        "properties": {
+          "area": {"type": "string", "pattern": "^[a-z_]+$"},
+          "metric": {"type": "string", "pattern": "^[a-z0-9_]+$"},
+          "value": {"type": ["number", "null"]},
+          "threshold": {"type": ["number", "null"]},
+          "direction": {"enum": ["max", "min"]},
+          "status": {"enum": ["pass", "fail", "unverified"]},
+          "evidence_ref": {"type": ["string", "null"], "maxLength": 512}
+        }
+      }
+    }
+  }
+}
