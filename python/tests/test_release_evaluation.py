@@ -127,3 +127,22 @@ def test_cli_exit_codes(tmp_path, monkeypatch):
     with pytest.raises(SystemExit) as exit_info:
         main()
     assert exit_info.value.code == 2
+
+
+def test_status_must_agree_with_numbers():
+    with pytest.raises(ValueError, match="contradicts value"):
+        validate_report(base([row(value=0.1, threshold=0.2, status="fail")]))
+    with pytest.raises(ValueError, match="contradicts value"):
+        validate_report(base([row(value=0.5, threshold=0.2, status="unverified")]))
+    validate_report(base([row(value=0.1, threshold=0.2, status="unverified")]))
+
+
+def test_lyric_result_rejects_malformed_summary():
+    for bad in (
+        {"format_version": True, "evaluation_kind": "real_singing", "metrics": {"cer": 0.1}},
+        {"format_version": 1, "evaluation_kind": "real_singing", "metrics": {"cer": "x"}},
+        {"format_version": 1, "evaluation_kind": "real_singing", "metrics": {"cer": float("nan")}},
+        {"format_version": 1, "evaluation_kind": "real_singing"},
+    ):
+        with pytest.raises(ValueError):
+            lyric_result(bad, evidence_ref="s.json", threshold=0.2)

@@ -99,6 +99,11 @@ def validate_report(report: dict) -> None:
         evidence = item["evidence_ref"]
         if evidence is not None and (not isinstance(evidence, str) or len(evidence) > 512):
             raise ValueError(f"{key}: evidence_ref must be a string or null")
+        if item["status"] != "pass" and value is not None and threshold is not None:
+            # 数値が揃っているなら、statusは測定値と矛盾させない(失敗を未検証に見せない)。
+            met = _within(value, threshold, item["direction"])
+            if (item["status"] == "fail") == met:
+                raise ValueError(f"{key}: status contradicts value and threshold")
         if item["status"] == "pass":
             if value is None or not evidence or not evidence.strip():
                 raise ValueError(f"{key}: pass requires a value and evidence_ref")
@@ -149,11 +154,17 @@ def lyric_result(summary: dict, *, evidence_ref: str, threshold: float | None) -
       エラー: [ValueError: 実歌唱でない、または要約でない]
     }
     """
-    if not isinstance(summary, dict) or summary.get("format_version") != 1:
+    if not isinstance(summary, dict) or type(summary.get("format_version")) is not int:
+        raise ValueError("Expected a lyric evaluation summary")
+    if summary["format_version"] != 1 or not isinstance(summary.get("metrics"), dict):
         raise ValueError("Expected a lyric evaluation summary")
     if summary.get("evaluation_kind") != "real_singing":
         raise ValueError("Only real_singing summaries count as release evidence")
-    cer = summary["metrics"]["cer"]
+    cer = summary["metrics"].get("cer")
+    if cer is not None and not _number(cer):
+        raise ValueError("cer must be a finite number or null")
+    if threshold is not None and not _number(threshold):
+        raise ValueError("threshold must be a finite number or null")
     if cer is None or threshold is None:
         status = "unverified"
     else:
