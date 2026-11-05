@@ -1,0 +1,61 @@
+name: Release evaluation gate
+
+# 手動実行のみ。release_evaluation/<version>/report.json の全blocking項目がpassのときだけ成功する。
+# 報告書が無い・不正・fail・unverifiedは全てjob失敗(未評価をpassにしない)。実データが無い間は常に失敗する。
+on:
+  workflow_dispatch:
+    inputs:
+      report_path:
+        description: 'Report path under release_evaluation/ (default release_evaluation/1.0.0/report.json)'
+        required: false
+        default: release_evaluation/1.0.0/report.json
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-gate-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  release-gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: ./.github/actions/python-trust
+      - name: Verdict (fails unless every blocking item is pass)
+        env:
+          REPORT_PATH: ${{ inputs.report_path }}
+        run: |
+          set -u
+          re='^release_evaluation/[A-Za-z0-9._/-]+\.json$'
+          if [[ ! "$REPORT_PATH" =~ $re || "$REPORT_PATH" == *..* ]]; then
+            echo "::error::report_path must be a single-line .json path under release_evaluation/ (no '..')"
+            exit 2
+          fi
+          if [ ! -f "$REPORT_PATH" ]; then
+            echo "::error::No report at $REPORT_PATH: release is unverified, gate fails (not a pass)"
+            exit 1
+          fi
+          mkdir -p artifacts
+          code=0
+          PYTHONPATH=python/src python -m open_karaoke_analysis.release_evaluation "$REPORT_PATH" > artifacts/release-verdict.json || code=$?
+          cat artifacts/release-verdict.json
+          if [ "$code" -ne 0 ]; then
+            echo "::error::Release gate failed (exit $code): a blocking item is fail/unverified or the report is invalid"
+          fi
+          exit "$code"
+      - name: Retain verdict
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-verdict
+          path: artifacts/release-verdict.json
+          if-no-files-found: ignore

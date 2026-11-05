@@ -27,6 +27,7 @@
 | [Pitch regression](../.github/workflows/pitch-regression.yml) | 該当PR/手動 | YIN/NACFの合成F0精度・合議 |
 | [Vocal Event regression](../.github/workflows/vocal-event-regression.yml) | 該当PR/手動 | 合成注釈境界のprecision/recall/F1 |
 | [Note generation regression](../.github/workflows/note-regression.yml) | 該当PR/手動 | 合成採点ノートのpitch F1・onset/offset等 |
+| [Release gate](../.github/workflows/release-gate.yml) | 手動のみ | 全blockingがpass以外はjob失敗。実データが無い間は常にunverifiedで失敗 |
 
 Path filterがあるworkflowは**全変更で必ず走るわけではない**。変更したファイルと各workflowのトリガー、対象コミットの実行結果を確認する。
 この文書はCIの実行成功を報告するものではない。
