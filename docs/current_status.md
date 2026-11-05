@@ -21,7 +21,7 @@
 | オフラインF0 | YIN・NACFの切替/合議あり / 実録評価未完 | `pitch.py`、[Pitch Analysis](pitch_analysis.md) |
 | Vocal Event | 境界evidence/fusionあり / 未校正 | `vocal_events.py`、[Vocal Events](vocal_events.md) |
 | 採点用譜面生成 | 候補生成・DP・観測窓区間変換あり / 実録評価未完 | `notes.py`、[Score Generation](score_generation.md) |
-| 1.0.0 Release Evaluation | 評価表・report.json契約・集約判定・実機手順書あり / 基準値未校正、実歌唱・実機・配布物の結果は全て未確認(`unverified`) | `release_evaluation.py`、[Release Evaluation](release_evaluation.md)、#19 |
+| 1.0.0 Release Evaluation | 評価表・report.json契約・集約判定・実機手順書・校正手順と台帳(未校正)・配布物hash対応検査あり / 基準値未校正、実歌唱・実機・配布物の結果は全て未確認(`unverified`) | `release_evaluation.py`、[Release Evaluation](release_evaluation.md)、#19 |
 | 楽曲全体の一括解析 | 正規化済みWAV→6段解析→SongBundle/asset一覧 | `song.py`、[Full-song analysis](full_song_analysis.md)、#36 |
 | 音声込み曲登録・一覧 | 完了済み解析Jobから検査・一括公開、再登録確認、永続化、一覧/詳細APIあり | `song_api.rs` / `song_library/`、[SongStore import](song_import.md)、#36 |
 | Rust音声入出力 | 48kHz WASAPI shared・raw mic・bounded ring/WAV feederあり。PCMにepochとsample位置を付与 / 実機未検証 | [Audio engine](audio_engine.md)、#12 |

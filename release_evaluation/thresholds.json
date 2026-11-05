@@ -1,0 +1,19 @@
+{
+  "format_version": 1,
+  "ledger_version": 0,
+  "thresholds": {
+    "lyrics/cer": { "direction": "max", "value": null },
+    "lyrics/wer": { "direction": "max", "value": null },
+    "alignment/boundary_p95_ms": { "direction": "max", "value": null },
+    "pitch/cent_error_median": { "direction": "max", "value": null },
+    "notes/note_f1": { "direction": "min", "value": null },
+    "stems/si_sdr_db": { "direction": "min", "value": null },
+    "audio_clock/loopback_latency_p95_ms": { "direction": "max", "value": null },
+    "audio_clock/clock_drift_ppm": { "direction": "max", "value": null },
+    "device/hotplug_recovery": { "direction": "min", "value": null },
+    "endurance/long_run_underruns": { "direction": "max", "value": null },
+    "distribution/signature_attestation": { "direction": "min", "value": null },
+    "product/no_edit_usage_rate": { "direction": "min", "value": null }
+  },
+  "history": []
+}
