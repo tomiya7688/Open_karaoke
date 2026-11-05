@@ -36,7 +36,7 @@
 | #43 推論分離 | 未 | [#43設計](issue-43-inference-isolation.md) | #12 #107 | 43.1 |
 | #44 多ASR研究 | 後回し | `docs/quality_and_ux_design.md` | #7 #8 #42 | 基線評価後 |
 | #106 設計レビュー | PR #111 | `docs/implementation_navigation.md` | - | PR #111 の統合 |
-| #107 歌唱Session | 設計（PR #111） | `docs/karaoke_session_design.md` | #12 #13 #14 #40 #41 | PR #111 後に最初のスライス |
+| #107 歌唱Session | 107.1実装（純粋な状態機械）。device/transportは未 | [#107設計](issue-107-karaoke-session.md)、`docs/karaoke_session_design.md`(PR #111) | #12 #13 #14 #40 #41 | 107.2（worker組成、#12/#13依存） |
 | #108 品質/再解析 | 設計（PR #111） | `docs/quality_and_ux_design.md` | #36 #42 | 同上 |
 | #109 実効モデル固定 | 設計（PR #111） | `docs/quality_and_ux_design.md` | #17 #36 #41 | 同上 |
 | #110 初回UX | 設計（PR #111） | `docs/quality_and_ux_design.md` | #12 #13 #16 #17 #39 #40 #41 #43 | 同上 |
