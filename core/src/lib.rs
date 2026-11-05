@@ -8,6 +8,7 @@ pub mod audio_device;
 pub mod audio_engine;
 pub mod audio_import;
 pub mod audio_wav;
+pub mod ffmpeg_bundle;
 pub mod mixer;
 pub mod mixer_api;
 pub mod mixer_control;
@@ -62,6 +63,7 @@ pub struct AppState {
     stopping: Arc<AtomicBool>,
     sse_budget: Arc<Semaphore>,
     mixer: mixer_control::MixerControl,
+    media_tools: Option<ffmpeg_bundle::MediaTools>,
 }
 
 impl Default for AppState {
@@ -79,6 +81,7 @@ impl Default for AppState {
             stopping: Arc::new(AtomicBool::new(false)),
             sse_budget: Arc::new(Semaphore::new(MAX_SSE_CONNECTIONS)),
             mixer: mixer_control::MixerControl::default(),
+            media_tools: None,
         }
     }
 }
@@ -216,6 +219,19 @@ impl AppState {
     pub fn with_song_library(mut self, library: song_library::SongLibrary) -> Self {
         self.song_library = Some(library);
         self
+    }
+
+    /// { 処理: 解決済みの ffmpeg / ffprobe パスを設定する（取り込み処理が使う）。 }
+    #[must_use]
+    pub fn with_media_tools(mut self, tools: ffmpeg_bundle::MediaTools) -> Self {
+        self.media_tools = Some(tools);
+        self
+    }
+
+    /// { 戻り値: 解決済みの ffmpeg / ffprobe パス。未設定なら None。 }
+    #[must_use]
+    pub fn media_tools(&self) -> Option<&ffmpeg_bundle::MediaTools> {
+        self.media_tools.as_ref()
     }
 
     /// Mixer settings shared with the audio engine; hand a clone to the device layer.

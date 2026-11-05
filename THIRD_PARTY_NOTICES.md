@@ -14,6 +14,7 @@ This file tracks third-party software, models, runtimes, data, and other compone
 |---|---|---|---|---|---|---|---|
 | TBD | — | — | — | — | — | — | Complete remaining entries from the dependency inventory |
 | [CPAL](https://github.com/RustAudio/cpal) | Rust audio I/O library (Windows backend) | 0.16.0 | Apache-2.0 | Yes | Yes (license/notice required) | Planned for Windows build | Source crate only; no ASIO; WASAPI shared; complete transitive inventory at release |
+| [FFmpeg](https://ffmpeg.org/legal.html) | Media decode/normalize tool (`tools/ffmpeg/ffmpeg`, `ffprobe`) | Unverified (binary not yet selected) | LGPL-2.1-or-later required (`--enable-gpl` / `--enable-nonfree` rejected by Core) | Unverified until the exact build and its codec licenses are confirmed | Unverified | Planned; not yet in any official build | Slice 39.3 provides the checks only: no FFmpeg binary is committed. Per-binary `buildconf.txt` and `NOTICE.txt` (version, sha256, license) must match the `runtime-manifest.json` ffmpeg entry (`ffmpeg_bundle::verify_bundle`). Source offer / relinking obligations for the chosen build are Unverified. |
 | [RustCrypto sha2](https://docs.rs/crate/sha2/0.10.9/source/Cargo.toml) | Streaming asset checksum library | 0.10.9 | MIT OR Apache-2.0 | Yes | Yes (chosen license obligations apply) | Core dependency | SHA-256 for verified SongStore imports. Exact version and transitives are recorded in Cargo.lock; no models or weights. Retain selected license/notice in the release inventory. |
 
 ## Review rules

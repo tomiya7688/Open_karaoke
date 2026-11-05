@@ -35,7 +35,7 @@ Rust・.NET SDK・Python・FFmpegを手動導入しなくても、一般ユー�
 |---|---|---|---|
 | 39.1 | 同梱レイアウトと`runtime-manifest.json`、パス解決（同梱優先）。**実装済み**: `core/src/runtime_layout.rs`（解決順 環境変数>同梱>PATH、schema_version 1のmanifest検証）。ffmpeg解決は関数のみで、Coreへの配線は39.3 | #15 | 開発ツール無しの環境を模した起動テスト（CI、Linux可の範囲）、manifest schema検証 |
 | 39.2 | 埋込Python+依存のlock/hash固定とビルドスクリプト | 39.1, #66 | 再現ビルド（同一入力で同一hash）、`check_python_trust`通過 |
-| 39.3 | FFmpegの適法な同梱（LGPL構成）+buildconf記録+NOTICE | 39.1 | buildconf検査テスト、NOTICE/inventoryが成果物と一致 |
+| 39.3 | FFmpegの適法な同梱（LGPL構成）+buildconf記録+NOTICE。**実装済み（検査側）**: `core/src/ffmpeg_bundle.rs`（`verify_bundle`、`MediaTools`、`AppState::media_tools`、`OPEN_KARAOKE_FFMPEG`/`FFPROBE`>同梱>PATH）、`scripts/dependency-inventory.ps1 -FfmpegDirectory`。**未確認**: 実FFmpegバイナリの選定・入手元・コーデック/ソース提供義務。バイナリは未コミット | 39.1 | buildconf検査テスト、NOTICE/inventoryが成果物と一致 |
 | 39.4 | アプリ内モデル導入UI（同意・容量・進捗・取消・検証） | #17, #110 | 破損/オフライン/容量不足のContract test、GUI headless smoke |
 | 39.5 | インストーラー+アンインストール+更新（形式は未決） | 39.1-39.3 | クリーンWindows VM smoke（手順書化、実行はUnverifiedとして別報告） |
 | 39.6 | 配布物のライセンス監査と`distribution.yml`への接続 | 39.2-39.5, #67 | 成果物hashに紐づくSBOM/NOTICE、署名はこのスライスの外 |
