@@ -291,7 +291,7 @@ def test_every_python_setup_is_immediately_followed_by_the_trust_action():
         # 解析で取りこぼした箇所を黙って通さない: 文字列の総数と一致させる。
         assert parsed == len(re.findall(r"uses:\s*actions/setup-python@", source)), workflow.name
         checked += parsed
-    assert checked == 15
+    assert checked == 16
 
 
 def test_local_scripts_upgrade_and_verify_before_every_package_install():
