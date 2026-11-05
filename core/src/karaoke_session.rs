@@ -167,7 +167,7 @@ pub struct CommandOutcome {
 ///   責務: [状態遷移1回分の通知。購読者は旧instance/session/epochを捨てる]
 ///   フィールド: [event_seq: セッション内で単調増加, snapshot: 遷移後の状態]
 /// }
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub struct SessionEvent {
     pub event_seq: u64,
     pub core_instance_id: Uuid,
@@ -703,6 +703,17 @@ impl KaraokeSession {
     }
 
     /// {
+    ///   責務: [`last_event_seq`: 記録済みの最後のevent_seqを返す(transportの取りこぼし検知の基準)]
+    ///   処理: [1: 次に採番するseqから1を引く]
+    ///   引数: []
+    ///   戻り値: [`u64`: 最後のevent_seq(イベントが無ければ0)]
+    /// }
+    #[must_use]
+    pub const fn last_event_seq(&self) -> u64 {
+        self.next_event_seq - 1
+    }
+
+    /// {
     ///   責務: [`check_epoch`: 観測のepochが現在世代か確認し、古ければ数える(内部)]
     ///   処理: [1: 一致ならOk 2: 不一致ならstale_rejectionsを増やしてエラー]
     ///   引数: [epoch]
@@ -837,6 +848,17 @@ impl KaraokeSessionRegistry {
         let snapshot = session.snapshot();
         self.active = Some(session);
         Ok(snapshot)
+    }
+
+    /// {
+    ///   責務: [`current_snapshot`: 現行セッション(終端を含む)の状態の写しを返す]
+    ///   処理: [1: activeがあればsnapshotを作る]
+    ///   引数: []
+    ///   戻り値: [`Option<SessionSnapshot>`: セッションが無ければNone]
+    /// }
+    #[must_use]
+    pub fn current_snapshot(&self) -> Option<SessionSnapshot> {
+        self.active.as_ref().map(KaraokeSession::snapshot)
     }
 
     /// {

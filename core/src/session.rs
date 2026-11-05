@@ -282,6 +282,19 @@ mod tests {
             ("GET", "/jobs/00000000-0000-0000-0000-000000000000"),
             ("POST", "/jobs/00000000-0000-0000-0000-000000000000/cancel"),
             ("GET", "/jobs/00000000-0000-0000-0000-000000000000/events"),
+            ("GET", "/karaoke-sessions/current"),
+            (
+                "GET",
+                "/karaoke-sessions/00000000-0000-0000-0000-000000000000",
+            ),
+            (
+                "POST",
+                "/karaoke-sessions/00000000-0000-0000-0000-000000000000/commands",
+            ),
+            (
+                "GET",
+                "/karaoke-sessions/00000000-0000-0000-0000-000000000000/events",
+            ),
             ("GET", "/future-route"),
         ] {
             let response = router
