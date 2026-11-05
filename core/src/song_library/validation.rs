@@ -250,6 +250,7 @@ pub(super) fn validate_published(bundle: &SongBundle, id: Uuid) -> Result<(), Im
     validate_bundle_with(bundle, id, true)
 }
 
+/// { 責務: [`validate_bundle_with`: 共通検証本体。`allow_pending`で派生artifactの`valid=false`を許すか切替], 引数: [bundle, id, `allow_pending`], 戻り値: [Ok/ImportError] }
 fn validate_bundle_with(
     bundle: &SongBundle,
     id: Uuid,

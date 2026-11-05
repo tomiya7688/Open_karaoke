@@ -337,3 +337,40 @@ fn reimporting_the_original_analysis_never_overwrites_an_edited_song() {
         "い"
     );
 }
+
+#[test]
+fn reimport_after_a_crashed_swap_recovers_edits_instead_of_republishing() {
+    let harness = Harness::new();
+    harness
+        .library
+        .edit_song(harness.id, &harness.command(1, vec![lyric_edit("い")]))
+        .unwrap();
+    // 置換の途中（公開ディレクトリが退避済み）でクラッシュした状態を再現する。
+    let retired = harness.songs.join(format!(".retired-{}-crash", harness.id));
+    fs::rename(harness.song_dir(), &retired).unwrap();
+
+    let error = harness
+        .library
+        .import(&harness.job, &ImportControl::default(), |_, _| {})
+        .unwrap_err();
+    assert!(matches!(error, ImportError::Conflict));
+    assert!(harness.leftovers().is_empty());
+    assert_eq!(
+        harness.library.load(harness.id).unwrap().lyrics.segments[0].text,
+        "い"
+    );
+}
+
+#[test]
+fn damaged_published_song_is_never_modified_by_an_edit() {
+    let harness = Harness::new();
+    fs::write(harness.song_dir().join("analysis/notes.json"), b"{ trunc").unwrap();
+    let before = harness.snapshot();
+    let error = harness
+        .library
+        .edit_song(harness.id, &harness.command(1, vec![lyric_edit("い")]))
+        .unwrap_err();
+    assert!(matches!(error, SongEditSaveError::Library(_)));
+    assert_eq!(harness.snapshot(), before);
+    assert!(harness.leftovers().is_empty());
+}

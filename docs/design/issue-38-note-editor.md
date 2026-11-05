@@ -53,7 +53,7 @@
 - 公開API: `SongLibrary::edit_song(id, &EditCommand) -> Result<EditedSong, SongEditSaveError>`、`edit_generation(&SongBundle)`。`song_data.rs`・`song_edit.rs`は無変更（追加のみ）。
 - 世代: `base_generation`は`Evidence` artifactの`generation`。編集成功ごとにEvidenceを必ず再生成するため単調増加する（初期取込直後は1）。
 - 排他: ライブラリ全体のOSファイルロック(`.writer.lock`)を世代照合から置換完了まで保持する（曲単位より強い）。取得できなければ`Busy`（再試行は呼び出し側）。同一世代の同時編集は片方だけ成功し、他方は`GenerationConflict`か`Busy`。
-- 原子的保存: `.staging-*`へ非編集資産をハードリンク（不可ならコピー）→`SongStore::save`で文書書込+fsync→`import-receipt.json`の`bundle_sha256`更新→往復検証→`<id>`を`.retired-<id>-*`へ退避→staging改名→退避削除。どの段階で失敗しても元のディレクトリを保つ。退避〜改名の短い間は`load`が`NotFound`になり得る。この間に中断された場合は次回の`edit_song`が`.retired-*`を復旧する。
+- 原子的保存: `.staging-*`へ非編集資産をハードリンク（不可ならコピー）→`SongStore::save`で文書書込+fsync→`import-receipt.json`の`bundle_sha256`更新→往復検証→`<id>`を`.retired-<id>-*`へ退避→staging改名→退避削除。どの段階で失敗しても元のディレクトリを保つ。退避〜改名の短い間は`load`が`NotFound`になり得る。この間に中断された場合は次回の`edit_song`と同曲の`import`（writerロック下）が`.retired-*`を復旧する（import側は復旧後に`Conflict`となり編集を保つ）。復旧が走るまで`list`/`load`はその曲を表示しない。復旧rename自体が失敗した場合も元の曲は`.retired-*`に残る。
 - サイズ上限: 書き出す各文書（整形JSON）が読込側上限16MiB未満であること。超過は書込前に`TooLarge`。op数は38.1の`MAX_EDIT_OPS`。
 - 下流規則: 歌詞opがあれば`Lyrics`を`invalidate`（`Notes`/`Evidence`へ伝播）してから`mark_regenerated`。ノートopがあれば`Notes`も同様。`Evidence`は毎回再生成。**再生成されなかった派生artifact（例: 歌詞だけ編集した時の`Notes`）は`valid=false`の「再生成待ち」で公開する**。ノートopを含む次の編集で`Notes`がvalidに戻る。
 - 公開済み検証の緩和: `load`系は`Lyrics/Notes/Evidence`の`valid=false`を許す（`validate_published`）。原本・stemsは常にvalid必須。取込時の検証は従来どおり厳格。
@@ -70,7 +70,8 @@
 | 6 | 未登録曲・別曲IDを拒否 | `unknown_song_and_foreign_song_id_are_rejected` |
 | 7 | 置換中断からの復旧 | `interrupted_swap_is_recovered_before_the_next_edit` |
 | 8 | 書込排他（Busy）、同時編集で成功は1件 | `concurrent_writer_gets_busy_and_the_song_is_unchanged`、`racing_edits_with_the_same_base_never_both_succeed` |
-| 9 | 再取込で編集を上書きしない | `reimporting_the_original_analysis_never_overwrites_an_edited_song` |
+| 9 | 再取込で編集を上書きしない（中断後の再取込でも復旧して保つ） | `reimporting_the_original_analysis_never_overwrites_an_edited_song`、`reimport_after_a_crashed_swap_recovers_edits_instead_of_republishing` |
+| 10 | 破損した公開曲を編集で変更しない | `damaged_published_song_is_never_modified_by_an_edit` |
 
 ## 実装スライス
 | # | 内容 | 依存 | 完了条件・テスト |

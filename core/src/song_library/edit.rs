@@ -157,7 +157,13 @@ impl SongLibrary {
         fs::rename(&final_path, &retired).map_err(ImportError::from)?;
         if let Err(error) = fs::rename(&staging.path, &final_path) {
             // 置換に失敗したら元へ戻す。戻せなければ.retired-*が次回の復旧対象として残る。
-            let _ = fs::rename(&retired, &final_path);
+            if fs::rename(&retired, &final_path).is_err() {
+                // 元の曲は.retired-*に無傷で残り、次回のedit_song/importがwriterロック下で復旧する。
+                return Err(ImportError::Invalid(
+                    "song_edit_swap_failed: original kept as .retired-*, recovered on next write",
+                )
+                .into());
+            }
             return Err(ImportError::from(error).into());
         }
         if let Err(error) = fs::remove_dir_all(&retired)
@@ -184,7 +190,7 @@ impl SongLibrary {
     ///   引数: [id]
     ///   戻り値: [Ok / ImportError]
     /// }
-    fn recover_retired(&self, id: Uuid) -> Result<(), ImportError> {
+    pub(super) fn recover_retired(&self, id: Uuid) -> Result<(), ImportError> {
         let prefix = format!(".retired-{id}-");
         let live = under(&self.root, &id.to_string())?;
         for entry in fs::read_dir(&*self.root)? {

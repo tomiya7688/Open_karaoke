@@ -200,6 +200,7 @@ impl SongLibrary {
         let result_sha256 = digest(&bytes);
         let export: Export = serde_json::from_slice(&bytes)?;
         let song_id = export.validate(source, &result_artifact)?;
+        self.recover_retired(song_id)?;
         let final_path = under(&self.root, &song_id.to_string())?;
         if final_path.try_exists()? {
             self.verify_reuse(
