@@ -547,7 +547,7 @@ fn ac10_credit_ledger_prevents_double_credit_after_seek_back() {
         .unwrap()
         .1
         .transport_epoch;
-    assert!(s.credit(epoch, 100, 400).unwrap().is_empty());
+    assert_eq!(s.credit(epoch, 100, 400).unwrap(), Vec::<(u64, u64)>::new());
     // extending past the covered region credits only the extension
     assert_eq!(s.credit(epoch, 350, 500).unwrap(), vec![(400, 500)]);
     // invalid input and non-playing states are rejected without change
@@ -582,7 +582,7 @@ fn ac10_credit_ledger_is_bounded() {
     }
     assert_eq!(last.unwrap_err().code(), "ledger_full");
     // existing credit is intact after the refusal
-    assert!(s.credit(epoch, 0, 5).unwrap().is_empty());
+    assert_eq!(s.credit(epoch, 0, 5).unwrap(), Vec::<(u64, u64)>::new());
 }
 
 #[test]
