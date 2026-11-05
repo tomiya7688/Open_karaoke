@@ -9,6 +9,7 @@ pub mod audio_engine;
 pub mod audio_import;
 pub mod audio_wav;
 pub mod ffmpeg_bundle;
+pub mod karaoke_session;
 pub mod mixer;
 pub mod mixer_api;
 pub mod mixer_control;
