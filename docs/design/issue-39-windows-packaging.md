@@ -33,7 +33,7 @@ Rust・.NET SDK・Python・FFmpegを手動導入しなくても、一般ユー�
 ## 実装スライス
 | # | 内容 | 依存 | 完了条件・テスト |
 |---|---|---|---|
-| 39.1 | 同梱レイアウトと`runtime-manifest.json`、パス解決（同梱優先） | #15 | 開発ツール無しの環境を模した起動テスト（CI、Linux可の範囲）、manifest schema検証 |
+| 39.1 | 同梱レイアウトと`runtime-manifest.json`、パス解決（同梱優先）。**実装済み**: `core/src/runtime_layout.rs`（解決順 環境変数>同梱>PATH、schema_version 1のmanifest検証）。ffmpeg解決は関数のみで、Coreへの配線は39.3 | #15 | 開発ツール無しの環境を模した起動テスト（CI、Linux可の範囲）、manifest schema検証 |
 | 39.2 | 埋込Python+依存のlock/hash固定とビルドスクリプト | 39.1, #66 | 再現ビルド（同一入力で同一hash）、`check_python_trust`通過 |
 | 39.3 | FFmpegの適法な同梱（LGPL構成）+buildconf記録+NOTICE | 39.1 | buildconf検査テスト、NOTICE/inventoryが成果物と一致 |
 | 39.4 | アプリ内モデル導入UI（同意・容量・進捗・取消・検証） | #17, #110 | 破損/オフライン/容量不足のContract test、GUI headless smoke |

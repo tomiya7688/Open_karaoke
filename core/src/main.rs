@@ -10,6 +10,7 @@ use std::{
 use open_karaoke_core::{
     AppState, CORE_API_VERSION,
     analysis_service::{AnalysisConfig, AnalysisService},
+    runtime_layout::RuntimeLayout,
     song_library::SongLibrary,
 };
 use session::CoreSession;
@@ -44,21 +45,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let directory = executable
         .parent()
         .ok_or("Executable directory is missing")?;
-    let bundled = directory.join("runtime/python").join(if cfg!(windows) {
-        "python.exe"
-    } else {
-        "bin/python3"
-    });
-    let python = std::env::var_os("OPEN_KARAOKE_PYTHON").map_or_else(
-        || {
-            if bundled.is_file() {
-                bundled
-            } else {
-                PathBuf::from("python")
-            }
-        },
-        PathBuf::from,
-    );
+    let python = RuntimeLayout::new(directory)
+        .resolve_python(std::env::var_os("OPEN_KARAOKE_PYTHON").map(PathBuf::from));
     let data = std::env::var_os("OPEN_KARAOKE_DATA_DIR")
         .map(PathBuf::from)
         .or_else(|| std::env::var_os("LOCALAPPDATA").map(|p| PathBuf::from(p).join("OpenKaraoke")))
