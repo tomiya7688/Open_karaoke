@@ -10,7 +10,8 @@ use std::{
 use open_karaoke_core::{
     AppState, CORE_API_VERSION,
     analysis_service::{AnalysisConfig, AnalysisService},
-    runtime_layout::RuntimeLayout,
+    ffmpeg_bundle::{MediaTools, verify_bundle},
+    runtime_layout::{RUNTIME_MANIFEST_FILE, RuntimeLayout, RuntimeManifest},
     song_library::SongLibrary,
 };
 use session::CoreSession;
@@ -47,6 +48,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .ok_or("Executable directory is missing")?;
     let python = RuntimeLayout::new(directory)
         .resolve_python(std::env::var_os("OPEN_KARAOKE_PYTHON").map(PathBuf::from));
+    let layout = RuntimeLayout::new(directory);
+    let media_tools = MediaTools::resolve(
+        &layout,
+        std::env::var_os("OPEN_KARAOKE_FFMPEG").map(PathBuf::from),
+        std::env::var_os("OPEN_KARAOKE_FFPROBE").map(PathBuf::from),
+    );
+    report_bundled_ffmpeg(&layout);
     let data = std::env::var_os("OPEN_KARAOKE_DATA_DIR")
         .map(PathBuf::from)
         .or_else(|| std::env::var_os("LOCALAPPDATA").map(|p| PathBuf::from(p).join("OpenKaraoke")))
@@ -62,7 +70,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     })
     .await
     .map_err(std::io::Error::other)?;
-    let state = AppState::with_analysis(service.client()).with_song_library(library);
+    let state = AppState::with_analysis(service.client())
+        .with_song_library(library)
+        .with_media_tools(media_tools);
     let router = session.router(state.clone());
     if let Err(error) = publish_ready(port, instance_id) {
         // A launcher that exited during startup must not leave its worker behind.
@@ -79,6 +89,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     service.shutdown().await;
     result?;
     Ok(())
+}
+
+/// { 処理: 同梱配置（manifestあり）の場合だけ同梱FFmpegを検査し、失敗はstderrへ警告する。
+///   開発環境（manifestなし）では何もしない。起動は止めない（取り込み時に再検査される）。 }
+fn report_bundled_ffmpeg(layout: &RuntimeLayout) {
+    let path = layout.manifest_path();
+    if !path.is_file() {
+        return;
+    }
+    let result = RuntimeManifest::load(&path)
+        .map_err(|e| e.to_string())
+        .and_then(|m| verify_bundle(layout, &m).map_err(|e| e.to_string()));
+    if let Err(error) = result {
+        eprintln!("warning: {RUNTIME_MANIFEST_FILE}: {error}");
+    }
 }
 
 fn publish_ready(port: u16, instance_id: uuid::Uuid) -> io::Result<()> {

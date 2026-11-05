@@ -102,6 +102,15 @@ FFmpeg等を同梱する場合、実際のビルド構成によって適用ラ�
 
 公式配布では、GPL / nonfree 構成を無意識に混入させない。
 
+Core（`core/src/ffmpeg_bundle.rs`、Issue #39 slice 39.3）は同梱 `tools/ffmpeg/` を次の条件で検査する。
+
+- `buildconf.txt`（`ffmpeg -buildconf` 全文）に `--enable-gpl` / `--enable-nonfree` が無い
+- `runtime-manifest.json` の `ffmpeg` 台帳の license が LGPL 系で、sha256 が実バイナリと一致する
+- `NOTICE.txt` が台帳の版・sha256・license を含む
+- 取り込み時は `verify_ffmpeg_distribution` が実行バイナリの `-buildconf` を再検査する
+
+この検査は構成の機械チェックであり、**ライセンスの法的判断ではない**。具体的なFFmpegビルドの入手元、有効なコーデックごとの特許・ライセンス、LGPLのソース提供/再リンク義務の履行は **Unverified**（バイナリ選定時に確認する）。
+
 ## Music, lyrics, and user content
 
 Open_karaoke本体のApache-2.0ライセンスは、ユーザーが読み込む楽曲、録音物、歌詞、譜面等の権利を許諾するものではない。
