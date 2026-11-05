@@ -58,6 +58,12 @@ const MAX_CORE_REQUEST_BYTES: usize = 64 * 1024;
 const MAX_ACTIVE_JOBS: usize = 16;
 const MAX_RETAINED_JOBS: usize = 512;
 const MAX_SSE_CONNECTIONS: usize = 32;
+/// 再生中に重いJobを待機させる既定の上限時間。超えたらfailedにする(無期限にしない)。
+const DEFAULT_DEFER_MAX_WAIT: Duration = Duration::from_mins(30);
+/// 再生状態を確認し直す間隔。
+const DEFER_POLL_INTERVAL: Duration = Duration::from_millis(50);
+/// 待機中Jobの `deferred_reason` に入れる値(UIが「再生中のため待機」と表示する)。
+pub const DEFERRED_REASON_PLAYBACK_ACTIVE: &str = "playback_active";
 
 #[derive(Clone)]
 pub struct AppState {
@@ -69,6 +75,17 @@ pub struct AppState {
     mixer: mixer_control::MixerControl,
     media_tools: Option<ffmpeg_bundle::MediaTools>,
     karaoke: karaoke_session_api::KaraokeSessionHost,
+    inference: InferencePolicy,
+}
+
+/// {
+///   責務: [`InferencePolicy`: 再生中の重い推論Jobの扱い(Issue #43)。永続化せず起動時に保持する]
+///   フィールド: [`defer_while_playing`: 再生中は重いJobの開始を待たせる, `defer_max_wait`: 待機の上限(超過でfailed)]
+/// }
+#[derive(Clone, Copy, Debug)]
+struct InferencePolicy {
+    defer_while_playing: bool,
+    defer_max_wait: Duration,
 }
 
 impl Default for AppState {
@@ -88,6 +105,10 @@ impl Default for AppState {
             mixer: mixer_control::MixerControl::default(),
             media_tools: None,
             karaoke: karaoke_session_api::KaraokeSessionHost::new(Uuid::new_v4()),
+            inference: InferencePolicy {
+                defer_while_playing: true,
+                defer_max_wait: DEFAULT_DEFER_MAX_WAIT,
+            },
         }
     }
 }
@@ -197,6 +218,9 @@ pub struct Job {
     /// Per-stage plan pinned at acceptance (`analysis.song` only).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model_plan: Option<model_plan::ModelPlan>,
+    /// 開始待ちの理由(例: `playback_active`)。待機していない/開始後は無い。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub deferred_reason: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -279,6 +303,40 @@ impl AppState {
         self.karaoke.clone()
     }
 
+    /// {
+    ///   責務: [`with_defer_while_playing`: 再生中に重いJobを待たせる方針を切り替える(既定は有効)]
+    ///   引数: [enabled]
+    ///   戻り値: [方針を反映した`AppState`]
+    /// }
+    #[must_use]
+    pub fn with_defer_while_playing(mut self, enabled: bool) -> Self {
+        self.inference.defer_while_playing = enabled;
+        self
+    }
+
+    /// {
+    ///   責務: [`with_defer_max_wait`: 再生中待機の上限時間を設定する(超過したJobはfailed)]
+    ///   引数: [`max_wait`]
+    ///   戻り値: [方針を反映した`AppState`]
+    /// }
+    #[must_use]
+    pub fn with_defer_max_wait(mut self, max_wait: Duration) -> Self {
+        self.inference.defer_max_wait = max_wait;
+        self
+    }
+
+    /// {
+    ///   責務: [`playback_active`: 歌唱セッションが再生中(playing)かを返す。読み取りのみで状態を変えない]
+    ///   処理: [1: セッションhostの現行snapshotを読む, 2: stateがplayingか判定する(paused/interrupted/準備中は再生中でない)]
+    ///   戻り値: [`bool`: 再生中ならtrue]
+    /// }
+    #[must_use]
+    pub fn playback_active(&self) -> bool {
+        self.karaoke
+            .current_snapshot()
+            .is_some_and(|snapshot| snapshot.state == karaoke_session::KaraokeState::Playing)
+    }
+
     /// Stop admission and request cancellation before runtime teardown.
     /// Active imports that already claimed publication finish without accepting cancellation.
     pub async fn begin_shutdown(&self) {
@@ -341,6 +399,7 @@ impl AppState {
             }
             .clone_into(&mut job.stage);
             job.status = status;
+            job.deferred_reason = None;
             job.error = error;
             job.finished_at = Some(Utc::now());
         })
@@ -521,6 +580,7 @@ async fn create_job(
         selected_model_id: None,
         selection_fallback_reason: None,
         model_plan: None,
+        deferred_reason: None,
     };
     let (events, _) = broadcast::channel(64);
     let mut jobs = state.jobs.write().await;
@@ -606,9 +666,13 @@ async fn run_job(
         state.finish(id, JobStatus::Cancelled, None).await;
         return;
     }
+    if is_heavy_kind(&request.kind) && !wait_while_playing(&state, id).await {
+        return;
+    }
     state
         .update(id, |job| {
             job.status = JobStatus::Running;
+            job.deferred_reason = None;
             "running".clone_into(&mut job.stage);
             job.started_at = Some(Utc::now());
         })
@@ -647,6 +711,64 @@ async fn run_job(
             .await;
     }
     state.finish(id, JobStatus::Completed, None).await;
+}
+
+/// {
+///   責務: [`is_heavy_kind`: 再生中は開始を待たせる重い推論Jobかを判定する]
+///   処理: [1: `analysis.`役割のうち mock 以外(stems/lyrics/alignment/pitch/events/notes/song)を重いとみなす]
+///   引数: [kind: Job種別]
+///   戻り値: [`bool`: 重い推論ならtrue。`song.import`や試験用Jobはfalse]
+/// }
+fn is_heavy_kind(kind: &str) -> bool {
+    kind.strip_prefix("analysis.")
+        .is_some_and(|role| role != "mock")
+}
+
+/// {
+///   責務: [`wait_while_playing`: 再生中の間、重いJobをqueuedのまま開始待ちにする]
+///   処理: [1: 方針が無効か再生中でなければ即座に開始可とする, 2: 待機中は`deferred_reason`とstage`deferred`を公開する, 3: 一定間隔で再生状態とcancelを確認する, 4: 上限時間を超えたらfailedにする]
+///   引数: [state, id: Job ID]
+///   戻り値: [`bool`: 開始してよければtrue。cancelled/failedで終端済みならfalse]
+/// }
+async fn wait_while_playing(state: &AppState, id: Uuid) -> bool {
+    if !state.inference.defer_while_playing {
+        return true;
+    }
+    let deadline = tokio::time::Instant::now() + state.inference.defer_max_wait;
+    let mut announced = false;
+    while state.playback_active() {
+        if !announced {
+            announced = true;
+            state
+                .update(id, |job| {
+                    "deferred".clone_into(&mut job.stage);
+                    job.deferred_reason = Some(DEFERRED_REASON_PLAYBACK_ACTIVE.to_owned());
+                })
+                .await;
+        }
+        if state.cancelled(id).await {
+            state.finish(id, JobStatus::Cancelled, None).await;
+            return false;
+        }
+        if tokio::time::Instant::now() >= deadline {
+            state
+                .finish(
+                    id,
+                    JobStatus::Failed,
+                    Some(
+                        "deferred_timeout: playback kept the job waiting past its limit".to_owned(),
+                    ),
+                )
+                .await;
+            return false;
+        }
+        tokio::time::sleep(DEFER_POLL_INTERVAL).await;
+    }
+    if state.cancelled(id).await {
+        state.finish(id, JobStatus::Cancelled, None).await;
+        return false;
+    }
+    true
 }
 
 async fn run_analysis(
@@ -829,6 +951,7 @@ mod tests {
             selected_model_id: None,
             selection_fallback_reason: None,
             model_plan: None,
+            deferred_reason: None,
         };
         state.jobs.write().await.insert(
             id,
@@ -921,5 +1044,172 @@ mod tests {
             assert_eq!(job.status, JobStatus::Running);
             assert_eq!(job.artifacts, Vec::<String>::new());
         }
+    }
+
+    /// {
+    ///   責務: [`queued_job`: 指定種別のqueued Jobを表に入れる(#43 待機試験用)]
+    ///   引数: [state, kind]
+    ///   戻り値: [Job ID]
+    /// }
+    async fn queued_job(state: &AppState, kind: &str) -> Uuid {
+        let id = running_job(state).await;
+        state
+            .update(id, |job| {
+                job.kind = kind.to_owned();
+                job.status = JobStatus::Queued;
+                "queued".clone_into(&mut job.stage);
+                job.started_at = None;
+            })
+            .await;
+        id
+    }
+
+    /// {
+    ///   責務: [`start_playing`: Controller相当でセッションをplaying状態にする]
+    ///   引数: [state, instance: 世代ID]
+    ///   戻り値: [セッションID(`Uuid`)]
+    /// }
+    fn start_playing(state: &AppState, instance: Uuid) -> Uuid {
+        let host = state.karaoke_host();
+        let snapshot = host
+            .create(
+                Uuid::new_v4(),
+                48_000 * 10,
+                karaoke_session::ScoringMode::WholeSong,
+            )
+            .unwrap();
+        assert!(host.finish_preparing(snapshot.session_id, Ok(())).unwrap());
+        let ready = host.snapshot(snapshot.session_id).unwrap();
+        host.execute(karaoke_session::CommandEnvelope {
+            core_instance_id: instance,
+            session_id: snapshot.session_id,
+            command_id: Uuid::new_v4(),
+            expected_revision: ready.state_revision,
+            command: karaoke_session::KaraokeCommand::Play,
+        })
+        .unwrap();
+        assert!(state.playback_active());
+        snapshot.session_id
+    }
+
+    /// {
+    ///   責務: [`stop_playing`: playing中のセッションをstopする]
+    /// }
+    fn stop_playing(state: &AppState, instance: Uuid, session: Uuid) {
+        let host = state.karaoke_host();
+        let current = host.snapshot(session).unwrap();
+        host.execute(karaoke_session::CommandEnvelope {
+            core_instance_id: instance,
+            session_id: session,
+            command_id: Uuid::new_v4(),
+            expected_revision: current.state_revision,
+            command: karaoke_session::KaraokeCommand::Stop,
+        })
+        .unwrap();
+        assert!(!state.playback_active());
+    }
+
+    #[test]
+    fn only_analysis_roles_other_than_mock_are_heavy() {
+        for kind in [
+            "analysis.stems",
+            "analysis.lyrics",
+            "analysis.alignment",
+            "analysis.pitch",
+            "analysis.events",
+            "analysis.notes",
+            "analysis.song",
+        ] {
+            assert!(is_heavy_kind(kind), "{kind}");
+        }
+        for kind in ["analysis.mock", "song.import", "test", ""] {
+            assert!(!is_heavy_kind(kind), "{kind}");
+        }
+    }
+
+    #[tokio::test]
+    async fn heavy_job_waits_while_playing_and_starts_when_playback_ends() {
+        let instance = Uuid::new_v4();
+        let state = AppState::new().with_core_instance_id(instance);
+        let session = start_playing(&state, instance);
+        let id = queued_job(&state, "analysis.stems").await;
+        let waiter = tokio::spawn({
+            let state = state.clone();
+            async move { wait_while_playing(&state, id).await }
+        });
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        assert!(!waiter.is_finished(), "must keep waiting during playback");
+        let job = state.snapshot(id).await.unwrap();
+        assert_eq!(job.status, JobStatus::Queued);
+        assert_eq!(job.stage, "deferred");
+        assert_eq!(
+            job.deferred_reason.as_deref(),
+            Some(DEFERRED_REASON_PLAYBACK_ACTIVE)
+        );
+        stop_playing(&state, instance, session);
+        assert!(
+            tokio::time::timeout(Duration::from_secs(5), waiter)
+                .await
+                .unwrap()
+                .unwrap()
+        );
+    }
+
+    #[tokio::test]
+    async fn deferred_job_can_be_cancelled_and_does_not_touch_the_session() {
+        let instance = Uuid::new_v4();
+        let state = AppState::new().with_core_instance_id(instance);
+        let session = start_playing(&state, instance);
+        let before = state.karaoke_host().snapshot(session).unwrap();
+        let id = queued_job(&state, "analysis.song").await;
+        let waiter = tokio::spawn({
+            let state = state.clone();
+            async move { wait_while_playing(&state, id).await }
+        });
+        tokio::time::sleep(Duration::from_millis(120)).await;
+        state.jobs.write().await.get_mut(&id).unwrap().cancelled = true;
+        assert!(
+            !tokio::time::timeout(Duration::from_secs(5), waiter)
+                .await
+                .unwrap()
+                .unwrap()
+        );
+        let job = state.snapshot(id).await.unwrap();
+        assert_eq!(job.status, JobStatus::Cancelled);
+        assert_eq!(job.deferred_reason, None);
+        assert_eq!(state.karaoke_host().snapshot(session).unwrap(), before);
+    }
+
+    #[tokio::test]
+    async fn deferral_is_bounded_and_fails_after_the_limit() {
+        let instance = Uuid::new_v4();
+        let state = AppState::new()
+            .with_core_instance_id(instance)
+            .with_defer_max_wait(Duration::from_millis(150));
+        start_playing(&state, instance);
+        let id = queued_job(&state, "analysis.lyrics").await;
+        assert!(!wait_while_playing(&state, id).await);
+        let job = state.snapshot(id).await.unwrap();
+        assert_eq!(job.status, JobStatus::Failed);
+        assert!(job.error.unwrap().contains("deferred_timeout"));
+        assert!(
+            state.playback_active(),
+            "the job failure must not stop playback"
+        );
+    }
+
+    #[tokio::test]
+    async fn disabled_policy_and_idle_playback_do_not_wait() {
+        let instance = Uuid::new_v4();
+        let idle = AppState::new().with_core_instance_id(instance);
+        let id = queued_job(&idle, "analysis.stems").await;
+        assert!(wait_while_playing(&idle, id).await, "no session: start now");
+        let off = AppState::new()
+            .with_core_instance_id(instance)
+            .with_defer_while_playing(false);
+        start_playing(&off, instance);
+        let id = queued_job(&off, "analysis.stems").await;
+        assert!(wait_while_playing(&off, id).await, "policy off: start now");
+        assert_eq!(off.snapshot(id).await.unwrap().deferred_reason, None);
     }
 }

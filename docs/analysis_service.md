@@ -172,3 +172,19 @@ formatting and Clippy findings are corrected rather than suppressing the lint ga
 - Tokio child lifecycle: https://docs.rs/tokio/latest/tokio/process/struct.Child.html
 - Reqwest client: https://docs.rs/reqwest/latest/reqwest/struct.ClientBuilder.html
 - PowerShell native exit handling: https://learn.microsoft.com/en-us/powershell/module/microsoft.powershell.core/about/about_preference_variables
+
+## Playback-priority deferral (Issue #43, slices 43.2 / 43.4)
+
+- A heavy job (`analysis.*` except `analysis.mock`: stems, lyrics, alignment, pitch, events,
+  notes, song) created while the karaoke session is `playing` stays `queued` with
+  `stage: "deferred"` and `deferred_reason: "playback_active"` (the field is omitted otherwise).
+  It starts when the session leaves `playing` (paused/stopped/finished/interrupted all count as
+  not playing). Running jobs are never interrupted.
+- `POST /jobs/{id}/cancel` ends a deferred job as `cancelled`. Waiting is bounded
+  (default 30 minutes); past the limit the job becomes `failed` with `deferred_timeout`.
+- `AppState::with_defer_while_playing(false)` disables the policy (default on);
+  `with_defer_max_wait` sets the limit. The policy is held in memory, not persisted.
+- Job failure, cancellation and worker crash never change the karaoke session; the Job table and
+  the session are independent. Core only reads the session state (read-only).
+- CI proves this contract only (`core` unit tests, `job_api` tests). Real-device underrun and
+  p95 behaviour under load remains Unverified (see audio_engine.md, 43.1/43.5).
