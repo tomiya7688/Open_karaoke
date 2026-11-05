@@ -34,6 +34,10 @@ stdinを保持する起動元がセッションを所有し、閉じるとCore�
 | GET | `/jobs/{id}` | Job状態・成果物・登録成功時の曲ID |
 | POST | `/jobs/{id}/cancel` | Jobキャンセル要求 |
 | GET | `/jobs/{id}/events` | 最新JobスナップショットのSSE配信 |
+| GET | `/karaoke-sessions/current` | 現行の歌唱セッションのsnapshot。無ければ404（#107） |
+| GET | `/karaoke-sessions/{id}` | 歌唱セッションのsnapshot（未知は404） |
+| POST | `/karaoke-sessions/{id}/commands` | play/pause/seek/stop。`command_id`で冪等、`expected_revision`で競合拒否（Stopは免除）。成功は`{disposition,snapshot}`、拒否は`{error,code}`（404/409/422） |
+| GET | `/karaoke-sessions/{id}/events` | 状態イベントのSSE（同時8本まで、超過429）。`?after=N`/`Last-Event-ID`で再開、取りこぼしは`gap`+snapshot |
 | GET | `/songs` | 登録済み曲のUUID cursor一覧。limit / after指定可能 |
 | GET | `/songs/{id}` | 音声込み登録済み曲のSongBundle文書 |
 
@@ -48,6 +52,17 @@ JSONに表せない非有限値は拒否し、範囲外の有限値は範囲へ�
 値は共有の `MixerControl` に書かれ、音声callbackは次の処理で反映する（API側は音声状態を触らない）。
 Core単体ではデバイスを開かないため、デバイスを開く側が `AppState::mixer_control()` を
 `AudioDeviceStreams::open_with_mixer_control` へ渡して接続する。物理遅延は未測定。
+
+## 歌唱セッション（`/karaoke-sessions`、#107 107.2）
+
+Coreが歌唱セッションの状態とコマンド順序の正本を持つ。クライアントは状態取得・transportコマンド・SSE購読だけを行い、
+セッションの作成・準備完了・提示位置・採点区間・中断の報告はできない（将来のControllerがCore内部で行う）。
+コマンド本文は `core_instance_id`（`GET /session`のinstance_id）・`command_id`（再送キー）・`expected_revision`・
+`command`（`{"type":"play"|"pause"|"stop"}` / `{"type":"seek","song_sample":48kHz整数}`）。
+再起動後の新しいCoreは旧セッションを知らず、旧instance宛は409 `stale_instance`。
+位置は出力で提示済みの値のみ（`position_source`）。SSEはlive容量64を超えて遅れた購読者を閉じ、
+再接続で`snapshot`/`gap`から復旧する。デバイスは開かない（実機の品質は未測定）。契約は
+[設計](design/issue-107-karaoke-session.md)。
 
 ## Jobの種類
 

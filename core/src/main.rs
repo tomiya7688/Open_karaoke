@@ -71,6 +71,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     .await
     .map_err(std::io::Error::other)?;
     let state = AppState::with_analysis(service.client())
+        .with_core_instance_id(instance_id)
         .with_song_library(library)
         .with_media_tools(media_tools);
     let router = session.router(state.clone());

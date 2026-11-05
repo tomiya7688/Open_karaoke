@@ -10,6 +10,7 @@ pub mod audio_import;
 pub mod audio_wav;
 pub mod ffmpeg_bundle;
 pub mod karaoke_session;
+pub mod karaoke_session_api;
 pub mod mixer;
 pub mod mixer_api;
 pub mod mixer_control;
@@ -66,6 +67,7 @@ pub struct AppState {
     sse_budget: Arc<Semaphore>,
     mixer: mixer_control::MixerControl,
     media_tools: Option<ffmpeg_bundle::MediaTools>,
+    karaoke: karaoke_session_api::KaraokeSessionHost,
 }
 
 impl Default for AppState {
@@ -84,6 +86,7 @@ impl Default for AppState {
             sse_budget: Arc::new(Semaphore::new(MAX_SSE_CONNECTIONS)),
             mixer: mixer_control::MixerControl::default(),
             media_tools: None,
+            karaoke: karaoke_session_api::KaraokeSessionHost::new(Uuid::new_v4()),
         }
     }
 }
@@ -262,6 +265,19 @@ impl AppState {
         self
     }
 
+    /// { 処理: 歌唱セッションの世代IDを設定する。`GET /session` の `instance_id` と同じ値を渡し、旧世代のコマンドを拒否できるようにする。 }
+    #[must_use]
+    pub fn with_core_instance_id(mut self, core_instance_id: Uuid) -> Self {
+        self.karaoke = karaoke_session_api::KaraokeSessionHost::new(core_instance_id);
+        self
+    }
+
+    /// { 戻り値: 歌唱セッションhost。Controllerが作成・準備完了・提示位置・中断を報告する入口(クライアントAPIにはこれらが無い)。 }
+    #[must_use]
+    pub fn karaoke_host(&self) -> karaoke_session_api::KaraokeSessionHost {
+        self.karaoke.clone()
+    }
+
     /// Stop admission and request cancellation before runtime teardown.
     /// Active imports that already claimed publication finish without accepting cancellation.
     pub async fn begin_shutdown(&self) {
@@ -347,6 +363,7 @@ pub fn app(state: AppState) -> Router {
         .route("/jobs/{id}/events", get(job_events))
         .merge(song_api::routes())
         .merge(mixer_api::routes())
+        .merge(karaoke_session_api::routes())
         .route_layer(middleware::from_fn(api_guard))
         .route("/health", get(health))
         .layer(DefaultBodyLimit::max(MAX_CORE_REQUEST_BYTES))
