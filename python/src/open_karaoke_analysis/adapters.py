@@ -60,6 +60,8 @@ class AnalysisContext:
     input_path: Path | None
     cancelled: Event
     report: Callable[[float, str], None]
+    # 受付時に確定した段ごとのモデル選択プラン(song用)。Adapterは変更しない。
+    model_plan: dict[str, Any] | None = None
 
     def checkpoint(self) -> None:
         if self.cancelled.is_set():

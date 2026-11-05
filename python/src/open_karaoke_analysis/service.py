@@ -33,7 +33,7 @@ from .model_packages import discover_packages
 from .model_selection import SelectionChoice, read_selection, resolve_selection, set_selection
 from .notes import NotesAdapter
 from .pitch import PitchAdapter
-from .song import SongAdapter
+from .song import STAGES, SongAdapter
 from .stems import StemsAdapter
 from .vocal_events import VocalEventAdapter
 
@@ -63,6 +63,49 @@ class Record:
     job: Job
     cancel: Event
     task: asyncio.Task[None] | None = None
+    model_plan: dict | None = None
+
+
+def pin_song_plan(
+    options: dict, stage_choices: dict[str, SelectionChoice] | None
+) -> tuple[dict, dict | None]:
+    """
+    {
+      責務: [pin_song_plan: song Jobの各段のモデルを受付時に確定し、決まり方を記録する]
+      処理: [
+        1: options.modelsに明示指定がある段はsource=requestとして変えない,
+        2: 無ければ保存済み選択が使える段はそのAdapter IDをmodelsへ書き込む(source=selection),
+        3: 使えない選択はfallback_reason付きでsource=default_fallback、選択なしはdefault
+      ]
+      引数: [options: リクエストのoptions(変更しない), stage_choices: 段名 -> 解決済み選択]
+      戻り値: [(pin済みoptionsのコピー, 段別プラン。optionsの形が不正ならプランなし)]
+    }
+    """
+    models = options.get("models", {})
+    if stage_choices is None or not isinstance(models, dict):
+        return options, None
+    pinned = dict(models)
+    plan: dict[str, dict] = {}
+    for stage, choice in stage_choices.items():
+        if stage in models:
+            plan[stage] = {"source": "request", "selected_model_id": None, "fallback_reason": None}
+        elif choice.adapter_id is not None:
+            pinned[stage] = choice.adapter_id
+            plan[stage] = {
+                "source": "selection",
+                "selected_model_id": choice.stored_id,
+                "fallback_reason": None,
+            }
+        elif choice.stored_id is not None:
+            plan[stage] = {
+                "source": "default_fallback",
+                "selected_model_id": choice.stored_id,
+                "fallback_reason": choice.fallback_reason,
+            }
+        else:
+            plan[stage] = {"source": "default", "selected_model_id": None, "fallback_reason": None}
+    plan["resolved_at"] = now().isoformat()
+    return {**options, "models": pinned}, plan
 
 
 class JobManager:
@@ -86,7 +129,11 @@ class JobManager:
             ) from error
 
     def submit(
-        self, role: Role, request: AnalysisRequest, choice: SelectionChoice | None = None
+        self,
+        role: Role,
+        request: AnalysisRequest,
+        choice: SelectionChoice | None = None,
+        stage_choices: dict[str, SelectionChoice] | None = None,
     ) -> Job:
         """
         {
@@ -94,9 +141,11 @@ class JobManager:
           処理: [
             1: model_idの明示指定があればそれを最優先する(保存済み選択は見ない),
             2: 無ければ保存済み選択(choice)のAdapterを使う,
-            3: 選択が無い・使えないときは従来の既定Adapterを使い、使えない場合は理由を記録する
+            3: 選択が無い・使えないときは従来の既定Adapterを使い、使えない場合は理由を記録する,
+            4: song Jobは各段の選択(stage_choices)も受付時に確定し、以後の変更を反映しない
           ]
-          引数: [role: Jobのrole, request: 解析リクエスト, choice: 事前に解決した保存済み選択]
+          引数: [role: Jobのrole, request: 解析リクエスト, choice: 事前に解決した保存済み選択,
+            stage_choices: song各段の事前解決済み選択]
           戻り値: [model_id・model_source等を含むJobのスナップショット]
           エラー: [ServiceError: shutting_down, model_not_found, model_role_mismatch, queue_full等]
         }
@@ -115,7 +164,10 @@ class JobManager:
                 source, selected = "default_fallback", choice.stored_id
                 reason = choice.fallback_reason
             adapter = self.registry.select(role, None)
-        options = adapter.validate_options(request.options)
+        request_options, plan = request.options, None
+        if role == Role.SONG:
+            request_options, plan = pin_song_plan(request.options, stage_choices)
+        options = adapter.validate_options(request_options)
         input_path = None
         if request.input_artifact is not None:
             input_path = resolve_artifact(self.root, request.input_artifact, must_exist=True)
@@ -142,7 +194,7 @@ class JobManager:
             selection_fallback_reason=reason,
             created_at=now(),
         )
-        record = Record(job, Event())
+        record = Record(job, Event(), model_plan=plan)
         self.records[job.id] = record
         record.task = asyncio.create_task(self.run(record, adapter, options, input_path))
         return job.model_copy(deep=True)
@@ -172,6 +224,7 @@ class JobManager:
             input_path,
             record.cancel,
             lambda p, s: loop.call_soon_threadsafe(self.report, record, p, s),
+            record.model_plan,
         )
         terminal = "failed"
         try:
@@ -343,7 +396,15 @@ def create_app(
         choice = None
         if request.model_id is None:
             choice = await asyncio.to_thread(resolve_selection, root, registry.adapters, role)
-        return app.state.jobs.submit(role, request, choice)
+        stage_choices = None
+        if role == Role.SONG:
+            stage_choices = {
+                stage: await asyncio.to_thread(
+                    resolve_selection, root, registry.adapters, Role(stage)
+                )
+                for stage in STAGES
+            }
+        return app.state.jobs.submit(role, request, choice, stage_choices)
 
     @app.get("/jobs/{job_id}", response_model=Job)
     async def get_job(job_id: UUID):
