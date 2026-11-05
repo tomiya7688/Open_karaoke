@@ -12,6 +12,7 @@ pub mod ffmpeg_bundle;
 pub mod mixer;
 pub mod mixer_api;
 pub mod mixer_control;
+pub mod model_plan;
 pub mod runtime_layout;
 pub mod song_api;
 pub mod song_data;
@@ -178,6 +179,19 @@ pub struct Job {
     /// Library identity is separate from worker-relative artifact paths.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub imported_song: Option<song_library::ImportedSong>,
+    /// Adapter that actually ran (worker-validated); absent for non-analysis jobs.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model_id: Option<String>,
+    /// How the model was chosen; separates "selected" from "actually ran".
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model_source: Option<model_plan::ModelSource>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub selected_model_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub selection_fallback_reason: Option<String>,
+    /// Per-stage plan pinned at acceptance (`analysis.song` only).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model_plan: Option<model_plan::ModelPlan>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -483,6 +497,11 @@ async fn create_job(
         error: None,
         artifacts: Vec::new(),
         imported_song: None,
+        model_id: None,
+        model_source: None,
+        selected_model_id: None,
+        selection_fallback_reason: None,
+        model_plan: None,
     };
     let (events, _) = broadcast::channel(64);
     let mut jobs = state.jobs.write().await;
@@ -640,10 +659,23 @@ async fn run_analysis(
 }
 
 async fn apply_remote(state: &AppState, id: Uuid, remote: &RemoteJob) -> Result<bool, String> {
+    // Provenance is untrusted too: refuse to publish an oversized or malformed one.
+    remote
+        .provenance
+        .validate()
+        .map_err(|reason| format!("analysis_protocol: {reason}"))?;
+    let provenance = &remote.provenance;
     state
         .update(id, |job| {
             job.progress = remote.progress;
             job.stage.clone_from(&remote.stage);
+            job.model_id.clone_from(&provenance.model_id);
+            job.model_source = provenance.model_source;
+            job.selected_model_id
+                .clone_from(&provenance.selected_model_id);
+            job.selection_fallback_reason
+                .clone_from(&provenance.selection_fallback_reason);
+            job.model_plan.clone_from(&provenance.model_plan);
         })
         .await;
     match remote.status.as_str() {
@@ -773,6 +805,11 @@ mod tests {
             error: None,
             artifacts: Vec::new(),
             imported_song: None,
+            model_id: None,
+            model_source: None,
+            selected_model_id: None,
+            selection_fallback_reason: None,
+            model_plan: None,
         };
         state.jobs.write().await.insert(
             id,
@@ -795,6 +832,7 @@ mod tests {
             stage: "completed".to_owned(),
             error: None,
             artifacts,
+            provenance: model_plan::ModelProvenance::default(),
         }
     }
 
@@ -807,6 +845,36 @@ mod tests {
         let job = state.snapshot(id).await.unwrap();
         assert_eq!(job.status, JobStatus::Completed);
         assert_eq!(job.artifacts, remote.artifacts);
+    }
+
+    #[tokio::test]
+    async fn worker_model_provenance_is_published_and_bad_provenance_is_refused() {
+        let state = AppState::new();
+        let id = running_job(&state).await;
+        let mut remote = completed_remote(Vec::new());
+        remote.provenance = serde_json::from_value(serde_json::json!({
+            "model_id": "mock-v1", "model_source": "default_fallback",
+            "selected_model_id": "ghost", "selection_fallback_reason": "package missing",
+            "model_plan": {"resolved_at": "t", "stems": {"source": "default"}},
+        }))
+        .unwrap();
+        assert_eq!(apply_remote(&state, id, &remote).await, Ok(true));
+        let job = state.snapshot(id).await.unwrap();
+        assert_eq!(job.model_id.as_deref(), Some("mock-v1"));
+        assert_eq!(job.selected_model_id.as_deref(), Some("ghost"));
+        assert!(job.require_exact_model_plan().is_err());
+        let value = serde_json::to_value(&job).unwrap();
+        assert_eq!(value["model_source"], "default_fallback");
+        assert_eq!(value["model_plan"]["stems"]["source"], "default");
+
+        let state = AppState::new();
+        let id = running_job(&state).await;
+        let mut remote = completed_remote(Vec::new());
+        remote.provenance.model_id = Some("x".repeat(model_plan::MAX_TEXT_CHARS + 1));
+        let error = apply_remote(&state, id, &remote).await.unwrap_err();
+        assert!(error.starts_with("analysis_protocol:"), "{error}");
+        let job = state.snapshot(id).await.unwrap();
+        assert_eq!((job.status, job.model_id), (JobStatus::Running, None));
     }
 
     #[tokio::test]

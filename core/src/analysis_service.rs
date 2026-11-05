@@ -82,6 +82,8 @@ pub(crate) struct RemoteJob {
     pub stage: String,
     pub error: Option<RemoteError>,
     pub artifacts: Vec<String>,
+    #[serde(flatten)]
+    pub provenance: crate::model_plan::ModelProvenance,
 }
 
 impl Session {

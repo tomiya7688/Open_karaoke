@@ -93,7 +93,7 @@ optional structured error, and artifact references. `model_id` is the adapter th
 `model_source` is `request`, `selection` (saved choice; package choices map to the manifest
 `backend`, no package code runs), `default`, or `default_fallback` (the saved choice was not
 usable, so the role default ran; `selected_model_id` and `selection_fallback_reason` say why).
-These fields are additive. Song stages do not yet use per-role saved choices. The queue retains at most 256 records,
+These fields are additive. `analysis.song` jobs also carry `model_plan` (per-stage `source`, `selected_model_id`, `fallback_reason`, plus `resolved_at`), fixed at acceptance (#109). The queue retains at most 256 records,
 evicts only finished records and returns 429 when all slots are live. There is one inference
 worker by default; the HTTP event loop is separate from synchronous adapter execution.
 

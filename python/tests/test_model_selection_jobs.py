@@ -65,6 +65,7 @@ def test_no_selection_uses_default(tmp_path):
         assert snapshot["model_source"] == "default"
         assert snapshot["selected_model_id"] is None
         assert snapshot["selection_fallback_reason"] is None
+        assert snapshot["model_plan"] is None
     assert job["status"] == "completed"
 
 

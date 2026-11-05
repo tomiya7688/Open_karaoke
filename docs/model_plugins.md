@@ -32,7 +32,7 @@ roleごとに「どのモデルを使うか」を1件だけ保存できます。
 - 組み込みAdapterの選択はそのAdapter、パッケージの選択はそのmanifestの `backend`（登録済みAdapter）で動きます。データを読むだけで、パッケージ内のコードは実行・importしません。
 - 保存済み選択が使えない（パッケージ削除・`available`でなくなった・role不一致・models/が読めない）ときはエラーにせず既定Adapterで動かし、`model_source: "default_fallback"` と短い理由で報告します。保存ファイルは書き換えません。
 - Jobのスナップショットに `model_id`（実際に動かしたAdapter。従来どおり）、`model_source`（`request` / `selection` / `default` / `default_fallback`）、`selected_model_id`（保存済み選択のID。パッケージIDの場合あり）、`selection_fallback_reason` を追加しました。追加のみで、既存フィールドは変わりません。
-- 制限: パッケージの選択は「そのbackend Adapterを使う」だけで、パッケージのフォルダや重みのパスはAdapterへ渡しません（重みの差し替えは未実装）。`song` Job内部の各段（stems・lyrics等）にも、受付時に `options.models`（最優先）→ 保存済み選択 → 既定の順で確定したプランを適用します（#109.1）。確定後に選択ファイルやpackageが変わっても進行中Jobは変わらず、各段の `selection`（source・保存ID・fallback理由）と `model_plan_resolved_at` を完了artifactのprovenanceへ記録します（`analysis_fingerprint` は変えません）。Core経由のJob表示への転送、GUI表示、weight digestの記録は未実装です。
+- 制限: パッケージの選択は「そのbackend Adapterを使う」だけで、パッケージのフォルダや重みのパスはAdapterへ渡しません（重みの差し替えは未実装）。`song` Job内部の各段（stems・lyrics等）にも、受付時に `options.models`（最優先）→ 保存済み選択 → 既定の順で確定したプランを適用します（#109.1）。確定後に選択ファイルやpackageが変わっても進行中Jobは変わらず、各段の `selection`（source・保存ID・fallback理由）と `model_plan_resolved_at` を完了artifactのprovenanceへ記録します（`analysis_fingerprint` は変えません）。Core経由のJob応答への転送（`model_source`等と段別`model_plan`、worker値は長さ・形を検証し違反は`analysis_protocol`で失敗）は実装済みです（#109.2）。比較評価は`Job::require_exact_model_plan`でdefault_fallbackとprovenance欠落を拒否します（fail closed）。GUI表示、weight digestの記録は未実装です。
 
 enable/disable、ZIPインポート、公式Model Registryはまだありません。manifestだけでは新しいPythonコードを追加できず、`backend` は既にインストール済みのAdapterを指します。下記の例は公式配布向けの設計例です。
 追加のPython Adapterは任意コードを実行する**信頼済み拡張**です。ローカルモデルのライセンスチェックを省く方針は、未知の実行コードを安全に隔離できるという意味ではありません。
