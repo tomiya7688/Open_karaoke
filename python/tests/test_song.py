@@ -21,6 +21,7 @@ class FixtureStage:
         self.info = ModelInfo(id=f"fixture-{stage}", version="test-only", role=Role(stage))
         self.calls = calls
         self.fault = fault
+        self.weights = None
 
     def validate_options(self, options):
         return options
@@ -49,6 +50,8 @@ class FixtureStage:
             "duration_samples": duration,
             "input_sha256": "0" * 64 if self.fault == "hash" else digest,
         }
+        if self.weights is not None:
+            metadata["model"] = self.weights
         if self.fault == "duration":
             metadata["duration_samples"] += 1
         segment = {
@@ -332,7 +335,7 @@ def test_noncanonical_audio_rejected(tmp_path, rate, channels, subtype):
     assert error.value.detail.code == "invalid_audio"
 
 
-def run_song_job(tmp_path, source, options, before_start=None, jobs=None):
+def run_song_job(tmp_path, source, options, before_start=None, jobs=None, weights=None):
     from fastapi.testclient import TestClient
 
     from open_karaoke_analysis.service import create_app
@@ -342,6 +345,8 @@ def run_song_job(tmp_path, source, options, before_start=None, jobs=None):
     alt.info = ModelInfo(id="alt-lyrics", version="alt", role=Role.LYRICS)
     registry = fixture_registry(calls)
     registry.adapters[alt.info.id] = alt
+    for stage, model in (weights or {}).items():
+        registry.adapters[f"fixture-{stage}"].weights = model
     song = SongAdapter(registry)
     token = "y" * 64
     app = create_app(tmp_path, token, [*registry.adapters.values(), song])
@@ -427,3 +432,37 @@ def test_selection_does_not_change_analysis_fingerprint(tmp_path, source):
     plain, _ = run_song_job(tmp_path, source, {})
     explicit, _ = run_song_job(tmp_path, source, {"models": {"lyrics": "fixture-lyrics"}})
     assert plain["analysis_fingerprint"] == explicit["analysis_fingerprint"]
+
+
+DIGEST = "ab" * 32
+
+
+def test_weight_digest_and_runtime_are_recorded_without_changing_fingerprint(tmp_path, source):
+    weights = {
+        "stems": {
+            "weights_sha256": DIGEST,
+            "runtime_versions": {"torch": "2.8.0", "numpy": None},
+            "device": "cpu",
+        },
+        "pitch": {"weights_sha256": "NOT-A-DIGEST", "runtime_versions": {"x" * 99: "1"}},
+    }
+    jobs = []
+    plain, _ = run_song_job(tmp_path, source, {})
+    recorded, _ = run_song_job(tmp_path, source, {}, jobs=jobs, weights=weights)
+    stems = stage_of(recorded, "stems")["runtime"]
+    assert stems == {
+        "weights_sha256": DIGEST,
+        "runtime_versions": {"numpy": None, "torch": "2.8.0"},
+        "device": "cpu",
+    }
+    # 不正な値・公開しない段は推測せずnull
+    empty = {"weights_sha256": None, "runtime_versions": None, "device": None}
+    assert stage_of(recorded, "pitch")["runtime"] == empty
+    assert stage_of(recorded, "notes")["runtime"] == empty
+    assert plain["analysis_fingerprint"] == recorded["analysis_fingerprint"]
+    plan = jobs[1]["model_plan"]
+    assert plan["stems"]["weights_sha256"] == DIGEST
+    assert plan["stems"]["source"] == "default"
+    assert plan["stems"]["device"] == "cpu"
+    assert "weights_sha256" not in plan["pitch"]
+    assert "weights_sha256" not in jobs[0]["model_plan"]["stems"]

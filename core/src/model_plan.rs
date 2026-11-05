@@ -16,6 +16,10 @@ pub const MAX_TEXT_CHARS: usize = 512;
 pub const MAX_PLAN_STAGES: usize = 16;
 /// Maximum characters of a stage name.
 pub const MAX_STAGE_NAME_CHARS: usize = 32;
+/// Maximum runtime package entries recorded for one stage.
+pub const MAX_RUNTIME_ENTRIES: usize = 32;
+/// Maximum characters of one runtime package name, version or device name.
+pub const MAX_RUNTIME_TEXT_CHARS: usize = 64;
 
 /// {
 ///   責務: [`ModelSource`: モデルが決まった出所。選択したものと実際に動いたものの区別に使う]
@@ -36,7 +40,11 @@ pub enum ModelSource {
 
 /// {
 ///   責務: [`StagePlan`: 1段の確定プラン(出所・保存済み選択ID・fallback理由)]
-///   フィールド: [source: 出所, `selected_model_id`: 保存済み選択のID, `fallback_reason`: fallback理由]
+///   フィールド: [
+///     source: 出所, `selected_model_id`: 保存済み選択のID, `fallback_reason`: fallback理由,
+///     `weights_sha256`: 実際に使った重みのSHA-256(完了後。公開しないAdapterは無し),
+///     `runtime_versions`: 実行時パッケージ版(完了後), device: 実行デバイス(完了後)
+///   ]
 /// }
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
@@ -46,6 +54,12 @@ pub struct StagePlan {
     pub selected_model_id: Option<String>,
     #[serde(default)]
     pub fallback_reason: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub weights_sha256: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub runtime_versions: Option<BTreeMap<String, Option<String>>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub device: Option<String>,
 }
 
 /// {
@@ -78,6 +92,38 @@ pub(crate) struct ModelProvenance {
     pub model_plan: Option<ModelPlan>,
 }
 
+fn short_text_ok(text: &str) -> bool {
+    !text.is_empty()
+        && text.chars().count() <= MAX_RUNTIME_TEXT_CHARS
+        && !text.chars().any(char::is_control)
+}
+
+fn digest_ok(digest: &str) -> bool {
+    digest.len() == 64
+        && digest
+            .bytes()
+            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+}
+
+impl StagePlan {
+    /// {
+    ///   責務: [`runtime_ok`: 完了後に足される重みdigestと実行環境の形を検査する]
+    ///   処理: [1: digestは64桁の小文字16進数, 2: 版情報は件数・文字数の上限と制御文字なし, 3: deviceは短い文字列]
+    ///   引数: []
+    ///   戻り値: [正しければtrue]
+    /// }
+    fn runtime_ok(&self) -> bool {
+        self.weights_sha256.as_deref().is_none_or(digest_ok)
+            && self.device.as_deref().is_none_or(short_text_ok)
+            && self.runtime_versions.as_ref().is_none_or(|versions| {
+                versions.len() <= MAX_RUNTIME_ENTRIES
+                    && versions
+                        .iter()
+                        .all(|(k, v)| short_text_ok(k) && v.as_deref().is_none_or(short_text_ok))
+            })
+    }
+}
+
 fn text_ok(value: Option<&String>) -> bool {
     value.is_none_or(|text| {
         text.chars().count() <= MAX_TEXT_CHARS && !text.chars().any(char::is_control)
@@ -107,6 +153,7 @@ impl ModelPlan {
             if !name_ok
                 || !text_ok(stage.selected_model_id.as_ref())
                 || !text_ok(stage.fallback_reason.as_ref())
+                || !stage.runtime_ok()
             {
                 return Err("model_plan stage is malformed");
             }
@@ -174,6 +221,47 @@ impl Job {
             {
                 return Err(format!(
                     "model_plan_fallback: stage {stage} fell back to the default"
+                ));
+            }
+        }
+        Ok(())
+    }
+
+    /// {
+    ///   責務: [`require_matching_model_digests`: 比較評価で、基準Jobと同じ重みdigest・実行環境で動いたことを確認するfail closed判定]
+    ///   処理: [
+    ///     1: 両方が`require_exact_model_plan`を満たすこと,
+    ///     2: 段の集合が一致すること,
+    ///     3: 各段の`weights_sha256`・`runtime_versions`・deviceが基準と完全一致(片方だけ無い場合も不一致)
+    ///   ]
+    ///   引数: [baseline: 比較の基準になるJob]
+    ///   戻り値: [同一と言えるときOk、言えないとき理由コード付き文字列]
+    /// }
+    ///
+    /// # Errors
+    /// Returns `model_plan_missing`, `model_plan_fallback`, `model_digest_mismatch` or
+    /// `model_runtime_mismatch` when the two Jobs cannot be compared as like for like.
+    pub fn require_matching_model_digests(&self, baseline: &Job) -> Result<(), String> {
+        self.require_exact_model_plan()?;
+        baseline.require_exact_model_plan()?;
+        let empty = ModelPlan::default();
+        let ours = self.model_plan.as_ref().unwrap_or(&empty);
+        let theirs = baseline.model_plan.as_ref().unwrap_or(&empty);
+        if ours.stages.keys().ne(theirs.stages.keys()) {
+            return Err("model_plan_missing: the jobs have different stage sets".to_owned());
+        }
+        for (stage, expected) in &theirs.stages {
+            let actual = &ours.stages[stage];
+            if actual.weights_sha256 != expected.weights_sha256 {
+                return Err(format!(
+                    "model_digest_mismatch: stage {stage} used different weights"
+                ));
+            }
+            if actual.runtime_versions != expected.runtime_versions
+                || actual.device != expected.device
+            {
+                return Err(format!(
+                    "model_runtime_mismatch: stage {stage} ran in a different runtime"
                 ));
             }
         }
@@ -263,5 +351,102 @@ mod tests {
         let mut no_source = song_job(json!({"a": {"source": "default"}}), "default");
         no_source.model_source = None;
         assert!(no_source.require_exact_model_plan().is_err());
+    }
+
+    fn with_runtime(digest: &str, version: &str, device: &str) -> Job {
+        song_job(
+            json!({"stems": {
+                "source": "default", "weights_sha256": digest, "device": device,
+                "runtime_versions": {"torch": version},
+            }, "pitch": {"source": "default"}}),
+            "default",
+        )
+    }
+
+    #[test]
+    fn runtime_fields_round_trip_and_are_validated() {
+        let digest = "ab".repeat(32);
+        let wire = json!({"resolved_at": null, "stems": {
+            "source": "default", "selected_model_id": null, "fallback_reason": null,
+            "weights_sha256": digest, "device": "cpu",
+            "runtime_versions": {"torch": "2.8.0", "numpy": null},
+        }});
+        let parsed = provenance(json!({"model_plan": wire}));
+        assert_eq!(parsed.validate(), Ok(()));
+        let plan = parsed.model_plan.unwrap();
+        assert_eq!(serde_json::to_value(&plan).unwrap(), wire);
+        for bad in [
+            json!({"weights_sha256": "AB".repeat(32)}),
+            json!({"weights_sha256": "ab"}),
+            json!({"device": "c\npu"}),
+            json!({"device": "x".repeat(MAX_RUNTIME_TEXT_CHARS + 1)}),
+            json!({"runtime_versions": {"": "1"}}),
+            json!({"runtime_versions": {"a": "x".repeat(MAX_RUNTIME_TEXT_CHARS + 1)}}),
+        ] {
+            let mut stage = json!({"source": "default"});
+            stage
+                .as_object_mut()
+                .unwrap()
+                .extend(bad.as_object().unwrap().clone());
+            assert!(
+                provenance(json!({"model_plan": {"s": stage}}))
+                    .validate()
+                    .is_err()
+            );
+        }
+        let many: serde_json::Map<_, _> = (0..=MAX_RUNTIME_ENTRIES)
+            .map(|i| (format!("p{i}"), json!("1")))
+            .collect();
+        let stage = json!({"source": "default", "runtime_versions": many});
+        assert!(
+            provenance(json!({"model_plan": {"s": stage}}))
+                .validate()
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn comparison_fails_closed_on_digest_or_runtime_mismatch() {
+        let a = "ab".repeat(32);
+        let b = "cd".repeat(32);
+        let baseline = with_runtime(&a, "2.8.0", "cpu");
+        assert_eq!(
+            with_runtime(&a, "2.8.0", "cpu").require_matching_model_digests(&baseline),
+            Ok(())
+        );
+        let error = with_runtime(&b, "2.8.0", "cpu")
+            .require_matching_model_digests(&baseline)
+            .unwrap_err();
+        assert!(error.starts_with("model_digest_mismatch:"), "{error}");
+        for other in [
+            with_runtime(&a, "2.9.0", "cpu"),
+            with_runtime(&a, "2.8.0", "cuda"),
+        ] {
+            let error = other.require_matching_model_digests(&baseline).unwrap_err();
+            assert!(error.starts_with("model_runtime_mismatch:"), "{error}");
+        }
+        // digestが片方にしか無い、段の集合が違う、fallbackがある場合も拒否する
+        let unpublished = song_job(
+            json!({"stems": {"source": "default"}, "pitch": {"source": "default"}}),
+            "default",
+        );
+        assert!(
+            unpublished
+                .require_matching_model_digests(&baseline)
+                .is_err()
+        );
+        let fewer = song_job(json!({"stems": {"source": "default"}}), "default");
+        let error = fewer
+            .require_matching_model_digests(&unpublished)
+            .unwrap_err();
+        assert!(error.starts_with("model_plan_missing:"), "{error}");
+        let fallback = song_job(
+            json!({"pitch": {"source": "default_fallback", "fallback_reason": "gone"}}),
+            "default",
+        );
+        let error = baseline
+            .require_matching_model_digests(&fallback)
+            .unwrap_err();
+        assert!(error.starts_with("model_plan_fallback:"), "{error}");
     }
 }

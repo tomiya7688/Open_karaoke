@@ -39,6 +39,57 @@ class SongOptions(BaseModel):
     stage_options: dict[Stage, dict[str, Any]] = Field(default_factory=dict)
 
 
+STAGE_METADATA = {
+    "stems": "stems.json",
+    "lyrics": "asr_raw.json",
+    "alignment": "alignment.json",
+    "pitch": "pitch.json",
+    "events": "vocal_events.json",
+    "notes": "note_evidence.json",
+}
+_SHA256 = re.compile(r"[0-9a-f]{64}")
+MAX_RUNTIME_ENTRIES = 32
+MAX_RUNTIME_TEXT = 64
+
+
+def runtime_record(metadata: dict) -> dict[str, Any]:
+    """
+    {
+      責務: [runtime_record: 段の成果物メタデータから、実際に使った重みのdigestと実行環境を取り出す]
+      処理: [
+        1: metadata.modelのweights_sha256が64桁の小文字16進数のときだけ採用する,
+        2: runtime_versionsは短い文字列だけの小さなdictのときだけ採用する,
+        3: deviceは短い文字列のときだけ採用する,
+        4: 公開しないAdapter(重みを持たない決定的な段を含む)はnullのまま記録し、推測で埋めない
+      ]
+      引数: [metadata: 段の成果物JSON(Adapterが書いた未信頼の値)]
+      戻り値: [{weights_sha256, runtime_versions, device}。取れない値はnull]
+    }
+    """
+    model = metadata.get("model")
+    model = model if isinstance(model, dict) else {}
+    digest = model.get("weights_sha256")
+    versions = model.get("runtime_versions")
+    device = model.get("device")
+
+    def short(value: object) -> bool:
+        return isinstance(value, str) and 0 < len(value) <= MAX_RUNTIME_TEXT and value.isprintable()
+
+    if not (isinstance(digest, str) and _SHA256.fullmatch(digest)):
+        digest = None
+    if not (
+        isinstance(versions, dict)
+        and 0 < len(versions) <= MAX_RUNTIME_ENTRIES
+        and all(short(k) and (v is None or short(v)) for k, v in versions.items())
+    ):
+        versions = None
+    return {
+        "weights_sha256": digest,
+        "runtime_versions": dict(sorted(versions.items())) if versions else None,
+        "device": device if short(device) else None,
+    }
+
+
 def _json(context: AnalysisContext, relative: str, limit: int = 256 * 1024 * 1024) -> dict:
     message = "Invalid or oversized stage JSON"
     return read_json_object(
@@ -236,6 +287,7 @@ class SongAdapter:
                 values["analysis_version"] = options["analysis_version"]
             prepared[stage] = selected[stage].validate_options(values)
         plan = context.model_plan or {}
+        runtime_report: dict[str, dict[str, Any]] = {}
         artifacts, stages, vocal_hash = [original], [], None
         observed = {original: _digest(original_path, context)}
         if reference is not None:
@@ -288,17 +340,13 @@ class SongAdapter:
                 _audio(context, vocals, duration)
                 _audio(context, f"{prefix[stage]}/accompaniment.wav", duration)
                 vocal_hash, _ = _digest(resolve_artifact(context.root, vocals), context)
-                if _json(context, f"{prefix[stage]}/stems.json").get("input_sha256") != source_hash:
+                stems_meta = _json(context, f"{prefix[stage]}/stems.json")
+                if stems_meta.get("input_sha256") != source_hash:
                     raise ServiceError("song_input_mismatch", "Stems used a different snapshot")
+                runtime = runtime_record(stems_meta)
             if stage in {"lyrics", "alignment", "pitch", "events", "notes"}:
-                name = {
-                    "lyrics": "asr_raw.json",
-                    "alignment": "alignment.json",
-                    "pitch": "pitch.json",
-                    "events": "vocal_events.json",
-                    "notes": "note_evidence.json",
-                }[stage]
-                metadata = _json(context, f"{prefix[stage]}/{name}")
+                metadata = _json(context, f"{prefix[stage]}/{STAGE_METADATA[stage]}")
+                runtime = runtime_record(metadata)
                 if (
                     metadata.get("input_sha256") != vocal_hash
                     or metadata.get("sample_rate") != RATE
@@ -306,11 +354,13 @@ class SongAdapter:
                 ):
                     raise ServiceError("song_input_mismatch", "Stage audio identity differs")
             artifacts.extend(produced)
+            runtime_report[stage] = runtime
             stages.append(
                 {
                     "role": stage,
                     "model": selected[stage].info.model_dump(mode="json"),
                     "options": prepared[stage],
+                    "runtime": runtime,
                     "selection": plan.get(stage)
                     or {
                         "source": "request" if stage in options["models"] else "default",
@@ -418,6 +468,8 @@ class SongAdapter:
             "notes": notes,
             "evidence": {**version, "items": [{"target_id": "song", "evidence": provenance}]},
         }
+        # 完了後にJobのmodel_planへ載せる。受付時に確定したプラン自体は変更しない。
+        context.runtime_report.update(runtime_report)
         context.report(0.98, "song.publishing")
         result = context.write_json(
             "song-result.json", {"format_version": 1, "bundle": bundle, "assets": assets}
