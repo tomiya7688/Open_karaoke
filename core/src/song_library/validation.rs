@@ -240,7 +240,22 @@ fn is_digest(value: &str) -> bool {
             .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
 }
 
+/// { 責務: [`validate_bundle`: import用の厳格検証。全artifactがvalidであること], 引数: [bundle, id], 戻り値: [Ok/ImportError] }
 pub(super) fn validate_bundle(bundle: &SongBundle, id: Uuid) -> Result<(), ImportError> {
+    validate_bundle_with(bundle, id, false)
+}
+
+/// { 責務: [`validate_published`: 公開済み曲の検証。編集で再生成待ちになった派生artifact(Lyrics/Notes/Evidence)のvalid=falseを許す。原本・stemsは常にvalid必須], 引数: [bundle, id], 戻り値: [Ok/ImportError] }
+pub(super) fn validate_published(bundle: &SongBundle, id: Uuid) -> Result<(), ImportError> {
+    validate_bundle_with(bundle, id, true)
+}
+
+/// { 責務: [`validate_bundle_with`: 共通検証本体。`allow_pending`で派生artifactの`valid=false`を許すか切替], 引数: [bundle, id, `allow_pending`], 戻り値: [Ok/ImportError] }
+fn validate_bundle_with(
+    bundle: &SongBundle,
+    id: Uuid,
+    allow_pending: bool,
+) -> Result<(), ImportError> {
     if bundle.song.song_id != id.to_string()
         || bundle.song.files != SongFiles::default()
         || bundle.song.duration_samples == 0
@@ -303,7 +318,8 @@ pub(super) fn validate_bundle(bundle: &SongBundle, id: Uuid) -> Result<(), Impor
             .artifacts
             .get(&kind)
             .ok_or(ImportError::Invalid("missing artifact state"))?;
-        if !metadata.valid
+        let pending_ok = allow_pending && matches!(kind, Lyrics | Notes | Evidence);
+        if (!metadata.valid && !pending_ok)
             || metadata.generation == 0
             || metadata.analysis_version != bundle.song.analysis_version
             || metadata.depends_on.as_slice() != depends_on

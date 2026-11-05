@@ -1,6 +1,7 @@
 //! Verified, audio-inclusive `SongStore` publication. All methods perform filesystem
 //! work and belong on blocking workers, never on the realtime audio thread.
 
+mod edit;
 mod files;
 mod validation;
 
@@ -22,8 +23,9 @@ use crate::{
     Job,
     song_data::{SongBundle, SongStore},
 };
+pub use edit::{EditedSong, SongEditSaveError, edit_generation};
 use files::{bounded_json, check_directory, digest, under};
-use validation::{Export, source_result, validate_bundle};
+use validation::{Export, source_result, validate_published};
 
 const MAX_JSON: u64 = 16 * 1024 * 1024;
 const MAX_ASSET: u64 = 30 * 60 * 48_000 * 8 + 1_048_576;
@@ -198,6 +200,7 @@ impl SongLibrary {
         let result_sha256 = digest(&bytes);
         let export: Export = serde_json::from_slice(&bytes)?;
         let song_id = export.validate(source, &result_artifact)?;
+        self.recover_retired(song_id)?;
         let final_path = under(&self.root, &song_id.to_string())?;
         if final_path.try_exists()? {
             self.verify_reuse(
@@ -353,7 +356,7 @@ impl SongLibrary {
             notes: bounded_json(&under(path, DOCUMENTS[2])?, MAX_JSON)?,
             evidence: bounded_json(&under(path, DOCUMENTS[3])?, MAX_JSON)?,
         };
-        validate_bundle(&bundle, id)?;
+        validate_published(&bundle, id)?;
         if receipt.format_version != 1
             || receipt.song_id != id
             || receipt.assets.len() > MAX_ASSETS
