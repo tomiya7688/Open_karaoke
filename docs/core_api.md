@@ -60,7 +60,10 @@ Coreが歌唱セッションの状態とコマンド順序の正本を持つ。�
 コマンド本文は `core_instance_id`（`GET /session`のinstance_id）・`command_id`（再送キー）・`expected_revision`・
 `command`（`{"type":"play"|"pause"|"stop"}` / `{"type":"seek","song_sample":48kHz整数}`）。
 再起動後の新しいCoreは旧セッションを知らず、旧instance宛は409 `stale_instance`。
-位置は出力で提示済みの値のみ（`position_source`）。SSEはlive容量64を超えて遅れた購読者を閉じ、
+位置は出力で提示済みの値のみ（`position_source`）。snapshotの`clock_quality`（#107 107.4、追加フィールド）は
+直近の提示位置の可聴時刻品質で `{"kind":"unknown"|"estimated"|"measured","uncertainty_samples"?}`（measuredのみ不確かさ）。
+`ClockSession`のoutput anchorと遅延較正から写した値だけを昇格なしで載せ、未測定は`unknown`（0遅延や測定済みとは扱わない）。
+seekで確定した位置（`committed`）や提示前は`unknown`。送信済みframe数は受け付けない。SSEはlive容量64を超えて遅れた購読者を閉じ、
 再接続で`snapshot`/`gap`から復旧する。デバイスは開かない（実機の品質は未測定）。契約は
 [設計](design/issue-107-karaoke-session.md)。
 

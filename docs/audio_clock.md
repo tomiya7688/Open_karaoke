@@ -148,6 +148,18 @@ The opt-in WASAPI example applies invalidations to `AudioIo` and restarts its WA
 the last presented song sample. The logical counter reads remain observations rather than
 simultaneous hardware timestamps or physical latency measurements.
 
+### Presented position to the karaoke session (issue #107.4)
+
+`KaraokeSession::report_presented_from_clock` (also on the registry and `KaraokeSessionHost`)
+takes the session `EventOrigin`, the `ClockSession`, the `ClockEpoch` under which the stream
+sample was observed, and a `PresentedStreamSample` (the output stream sample the device
+reports as presented, never a count of frames written or submitted). It resolves the Output
+anchor and reports the mapped song sample with `clock_quality` derived from the anchor's
+`LatencyCalibration` (Unknown/Estimated/Measured{uncertainty} map one-to-one, no promotion).
+A stale clock epoch counts as a stale rejection; unanchored or pre-roll samples are refused
+without changing state (`clock_stale_epoch`/`clock_unavailable`). Synthetic tests only; real
+device timestamps and measured latency remain Unverified until the #40/#19 hardware gates.
+
 ### Epoch-tagged PCM boundary (unit #40.3)
 
 `AudioIo::set_clock_epoch` is the process-side message that applies a `ClockSession` epoch

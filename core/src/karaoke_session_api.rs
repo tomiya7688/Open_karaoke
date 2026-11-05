@@ -34,9 +34,11 @@ use uuid::Uuid;
 
 use crate::{
     AppState,
+    audio_clock::{ClockEpoch, ClockSession},
     karaoke_session::{
         CommandEnvelope, CommandOutcome, EventOrigin, EventsAfter, KaraokeCommand, KaraokeError,
-        KaraokeSession, KaraokeSessionRegistry, ScoringMode, SessionEvent, SessionSnapshot,
+        KaraokeSession, KaraokeSessionRegistry, PresentedStreamSample, ScoringMode, SessionEvent,
+        SessionSnapshot,
     },
 };
 
@@ -163,6 +165,26 @@ impl KaraokeSessionHost {
     ) -> Result<bool, KaraokeError> {
         self.mutate(session_id, |registry| {
             Ok(registry.session_mut(session_id)?.finish_preparing(result))
+        })
+    }
+
+    /// {
+    ///   責務: [`report_presented_from_clock`: clock変換済みの提示位置を品質付きで報告する(Controller用、107.4)]
+    ///   引数: [origin, clock, clock_epoch, presented: 提示済みoutput stream sample]
+    ///   戻り値: [`Result<SessionSnapshot, KaraokeError>`]
+    /// }
+    ///
+    /// # Errors
+    /// Propagates the session or clock rejection.
+    pub fn report_presented_from_clock(
+        &self,
+        origin: EventOrigin,
+        clock: &ClockSession,
+        clock_epoch: ClockEpoch,
+        presented: PresentedStreamSample,
+    ) -> Result<SessionSnapshot, KaraokeError> {
+        self.mutate(origin.session_id, |registry| {
+            registry.report_presented_from_clock(origin, clock, clock_epoch, presented)
         })
     }
 
