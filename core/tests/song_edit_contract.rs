@@ -278,8 +278,8 @@ fn keeps_confidence_when_value_is_unchanged_and_deleted_note_has_no_origin() {
     let edited = apply_edit(&bundle(), &command(ops)).unwrap();
     assert_eq!(edited.lyrics.segments[0].text_confidence, Some(0.9));
     assert_eq!(edited.lyrics.segments[0].timing_confidence, Some(0.8));
-    assert!(edited.notes.notes.is_empty());
-    assert!(edited.evidence.items.is_empty());
+    assert_eq!(edited.notes.notes, Vec::<Note>::new());
+    assert_eq!(edited.evidence.items.len(), 0);
 }
 
 #[test]
