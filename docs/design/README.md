@@ -33,7 +33,7 @@
 | #40 クロック/遅延 | 合成契約済み。物理校正未 | [Audio clock](../audio_clock.md)、[実装単位](../implementation_plan.md#40の実装単位p0は空けておく) | #12 | plan記載の次単位 |
 | #41 Core API保護 | 一部実装、PR #95 | [Core API](../core_api.md)、[実装単位](../implementation_plan.md#41の実装単位p0は空けておく) | #2 #15 | PR #95 の統合後 |
 | #42 実歌唱データ | 一部実装 | [データセット](../dataset_evaluation.md)、[実装単位](../implementation_plan.md#42の実装単位p0は空けておく) | #18 | plan記載の次単位 |
-| #43 推論分離 | 未 | [#43設計](issue-43-inference-isolation.md) | #12 #107 | 43.1 |
+| #43 推論分離 | 未 | [#43設計](issue-43-inference-isolation.md) | #12 #107 | 43.1/43.2/43.4契約実装済み、43.3設定面定義・43.5手順書済み(実機は未確認) |
 | #44 多ASR研究 | 後回し | `docs/quality_and_ux_design.md` | #7 #8 #42 | 基線評価後 |
 | #106 設計レビュー | PR #111 | `docs/implementation_navigation.md` | - | PR #111 の統合 |
 | #107 歌唱Session | 107.1実装（純粋な状態機械）、107.2実装（認証付きtransport API、デバイス無し）。deviceは未 | [#107設計](issue-107-karaoke-session.md)、`docs/karaoke_session_design.md`(PR #111) | #12 #13 #14 #40 #41 | 107.3（Controller・worker組成・device lease、#12/#13依存） |

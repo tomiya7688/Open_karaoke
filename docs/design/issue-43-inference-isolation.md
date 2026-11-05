@@ -27,6 +27,18 @@ Whisper/Stem等の重い推論が走っていても、再生・マイクモニ�
 5. 診断: `AudioCounters`（`output_underrun_frames`・`input_overrun_frames`、`audio_engine.rs`）と再生中Job数を同じ時刻で記録し、underrun発生とJob負荷を相関できるようにする。
 
 **データ契約（案）**: Coreの設定 `inference_policy { max_concurrent_heavy_jobs, defer_while_playing: bool, worker_priority }` を永続化せず起動引数/設定で保持。Job応答に `deferred_reason: Option<String>`（UIが「再生中のため待機」と表示）。
+**設定面の定義（43.3、設計のみ。適用は43.5/Hの実機比較後）**
+| 項目 | 型・取り得る値 | 既定（現行挙動を変えない） | 検証 |
+|---|---|---|---|
+| `defer_while_playing` | bool | `true`（43.2で実装済み） | 実装済み |
+| `defer_max_wait` | 正のDuration | 30分（実装済み） | 実装済み |
+| `max_concurrent_heavy_jobs` | 1以上の整数 または 無制限 | 無制限（現状と同じ） | 未実装・未測定 |
+| `worker_priority` | `inherit` / `below_normal` / `idle` | `inherit`（現状と同じ） | 未実装・未測定 |
+
+- 範囲外の値は起動時に拒否する（暗黙に丸めない）。`worker_priority`はWindows以外で`inherit`のみ有効とし、他値は警告して`inherit`扱い。
+- 既定値を`inherit`/無制限以外へ変える条件は、[inference_isolation.md](../../release_evaluation/procedures/inference_isolation.md)のHで基準より改善が実測されること。実測前に既定を変えない。
+- 適用位置は`analysis_service.rs`のworker起動（優先度）とJob開始判定（同時数）。audio callbackからは参照しない。
+
 **エラー**: 待機中Jobのキャンセル/タイムアウトは既存のcancelled/failed遷移を使う。待機は無期限にしない（上限時間は未決）。
 **スレッド**: ポリシー判定はJob作成/開始時にCoreのasync側で行う。callbackから参照しない。
 
@@ -35,9 +47,9 @@ Whisper/Stem等の重い推論が走っていても、再生・マイクモニ�
 |---|---|---|---|
 | 43.1 | 計測: 合成負荷（CPU/メモリ）下でmock音声経路のunderrun/p95を記録するevaluator | #12 | `core/examples/`系の測定ツール。結果は`Unverified`欄に条件付きで記録。**実装済み**: `core/examples/inference_load_evaluator.rs`（手順は`docs/audio_engine.md`）。合否ゲートなし・CI対象外 |
 | 43.2 | 再生状態の公開と`defer_while_playing`（Job開始待ち） | #107, #2 | `core/tests/job_api.rs`: 再生中の重いJobが待機、再生終了で開始、cancel可  **実装済み**: `lib.rs` の `wait_while_playing`(読み取りのみ)・`core/src/lib.rs` 単体試験・`job_api.rs`(python,ignored)。待機上限は既定30分 |
-| 43.3 | worker優先度/同時数の設定と適用 | 43.1の結果 | Windows実機で43.1を再測定し効果を比較（効果なしなら採用しない） |
+| 43.3 | worker優先度/同時数の設定と適用 | 43.1の結果 | Windows実機で43.1を再測定し効果を比較（効果なしなら採用しない）  **設定面を定義済み(設計のみ)**: 上の「設定面の定義」。実装・適用・効果比較は実機が必要で**Unverified** |
 | 43.4 | worker crash/Job失敗が再生に波及しない回帰 | #107 | 疑似crash中も`AudioCounters`が増え続けテストが再生継続を確認  **実装済み(契約のみ)**: `job_api.rs` の `job_failure_and_cancel_do_not_disturb_playback` と python crash試験。実機は未確認 |
-| 43.5 | 長時間+低スペック実機測定（#19の一部） | #39 | 手順書化。実機結果なしに合格と書かない |
+| 43.5 | 長時間+低スペック実機測定（#19の一部） | #39 | 手順書化。実機結果なしに合格と書かない  **手順書化済み**: [inference_isolation.md](../../release_evaluation/procedures/inference_isolation.md)（E負荷下再生/F長時間/G失敗復旧/H優先度比較）。実機測定は未実施でUnverified |
 
 ## 触るファイル
 `core/src/lib.rs`（Job作成の枠・ポリシー）、`core/src/analysis_service.rs`（worker起動引数/優先度）、`core/src/audio_engine.rs`（`AudioCounters`読み出しのみ）、`python/src/open_karaoke_analysis/service.py`（変更は最小）、`core/tests/job_api.rs`、`docs/analysis_service.md`・`docs/audio_engine.md`の更新。`core/src/lib.rs`は競合しやすい。

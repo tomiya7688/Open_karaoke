@@ -59,3 +59,5 @@ python -m open_karaoke_analysis.release_evaluation <report.json>   # 0: リリ�
 [.github/workflows/release-gate.yml](../.github/workflows/release-gate.yml)。**手動実行のみ**(workflow_dispatch、PR/pushでは動かない)。入力report_path(既定release_evaluation/1.0.0/report.json)に対し上記CLIをそのまま実行し、終了コードがjobの成否になる。0(全blockingがpass)以外は全て失敗: 報告書が無い・JSON不正(2)・fail/unverified(1)。continue-on-errorや「|| true」で失敗を隠さない。判定JSONはartifact release-verdictに残る。
 
 **現状は常に失敗する**: thresholds.jsonは全てnull(未校正)で、実歌唱・実機・配布物の結果も無く、release_evaluation/1.0.0/report.jsonはコミットされていない。blockingのpassは校正済み閾値が必須なので、実データが揃うまで合格に出来ない(合格の偽装禁止)。この性質はpython/tests/test_release_gate.pyが固定する。
+
+推論負荷下の音声優先(#43)の実機手順は [release_evaluation/procedures/inference_isolation.md](../release_evaluation/procedures/inference_isolation.md)。同じく手順書であり、実施結果ではない。
