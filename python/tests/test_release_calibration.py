@@ -75,6 +75,7 @@ def test_calibrated_ledger_with_history_is_valid():
         ledger(0.2, [entry(version=2)]),  # 版が連番でない
         ledger(0.3, [entry()]),  # 台帳値が履歴再生と不一致
         ledger(0.2, [entry(holdout="XYZ")]),
+        ledger(None, [{**entry(), "key": ["lyrics/cer"]}]),  # 非ハッシュ可能なkey
     ],
 )
 def test_invalid_ledgers_are_rejected(bad):

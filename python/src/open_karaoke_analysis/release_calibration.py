@@ -73,7 +73,7 @@ def validate_ledger(ledger: dict) -> None:
         if type(item["version"]) is not int or item["version"] != position:
             raise ValueError("History versions must be consecutive from 1")
         key = item["key"]
-        if key not in current:
+        if not isinstance(key, str) or key not in current:
             raise ValueError(f"History refers to unknown threshold: {key}")
         if item["old"] != current[key]:
             raise ValueError(f"{key}: old does not match the previous value")
