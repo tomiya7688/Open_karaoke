@@ -180,11 +180,13 @@ impl KaraokeSessionController {
     /// Returns `SessionNotFound` when the id is not the current session.
     pub fn prepare(&self, session_id: Uuid) -> Result<SessionSnapshot, ControllerError> {
         self.host.snapshot(session_id)?;
+        // 貸出の取得から保持までを1つのlockで直列化し、並行するprepare/recover/reconcileとの競合を防ぐ。
+        let mut held = self.lock_held();
         match self.leases.acquire(session_id) {
             Ok(lease) => {
                 let moved = self.host.finish_preparing(session_id, Ok(()))?;
                 if moved {
-                    *self.lock_held() = Some(HeldLease {
+                    *held = Some(HeldLease {
                         session_id,
                         _lease: lease,
                     });
@@ -245,6 +247,7 @@ impl KaraokeSessionController {
     /// # Errors
     /// Returns `DeviceUnavailable` when the devices cannot be leased again.
     pub fn recover(&self, session_id: Uuid) -> Result<SessionSnapshot, ControllerError> {
+        let mut held = self.lock_held();
         let snapshot = self.host.snapshot(session_id)?;
         match snapshot.state {
             KaraokeState::Interrupted => {}
@@ -256,7 +259,7 @@ impl KaraokeSessionController {
             .acquire(session_id)
             .map_err(|_| KaraokeError::DeviceUnavailable)?;
         let recovered = self.host.recover(session_id)?;
-        *self.lock_held() = Some(HeldLease {
+        *held = Some(HeldLease {
             session_id,
             _lease: lease,
         });
