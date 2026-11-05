@@ -66,6 +66,8 @@ Core単体ではデバイスを開かないため、デバイスを開く側が 
 
 登録成功Jobは `imported_song: {"song_id":"UUID","reused":false}` を追加する。
 このフィールドは他Jobで省略される。worker相対パス用の `artifacts` は登録Jobでは空。
+
+analysis Jobは任意で `model_id`・`model_source`・`selected_model_id`・`selection_fallback_reason`・`model_plan`（songのみ、段別の出所）を返す。worker値は検証し、違反は`analysis_protocol`で失敗（公開しない）。詳細は[設計](design/issue-109-model-plan.md)。
 SSEにも同じJob snapshotを送る。画面はimport Job完了前に曲を登録済みと表示しない。
 
 ### 通信確認用mock

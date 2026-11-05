@@ -9,6 +9,7 @@ use open_karaoke_core::{
     AppState, Job, JobStatus,
     analysis_service::{AnalysisConfig, AnalysisService},
     app,
+    model_plan::ModelSource,
 };
 use serde_json::{Value, json};
 use tokio::time::{Instant, sleep, timeout};
@@ -579,6 +580,9 @@ async fn python_startup_mock_cancel_crash_recovery_shutdown() {
     let a = create(&router, json!({"kind":"analysis.mock"})).await;
     let result = terminal(&router, a).await;
     assert_eq!(result.status, JobStatus::Completed);
+    assert_eq!(result.model_id.as_deref(), Some("mock-v1"));
+    assert_eq!(result.model_source, Some(ModelSource::Default));
+    assert_eq!(result.require_exact_model_plan(), Ok(()));
     assert!(
         root.path()
             .join("artifacts")

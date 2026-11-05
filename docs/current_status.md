@@ -31,7 +31,7 @@
 | Avalonia GUI | 認証付き起動・設定・接続・mock Job進捗/キャンセル/error | [Desktop client](desktop_client.md)、#15 |
 | GUIの原曲取込・曲一覧操作 | 未接続。Core登録APIと画面の完成を区別 | #36/#15 |
 | カラオケ再生・歌詞・音程バー画面 | 曲一覧・曲データ取得と、指定位置に同期した歌詞・目標音程バー表示あり。伴奏再生・Core再生位置への追従・マイク音程・採点結果は未実装 | [Desktop client](desktop_client.md)、#16 |
-| モデルパッケージ検出 | `models/<id>/manifest.json` を読むだけで検出し、利用可否・不正を一覧（`GET /model-packages`）。roleごとの選択を `model_selection.json` に保存・解除（`GET`/`POST /model-selection`、選べないIDは拒否）、GUIに更新・選択・保存の操作あり。保存した選択は、`model_id` 未指定のJobで反映（明示指定が優先、使えない選択は既定へ戻し `model_source` で報告、packageはmanifestの`backend`へ対応）。songの各段への反映は受付時pin＋provenance記録まで実装（#109.1、[設計](design/issue-109-model-plan.md)）。Coreの新フィールド転送・GUI表示・ZIPインポート・Registryは未実装 | `model_packages.py`、`model_selection.py`、[Model Plugins](model_plugins.md)、#17 |
+| モデルパッケージ検出 | `models/<id>/manifest.json` を読むだけで検出し、利用可否・不正を一覧（`GET /model-packages`）。roleごとの選択を `model_selection.json` に保存・解除（`GET`/`POST /model-selection`、選べないIDは拒否）、GUIに更新・選択・保存の操作あり。保存した選択は、`model_id` 未指定のJobで反映（明示指定が優先、使えない選択は既定へ戻し `model_source` で報告、packageはmanifestの`backend`へ対応）。songの各段への反映は受付時pin＋provenance記録まで実装（#109.1、[設計](design/issue-109-model-plan.md)）。Core Job応答は`model_id`/`model_source`/`selected_model_id`/`selection_fallback_reason`/`model_plan`を検証して転送し、`Job::require_exact_model_plan`で比較モードはfallback・provenance欠落をfail closed（#109.2・109.4の比較部分）。GUI表示・weight digest・ZIPインポート・Registryは未実装 | `model_packages.py`、`model_selection.py`、[Model Plugins](model_plugins.md)、#17 |
 | ランタイム同梱・モデル追加UI | 未実装 | [Development](development.md)、[Model Plugins](model_plugins.md)、#39 |
 
 `service.py` の既定roleはmock / stems / lyrics / alignment / pitch / events / notes / song。

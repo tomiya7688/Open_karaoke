@@ -332,7 +332,7 @@ def test_noncanonical_audio_rejected(tmp_path, rate, channels, subtype):
     assert error.value.detail.code == "invalid_audio"
 
 
-def run_song_job(tmp_path, source, options, before_start=None):
+def run_song_job(tmp_path, source, options, before_start=None, jobs=None):
     from fastapi.testclient import TestClient
 
     from open_karaoke_analysis.service import create_app
@@ -357,6 +357,8 @@ def run_song_job(tmp_path, source, options, before_start=None):
                 break
             time.sleep(0.01)
     assert job["status"] == "completed", job
+    if jobs is not None:
+        jobs.extend([accepted, job])
     path = next(a for a in job["artifacts"] if a.endswith("song-result.json"))
     bundle = json.loads((tmp_path / path).read_text(encoding="utf-8"))["bundle"]
     return bundle["evidence"]["items"][0]["evidence"], calls
@@ -392,6 +394,21 @@ def test_song_stages_apply_selection_with_priority_and_record_plan(tmp_path, sou
     assert pitch["selection"]["fallback_reason"]
     assert stage_of(provenance, "notes")["selection"]["source"] == "default"
     assert provenance["model_plan_resolved_at"]
+
+
+def test_job_snapshot_exposes_the_pinned_plan(tmp_path, source):
+    (tmp_path / "model_selection.json").write_text(
+        json.dumps({"version": 1, "selection": {"lyrics": "alt-lyrics", "pitch": "gone"}}),
+        encoding="utf-8",
+    )
+    jobs = []
+    provenance, _ = run_song_job(tmp_path, source, {}, jobs=jobs)
+    for snapshot in jobs:
+        plan = snapshot["model_plan"]
+        assert plan["lyrics"]["source"] == "selection"
+        assert plan["pitch"]["source"] == "default_fallback"
+        assert plan["notes"]["source"] == "default"
+        assert plan["resolved_at"] == provenance["model_plan_resolved_at"]
 
 
 def test_song_plan_is_pinned_when_selection_changes_after_acceptance(tmp_path, source):

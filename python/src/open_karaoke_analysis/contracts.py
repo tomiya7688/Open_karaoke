@@ -53,7 +53,9 @@ class Job(BaseModel):
         model_source: request=リクエストの明示指定 / selection=保存済み選択 /
           default=選択なしの既定 / default_fallback=保存済み選択が使えず既定へ戻した,
         selected_model_id: 保存済み選択のID(selection・default_fallback時のみ。package IDあり),
-        selection_fallback_reason: default_fallbackのときの短い理由。パスは含めない
+        selection_fallback_reason: default_fallbackのときの短い理由。パスは含めない,
+        model_plan: song Jobの受付時に確定した段別プラン(stage -> {source, selected_model_id,
+          fallback_reason}と解決時刻resolved_at)。song以外はnull
       ]
     }
     """
@@ -65,6 +67,7 @@ class Job(BaseModel):
     model_source: ModelSource = "default"
     selected_model_id: str | None = None
     selection_fallback_reason: str | None = None
+    model_plan: dict[str, Any] | None = None
     status: str = "queued"
     progress: float = 0.0
     stage: str = "queued"

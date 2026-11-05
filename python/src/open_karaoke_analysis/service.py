@@ -1,6 +1,7 @@
 """Loopback analysis API with bounded workers, typed errors, and isolated artifacts."""
 
 import asyncio
+import copy
 import logging
 import os
 import secrets
@@ -192,6 +193,7 @@ class JobManager:
             model_source=source,
             selected_model_id=selected,
             selection_fallback_reason=reason,
+            model_plan=copy.deepcopy(plan),
             created_at=now(),
         )
         record = Record(job, Event(), model_plan=plan)
