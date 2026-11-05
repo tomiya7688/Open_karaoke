@@ -5,7 +5,7 @@ import os
 import re
 import tempfile
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from threading import Event
 from typing import Any, Protocol
@@ -62,6 +62,8 @@ class AnalysisContext:
     report: Callable[[float, str], None]
     # 受付時に確定した段ごとのモデル選択プラン(song用)。Adapterは変更しない。
     model_plan: dict[str, Any] | None = None
+    # 実行後に判明した段ごとの重みdigest・実行環境(song用)。受付時プランとは別に持つ。
+    runtime_report: dict[str, dict[str, Any]] = field(default_factory=dict)
 
     def checkpoint(self) -> None:
         if self.cancelled.is_set():

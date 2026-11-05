@@ -109,6 +109,29 @@ def pin_song_plan(
     return {**options, "models": pinned}, plan
 
 
+def merge_runtime(plan: dict | None, report: dict[str, dict]) -> dict | None:
+    """
+    {
+      責務: [merge_runtime: 完了したsong Jobの段別プランへ、実際に使った重みdigestと実行環境を足す]
+      処理: [
+        1: プランが無い(song以外・不正なoptions)か報告が空なら何もしない,
+        2: プランにある段だけに、値のあるキー(weights_sha256/runtime_versions/device)を足す,
+        3: 受付時に確定した出所(source/selected_model_id/fallback_reason)は上書きしない
+      ]
+      引数: [plan: Jobのmodel_plan(コピー), report: 段名 -> 実行後に判明した値]
+      戻り値: [digest等を足したプランのコピー、足す物が無ければ元のプラン]
+    }
+    """
+    if not plan or not report:
+        return plan
+    merged = copy.deepcopy(plan)
+    for stage, runtime in report.items():
+        entry = merged.get(stage)
+        if isinstance(entry, dict):
+            entry.update({k: v for k, v in runtime.items() if v is not None and k not in entry})
+    return merged
+
+
 class JobManager:
     def __init__(self, root: Path, registry: AdapterRegistry, instance_id: UUID, capacity: int):
         self.root = root.resolve()
@@ -242,6 +265,7 @@ class JobManager:
                         )
                     resolve_artifact(self.root, artifact, must_exist=True)
                 job.artifacts = artifacts
+                job.model_plan = merge_runtime(job.model_plan, context.runtime_report)
                 terminal = "completed"
                 job.progress = 1.0
         except AnalysisCancelled:
