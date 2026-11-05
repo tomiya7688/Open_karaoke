@@ -330,3 +330,83 @@ def test_noncanonical_audio_rejected(tmp_path, rate, channels, subtype):
     with pytest.raises(ServiceError) as error:
         SongAdapter(fixture_registry([])).analyze(context(tmp_path, path), {"title": "test"})
     assert error.value.detail.code == "invalid_audio"
+
+
+def run_song_job(tmp_path, source, options, before_start=None):
+    from fastapi.testclient import TestClient
+
+    from open_karaoke_analysis.service import create_app
+
+    calls = []
+    alt = FixtureStage("lyrics", calls)
+    alt.info = ModelInfo(id="alt-lyrics", version="alt", role=Role.LYRICS)
+    registry = fixture_registry(calls)
+    registry.adapters[alt.info.id] = alt
+    song = SongAdapter(registry)
+    token = "y" * 64
+    app = create_app(tmp_path, token, [*registry.adapters.values(), song])
+    with TestClient(app, headers={"Authorization": f"Bearer {token}"}) as client:
+        body = {"input_artifact": source.name, "options": {"title": "t", **options}}
+        accepted = client.post("/analysis/song", json=body).json()
+        if before_start is not None:
+            before_start()
+        deadline = time.monotonic() + 10
+        while time.monotonic() < deadline:
+            job = client.get(f"/jobs/{accepted['id']}").json()
+            if job["status"] in {"completed", "failed", "cancelled"}:
+                break
+            time.sleep(0.01)
+    assert job["status"] == "completed", job
+    path = next(a for a in job["artifacts"] if a.endswith("song-result.json"))
+    bundle = json.loads((tmp_path / path).read_text(encoding="utf-8"))["bundle"]
+    return bundle["evidence"]["items"][0]["evidence"], calls
+
+
+def stage_of(provenance, role):
+    return next(stage for stage in provenance["stages"] if stage["role"] == role)
+
+
+def test_song_stages_apply_selection_with_priority_and_record_plan(tmp_path, source):
+    (tmp_path / "model_selection.json").write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "selection": {"lyrics": "alt-lyrics", "pitch": "gone", "stems": "fixture-stems"},
+            }
+        ),
+        encoding="utf-8",
+    )
+    provenance, _ = run_song_job(tmp_path, source, {"models": {"stems": "fixture-stems"}})
+    lyrics = stage_of(provenance, "lyrics")
+    assert lyrics["model"]["id"] == "alt-lyrics"
+    assert lyrics["selection"] == {
+        "source": "selection",
+        "selected_model_id": "alt-lyrics",
+        "fallback_reason": None,
+    }
+    assert stage_of(provenance, "stems")["selection"]["source"] == "request"
+    pitch = stage_of(provenance, "pitch")
+    assert pitch["model"]["id"] == "fixture-pitch"
+    assert pitch["selection"]["source"] == "default_fallback"
+    assert pitch["selection"]["selected_model_id"] == "gone"
+    assert pitch["selection"]["fallback_reason"]
+    assert stage_of(provenance, "notes")["selection"]["source"] == "default"
+    assert provenance["model_plan_resolved_at"]
+
+
+def test_song_plan_is_pinned_when_selection_changes_after_acceptance(tmp_path, source):
+    (tmp_path / "model_selection.json").write_text(
+        json.dumps({"version": 1, "selection": {"lyrics": "alt-lyrics"}}), encoding="utf-8"
+    )
+
+    def change():
+        (tmp_path / "model_selection.json").unlink()
+
+    provenance, _ = run_song_job(tmp_path, source, {}, before_start=change)
+    assert stage_of(provenance, "lyrics")["model"]["id"] == "alt-lyrics"
+
+
+def test_selection_does_not_change_analysis_fingerprint(tmp_path, source):
+    plain, _ = run_song_job(tmp_path, source, {})
+    explicit, _ = run_song_job(tmp_path, source, {"models": {"lyrics": "fixture-lyrics"}})
+    assert plain["analysis_fingerprint"] == explicit["analysis_fingerprint"]

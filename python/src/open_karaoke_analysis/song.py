@@ -235,6 +235,7 @@ class SongAdapter:
             if stage != "stems":
                 values["analysis_version"] = options["analysis_version"]
             prepared[stage] = selected[stage].validate_options(values)
+        plan = context.model_plan or {}
         artifacts, stages, vocal_hash = [original], [], None
         observed = {original: _digest(original_path, context)}
         if reference is not None:
@@ -310,6 +311,12 @@ class SongAdapter:
                     "role": stage,
                     "model": selected[stage].info.model_dump(mode="json"),
                     "options": prepared[stage],
+                    "selection": plan.get(stage)
+                    or {
+                        "source": "request" if stage in options["models"] else "default",
+                        "selected_model_id": None,
+                        "fallback_reason": None,
+                    },
                     "artifacts": [
                         "provenance/" + name[len(context.output_prefix) + 1 :] for name in produced
                     ],
@@ -368,6 +375,7 @@ class SongAdapter:
             **identity,
             "analysis_fingerprint": fingerprint,
             "vocals_sha256": vocal_hash,
+            "model_plan_resolved_at": plan.get("resolved_at"),
             "stages": stages,
             "singing_accuracy_verified": False,
         }
