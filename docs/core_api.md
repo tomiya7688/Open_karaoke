@@ -56,7 +56,7 @@ Core単体ではデバイスを開かないため、デバイスを開く側が 
 ## 歌唱セッション（`/karaoke-sessions`、#107 107.2）
 
 Coreが歌唱セッションの状態とコマンド順序の正本を持つ。クライアントは状態取得・transportコマンド・SSE購読だけを行い、
-セッションの作成・準備完了・提示位置・採点区間・中断の報告はできない（将来のControllerがCore内部で行う）。
+セッションの作成・準備完了・提示位置・採点区間・中断の報告はできない（Core内部のControllerが行う。107.3で抽象とfakeによる合成を実装、実デバイス配線は後続）。
 コマンド本文は `core_instance_id`（`GET /session`のinstance_id）・`command_id`（再送キー）・`expected_revision`・
 `command`（`{"type":"play"|"pause"|"stop"}` / `{"type":"seek","song_sample":48kHz整数}`）。
 再起動後の新しいCoreは旧セッションを知らず、旧instance宛は409 `stale_instance`。

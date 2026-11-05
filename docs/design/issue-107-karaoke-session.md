@@ -1,6 +1,6 @@
 # #107 Core所有の KaraokeSession 設計
 
-> 状態: 107.1（純粋な状態機械）と107.2（認証付きtransport API、デバイス無し）を実装。107.3以降は**未実装**。数値・実機品質の主張はしない。
+> 状態: 107.1（純粋な状態機械）と107.2（認証付きtransport API、デバイス無し）を実装。107.3（Controller合成、fakeのみ）を実装。107.4以降は**未実装**。数値・実機品質の主張はしない。
 > 参照のみ: PR #111 の `docs/karaoke_session_design.md`（草案。マージ前のため本書は内容を再掲せず、差異は下記「草案との差」に記す）。
 
 ## 目的と責務の分け方
@@ -32,7 +32,7 @@
 |---|---|---|---|
 | 107.1 | 純粋な状態機械・registry・イベントログ・加点ledger（`core/src/karaoke_session.rs`） | - | **実装** |
 | 107.2 | 認証付きtransport API（状態取得・play/pause/seek/stop・上限付きSSE）を状態機械へ配線。デバイス無し（`core/src/karaoke_session_api.rs`） | 107.1 | **実装** |
-| 107.3 | `KaraokeSessionController`: SongLibrary検証、device lease、MusicDecode/CaptureDispatcher/PlaybackMix worker組成、stream error→`interrupt` | #12 #13 | 未 |
+| 107.3 | `KaraokeSessionController`: 曲の読取(`SongSource`)、device lease(`DeviceLeaseProvider`)、準備(preparing→ready)、stream error→`interrupt`、復旧。抽象とfakeでの合成のみ(`core/src/karaoke_controller.rs`)。実SongLibrary配線・実device lease・CPAL/worker組成は**後続**(下記) | #12 #13 | **合成を実装** |
 | 107.4 | output presentation timestamp（`ClockSession`のanchor/遅延品質）をpresented報告へ接続、`clock_quality` | #40 | 未 |
 | 107.5 | C# client契約、SSE上限・購読数の実測 | #41 #36 | 未 |
 | 107.6 | リアルタイム音程・採点の接続（credit ledgerを利用） | #14 | 未 |
@@ -106,6 +106,31 @@ seekは `s < duration_samples` のみ（`out_of_range`）。内部イベント: 
 | T9 | 遅い購読者はclose→再取得 | `t9_slow_subscriber_is_closed_and_can_resync` |
 | T10 | 旧世代を復活させない（AC8） | `t10_a_new_core_generation_does_not_know_the_old_session` |
 | T11 | 停止中は503 | `t11_commands_and_subscriptions_are_refused_while_shutting_down` |
+
+## 107.3 Controller（合成のみ・実装済み）
+場所: `core/src/karaoke_controller.rs`、テスト: `core/tests/karaoke_controller.rs`。既存公開APIは変えず追加のみ(`pub mod karaoke_controller`、`KaraokeSessionHost::recover`)。デバイスは開かない。
+
+- `SongSource::open(song_id) -> PreparedSong{duration_samples}`、`DeviceLeaseProvider::acquire(session_id) -> Box<dyn DeviceLease>`(dropで返却)。実装は後続スライスで SongLibrary / CPAL に差し替える。
+- `select_song`: 曲を読めなければセッションを作らない(`song_unavailable`)。読めれば host に preparing を作る。非終端が残れば `session_busy`。
+- `prepare`: 貸出に成功すれば ready、失敗は failed(`device_unavailable`)。preparing中に取消(stop)されていれば貸出を保持しない。`start` は両者の連続。
+- `stream_error(origin, code)`: host の `interrupt` を呼び貸出を返す。自動復旧・自動再生しない。`recover(session_id)`: 貸出を取り直せた時だけ host の `recover`(ready/paused へ。失敗は interrupted のまま)。
+- `reconcile()`: セッションが ready/playing/paused でなければ貸出を返す(クライアントのstop後など。`select_song`/`stream_error` は内部で呼ぶ)。貸出は同時に1つ。
+- 再起動: 新しい host(新instance)と空の貸出で始まり、旧Sessionは復活せず、旧instance宛は `stale_instance`。
+
+| # | 条件 | テスト(`core/tests/karaoke_controller.rs`) |
+|---|---|---|
+| T1 | 選曲→準備→ready→play(AC1/AC2) | `t1_select_prepare_reaches_ready_and_can_play` |
+| T2 | 読めない曲はセッションを作らない | `t2_unreadable_song_creates_no_session` |
+| T3 | 貸出競合でfailed(AC9) | `t3_second_session_fails_when_the_device_is_leased` |
+| T4 | 2セッション目はbusy、終端後は可(AC9) | `t4_second_selection_is_busy_until_the_first_ends` |
+| T5 | 準備中の取消で貸出を保持しない | `t5_cancelled_preparation_does_not_keep_the_lease` |
+| T6 | stream errorでinterrupted・返却・自動復旧なし(AC7) | `t6_stream_error_interrupts_and_releases_without_auto_recovery` |
+| T7 | 復旧は貸出を取れた時だけ・自動再生なし(AC7) | `t7_recover_requires_the_lease_and_never_autoplays` |
+| T8 | 中断中以外の復旧は拒否 | `t8_recover_is_refused_unless_interrupted` |
+| T9 | 再起動で旧Sessionを復活させない(AC8) | `t9_restart_does_not_resurrect_the_old_session` |
+| T10 | stop後のreconcileで返却 | `t10_reconcile_releases_the_lease_after_a_client_stop` |
+
+後続(未実装): 実 SongLibrary 検証、実 device lease、MusicDecode/CaptureDispatcher/PlaybackMix worker 組成、CPAL stream error の実検出、Controllerのバックグラウンド駆動(reconcileの定期呼出し)。実機品質は未測定。
 
 ## 草案(PR #111)との差
 - 草案の`Stopped`を踏襲。`command_id`履歴は草案例どおり128。
