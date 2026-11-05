@@ -121,3 +121,5 @@ Rust Coreの `SongStore` が4文書を保存・読込する。
 ## 手編集の出自（#38、追加のみ・format_version不変）
 
 手編集した歌詞は `source: "manual"`、手編集したノートは `evidence.json` の `target_id=<note.id>` 項目の `edit_origin = {"source": "manual"}` で示す。読む側は未知のevidenceキーを無視してよい。詳細は[#38設計](design/issue-38-note-editor.md)。
+
+編集の保存後は、編集した`lyrics`/`notes`と`evidence`のartifact `generation`が+1され（編集世代は`evidence`のgeneration）、再生成されなかった派生artifactは`valid=false`（再生成待ち）になり得る。公開済み曲の読込はこの状態を許す（原本・stemsは常にvalid）。

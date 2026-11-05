@@ -1,6 +1,6 @@
 # #38 任意の歌詞・採点ノート編集 設計
 
-> 状態: 38.1実装済み（編集コマンド型と検証の純関数 `core/src/song_edit.rs`）。38.2以降（保存・API・GUI）は未実装。P3、#16の後続。
+> 状態: 38.1実装済み（編集コマンド型と検証の純関数 `core/src/song_edit.rs`）。38.2実装済み（保存・世代管理・下流invalidate `core/src/song_library/edit.rs`）。38.3以降（API・GUI）は未実装。P3、#16の後続。
 > 通常導線（編集せず歌う）を妨げないことが最優先。
 
 ## 目的
@@ -29,10 +29,10 @@
 - 出自の区別（**38.1で決定: `format_version`は上げない**）: 歌詞は既存の`LyricSegment.source`へ`"manual"`を入れる。`Note`には欄を足さず、`EvidenceDocument`の`target_id=note.id`の項目へ`evidence["edit_origin"]={"source":"manual"}`を追記する。既存型・既存JSONは不変で追加のみ（未知キーは既存読込側が許容するevidenceの自由マップ）。Noteへ型の欄を足す案は、全Note生成箇所とPython出力・migrationの変更を要し、公開契約を変えるため採らない。将来必要になった時点で`format_version`上げを別Issueで判断する。
 - 編集による信頼度の扱い（38.1）: 本文を変えた歌詞は`text_confidence`、範囲を変えた歌詞は`timing_confidence`、音高を変えたノートは`pitch_confidence`を`None`にする（自動結果の信頼度を手編集結果に残さない）。値が不変なら保持。削除したノートは出自を記録しない（既存evidenceは破壊しない）。
 - 元の解析結果は上書きせず保持（`evidence.json`または編集前スナップショット。方式は未決）。
-- 注意: `SongLibrary::load`系は無効(`valid=false`)artifactを含む束を拒否し得る（`song_library/validation.rs`の検査）。編集で下流を`invalidate`した曲が一覧/再生から消えないよう、「編集済みで再生成待ち」状態の扱いを38.2で定義する（未決）。
+- 注意: `SongLibrary::load`系は無効(`valid=false`)artifactを含む束を拒否し得る（`song_library/validation.rs`の検査）。編集で下流を`invalidate`した曲が一覧/再生から消えないよう、「編集済みで再生成待ち」状態は38.2で定義した（下記38.2）。
 - 下流: 歌詞編集→`ArtifactKind::Lyrics`を`mark_regenerated`、依存する`Notes`/`Evidence`は`invalidate`の伝播規則に従う（`song_data.rs`既存API）。
 
-**エラー**: `base_generation`不一致は409相当で拒否。**世代比較から保存までを曲単位の排他で直列化**する（同時要求が同じ世代を読んで後勝ち上書きしない）。保存は全文書で原子的でなければならない: 既存`SongStore::save`は文書を順次置換し、`write_json`は既存ファイルを削除してからrenameする（`song_data.rs`）ため、途中失敗で新旧が混在し得る。**編集用に「全文書を一時領域へ書いてから切替」する保存を新設するか既存を直すかを38.2で決める**。
+**エラー**: `base_generation`不一致は409相当で拒否。**世代比較から保存までを曲単位の排他で直列化**する（同時要求が同じ世代を読んで後勝ち上書きしない）。保存は全文書で原子的でなければならない: 既存`SongStore::save`は文書を順次置換し、`write_json`は既存ファイルを削除してからrenameする（`song_data.rs`）ため、途中失敗で新旧が混在し得る。**38.2で決定: 既存`SongStore::save`は変えず、編集用に「私的stagingへ完全な曲ディレクトリを組み立て→ディレクトリ置換」を新設した**（下記38.2）。
 **スレッド**: 編集は通常のJob/API経路。音声callbackと無関係。編集中のプレビュー再生は#107のセッションを読み取り専用で使用。
 
 ## 38.1 受入条件と照合（実装済み）
@@ -46,13 +46,37 @@
 | 6 | 出自表現の決定を記録（format_version不変、manual出自） | `applies_valid_edits_and_records_manual_origin`、上記「出自の区別」 |
 | 7 | 既存Song Data公開契約を変えない | `song_data.rs`は無変更（`song_edit.rs`新設とlib.rs登録のみ） |
 
-`base_generation`はコマンドが保持するだけで、競合判定・保存・invalidateは38.2で行う。
+`base_generation`の競合判定・保存・invalidateは38.2で実装した。
+
+## 38.2 決定事項と受入条件の照合（実装済み）
+**決定**
+- 公開API: `SongLibrary::edit_song(id, &EditCommand) -> Result<EditedSong, SongEditSaveError>`、`edit_generation(&SongBundle)`。`song_data.rs`・`song_edit.rs`は無変更（追加のみ）。
+- 世代: `base_generation`は`Evidence` artifactの`generation`。編集成功ごとにEvidenceを必ず再生成するため単調増加する（初期取込直後は1）。
+- 排他: ライブラリ全体のOSファイルロック(`.writer.lock`)を世代照合から置換完了まで保持する（曲単位より強い）。取得できなければ`Busy`（再試行は呼び出し側）。同一世代の同時編集は片方だけ成功し、他方は`GenerationConflict`か`Busy`。
+- 原子的保存: `.staging-*`へ非編集資産をハードリンク（不可ならコピー）→`SongStore::save`で文書書込+fsync→`import-receipt.json`の`bundle_sha256`更新→往復検証→`<id>`を`.retired-<id>-*`へ退避→staging改名→退避削除。どの段階で失敗しても元のディレクトリを保つ。退避〜改名の短い間は`load`が`NotFound`になり得る。この間に中断された場合は次回の`edit_song`が`.retired-*`を復旧する。
+- サイズ上限: 書き出す各文書（整形JSON）が読込側上限16MiB未満であること。超過は書込前に`TooLarge`。op数は38.1の`MAX_EDIT_OPS`。
+- 下流規則: 歌詞opがあれば`Lyrics`を`invalidate`（`Notes`/`Evidence`へ伝播）してから`mark_regenerated`。ノートopがあれば`Notes`も同様。`Evidence`は毎回再生成。**再生成されなかった派生artifact（例: 歌詞だけ編集した時の`Notes`）は`valid=false`の「再生成待ち」で公開する**。ノートopを含む次の編集で`Notes`がvalidに戻る。
+- 公開済み検証の緩和: `load`系は`Lyrics/Notes/Evidence`の`valid=false`を許す（`validate_published`）。原本・stemsは常にvalid必須。取込時の検証は従来どおり厳格。
+- 再取込: 編集済み曲に同じ解析Jobを再取込すると、既存の`bundle != export.bundle`により`Conflict`（上書きしない）。再解析との衝突規則は#36側（未決事項）。
+- 未決のまま: 元結果のsnapshot保持（編集前の文書は置換時に捨てられる）。必要なら38.3以降で別途決める。
+
+| # | 条件 | テスト（`core/tests/song_edit_save.rs`） |
+|---|---|---|
+| 1 | 編集結果を再読込・別インスタンスでも保持、資産は不変 | `edit_survives_reload_and_new_library_instance` |
+| 2 | `base_generation`不一致を拒否し何も変えない | `stale_base_generation_is_rejected_and_nothing_changes` |
+| 3 | invalidate伝播と再生成での回復、再生成待ちでも一覧に残る | `invalidate_propagates_and_is_cleared_by_regeneration` |
+| 4 | 検証違反は全ファイル不変・残骸なし | `rejected_edit_leaves_every_file_untouched` |
+| 5 | サイズ上限超過は書込前に拒否 | `oversized_document_is_rejected_before_any_write` |
+| 6 | 未登録曲・別曲IDを拒否 | `unknown_song_and_foreign_song_id_are_rejected` |
+| 7 | 置換中断からの復旧 | `interrupted_swap_is_recovered_before_the_next_edit` |
+| 8 | 書込排他（Busy）、同時編集で成功は1件 | `concurrent_writer_gets_busy_and_the_song_is_unchanged`、`racing_edits_with_the_same_base_never_both_succeed` |
+| 9 | 再取込で編集を上書きしない | `reimporting_the_original_analysis_never_overwrites_an_edited_song` |
 
 ## 実装スライス
 | # | 内容 | 依存 | 完了条件・テスト |
 |---|---|---|---|
 | 38.1 | 編集コマンド型と検証（純関数）、出自表現の決定（`format_version`上げ要否） | #3 | `core/tests/`: 不正range・不正参照ID拒否、原子性、決定的出力 |
-| 38.2 | 保存+世代管理+下流invalidate（`SongLibrary`上） | 38.1 | 再読込保持、`base_generation`競合、invalidate伝播 |
+| 38.2 | 保存+世代管理+下流invalidate（`SongLibrary`上）**実装済み** | 38.1 | 再読込保持、`base_generation`競合、invalidate伝播 |
 | 38.3 | Core公開API（`PATCH`系、#41の版管理に従う） | 38.2, #41 | 認証/上限/サイズ制限のcontract test |
 | 38.4 | `SongEditorViewModel`+Undo/Redo+一覧表示 | 38.3, #15 | `Client.Tests`: Undo/Redo往復、拒否時のロールバック表示 |
 | 38.5 | プレビュー再生・シーク連携 | 38.4, #16/#107 | 編集中の区間を再生できる（headless smoke+実機は`Unverified`） |
