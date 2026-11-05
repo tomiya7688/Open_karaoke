@@ -97,6 +97,23 @@
                 </Grid>
                 <ProgressBar Classes="slim" Minimum="0" Maximum="100" Value="{Binding Progress}"
                              AutomationProperties.Name="Jobの進捗" />
+                <StackPanel Spacing="6" IsVisible="{Binding ModelPlan.HasPlan}">
+                  <TextBlock Classes="caption" Text="選択したモデルと実際に動いたモデル" />
+                  <SelectableTextBlock Text="{Binding ModelPlan.Summary}" TextWrapping="Wrap" />
+                  <TextBlock Classes="caption" Text="{Binding ModelPlan.ResolvedAt, StringFormat=解決時刻: {0}}" />
+                  <ItemsControl ItemsSource="{Binding ModelPlan.Rows}">
+                    <ItemsControl.ItemTemplate>
+                      <DataTemplate>
+                        <Border Classes="codeBox" Margin="0,2">
+                          <SelectableTextBlock Classes="mono" TextWrapping="Wrap">
+                            <Run Text="{Binding Stage}" /><Run Text=" : " /><Run Text="{Binding Source}" /><Run Text=" / 選択=" /><Run Text="{Binding Selected}" /><Run Text=" / 理由=" /><Run Text="{Binding Fallback}" /><Run Text=" / " /><Run Text="{Binding Runtime}" />
+                          </SelectableTextBlock>
+                        </Border>
+                      </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                  </ItemsControl>
+                  <TextBlock Classes="caption" Text="{Binding ModelPlan.Note}" TextWrapping="Wrap" />
+                </StackPanel>
               </StackPanel>
             </Border>
 

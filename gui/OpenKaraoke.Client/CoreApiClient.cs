@@ -12,7 +12,9 @@ public sealed record CoreIdentity(string Service, int ApiVersion, Guid InstanceI
 public sealed record CreateJobRequest(string Kind, object? Analysis = null);
 public sealed record JobSnapshot(
     Guid Id, string Kind, string Status, double Progress, string Stage,
-    string? Error, string[] Artifacts)
+    string? Error, string[] Artifacts,
+    string? ModelId = null, string? ModelSource = null, string? SelectedModelId = null,
+    string? SelectionFallbackReason = null, System.Text.Json.JsonElement? ModelPlan = null)
 {
     public bool IsTerminal => Status is "completed" or "failed" or "cancelled";
 }

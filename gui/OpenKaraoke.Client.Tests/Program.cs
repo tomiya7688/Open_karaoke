@@ -49,6 +49,7 @@ internal static class Program
             ("choose, refresh and clear model selection in the view model", ModelPackageTests.SelectionViewModel),
             ("read and write the mixer settings through Core", MixerTests.ClientRoute),
             ("send mixer edits in order and reset on disconnect", MixerTests.ViewModel),
+            ("map model plan provenance for display", ModelPlanViewTests.Mapping),
         };
         if (args.Length == 2) tests.Add(("live C# to Rust to Python lifecycle", () => NativeTests.RunAsync(args[0], args[1])));
         var passed = 0;

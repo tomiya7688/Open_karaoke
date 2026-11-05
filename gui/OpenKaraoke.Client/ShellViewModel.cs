@@ -61,6 +61,8 @@ public sealed class ShellViewModel : INotifyPropertyChanged, IAsyncDisposable
     public string SessionId => _connection?.InstanceId.ToString() ?? "—";
     public JobSnapshot? CurrentJob => _job;
     public string JobStatus => _job is null ? "Jobなし" : $"{_job.Status} / {_job.Stage}";
+    // 解析Jobの「選択したもの/実際に動いたもの」表示。状態は持たず現在のJobから作る(表示専用)。
+    public ModelPlanView ModelPlan => ModelPlanView.From(_job);
     public string JobId => _job?.Id.ToString() ?? "—";
     public double Progress => (_job?.Progress ?? 0) * 100;
     public bool CanConnect => !_disposed && !_connecting && !_disconnecting && _connection is null;
