@@ -1,4 +1,4 @@
-# Evaluator用Core接続と単一Job実行（#18.5 / #18.6a / #18.6b / P1）
+# Evaluator用Core接続と単一Job実行（#18.5〜#18.6c / P1）
 
 `open_karaoke_analysis.core_job_client.CoreJobClient` はGUIやPython workerの内部APIに依存せず、製品Coreの公開HTTP APIへJob作成・取得のmessageを送る。
 
@@ -73,7 +73,22 @@ result = runner.run(owner, {"kind": "framework-smoke", "steps": 1})
 
 不正要求は本文なしの`ValueError`、予期しないobserver失敗は`JobRunError`を返す。`run`内で不正要求を拒否した場合もownerはcloseされる。runner生成時の設定検証はownerを受け取る前に行う。Core終了失敗の`CoreLaunchError`は通常結果や観測エラーより優先する。Coreを閉じた後もobserverが1秒以内に停止しなければ、停止未確認の`JobRunError`にし、正常に片付いたとは扱わない。優先順位はCore終了失敗、observer停止未確認、通常の観測結果・エラーの順になる。runnerが期限超過を返しても、解析結果や成功率を推定しない。
 
-実Core/workerの結合テストはmock-v1の完了・失敗・長いJobの期限超過とruntime cleanupを確認する。取消の終端、通信待機中の期限、observer異常は境界テストで別途検証する。複数trialの統計、JSON保存、CLI、精度回帰ゲートへの接続は#18.6c以降であり、今回の計測値は実モデル精度の指標ではない。
+実Core/workerの結合テストはmock-v1の完了・失敗・長いJobの期限超過とruntime cleanupを確認する。取消の終端、通信待機中の期限、observer異常は境界テストで別途検証する。複数trialの集計とCLIは下記#18.6c、精度回帰ゲートへの接続は後続であり、今回の計測値は実モデル精度の指標ではない。
+
+## 複数trialの集計とCLI（#18.6c）
+
+`open_karaoke_analysis.job_benchmark` はtrialごとに新しい`OwnedCore`を起動して`JobRunner`で一回実行し、匿名の集計JSONを作る。再利用・自動再送はしない。
+
+```text
+python -m open_karaoke_analysis.job_benchmark --core <abs> --python <abs> --data-root <dir> --trials 3 --output report.json
+```
+
+- trialは1〜1000。`--timeout`/`--poll-interval`は`JobRunner`の範囲。専用データ場所は`--data-root/trial-N`。tokenを受け取る引数・環境変数はない。
+- 要求は固定の`analysis.mock`（mock-v1）で、`--steps`/`--delay-ms`だけ変更できる。
+- `outcomes`は`completed/failed/cancelled/timed_out/transport_error`に加え、起動失敗`launch_error`、終了失敗`cleanup_error`、観測失敗`runner_error`を数える。失敗しても残りのtrialは続ける。不正な要求・設定は`ValueError`で全体を中止する。
+- 出力は`format_version/kind/trials/outcomes/all_completed/elapsed_seconds/poll_attempts`のみ。時間とpollingは完了trialだけのmin/median/mean/max。入力・パス・token・Job ID・エラー本文は含めない。
+- 終了コードは全trial完了で0、未完了で1、引数エラーで2。
+- desktop-integrationは両OSの実Coreで3回実行し、`report.json`を`job-benchmark-<os>`としてartifact保存する。これはmock-v1の接続・時間の計測であり、実モデル精度や回帰ゲートの証拠ではない。
 
 ## 整形と確認
 
@@ -82,7 +97,7 @@ Python開発依存を導入した環境で、リポジトリ直下から次を�
 ```text
 npm run format:core-job-client
 npm run format:check:core-job-client
-python -m pytest python/tests/test_core_job_client.py python/tests/test_owned_core.py python/tests/test_job_runner.py -q
+python -m pytest python/tests/test_core_job_client.py python/tests/test_owned_core.py python/tests/test_job_runner.py python/tests/test_job_benchmark.py -q
 ```
 
 対象はクライアント・launcher・runnerと対応テスト、この説明、npm設定、desktop-integration workflowのみ。生成物や担当外dirtyは整形しない。既存Markdown索引の追記は従来の表記を保持して確認する。既存CIの全Python検査にも同じ実装とテストが含まれる。

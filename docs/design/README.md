@@ -24,7 +24,7 @@
 | #15 GUI/Core接続 | シェル実装済み | [Desktop client](../desktop_client.md) | #41 | #16/#110と並行 |
 | #16 カラオケ画面 | 表示のみ（再生連動未） | [#16設計](issue-16-karaoke-screen.md) | #107 #14 | 16.2（#107のAPI確定後） |
 | #17 モデル選択 | 検出・保存選択済み。song各段は未 | [Model Plugins](../model_plugins.md) | - | #109 |
-| #18 Evaluator/CI | 一部実装 | [Testing](../testing.md)、[実装単位](../implementation_plan.md#18の実装単位p0は空けておく) | - | plan記載の次単位（#18.6c） |
+| #18 Evaluator/CI | 一部実装 | [Testing](../testing.md)、[実装単位](../implementation_plan.md#18の実装単位p0は空けておく) | - | #18.6cまで実装済み。精度回帰ゲートは後続 |
 | #19 リリース評価 | 未 | [#19設計](issue-19-release-evaluation.md) | #18 #42 #39 | 19.1 |
 | #36 全曲解析/登録 | Python/登録API済み。元音源〜GUI未 | [#36残り設計](issue-36-source-import-flow.md)、[全曲解析](../full_song_analysis.md)、[登録](../song_import.md) | #4 | 36.1 |
 | #37 外部MIDI | 実装あり（実MIDI corpus未評価） | [MIDI import](../midi_import.md) | #3 #11 | 実MIDIでの評価 |
