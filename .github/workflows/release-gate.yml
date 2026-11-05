@@ -29,18 +29,16 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+      - uses: ./.github/actions/python-trust
       - name: Verdict (fails unless every blocking item is pass)
         env:
           REPORT_PATH: ${{ inputs.report_path }}
         run: |
           set -u
-          case "$REPORT_PATH" in
-            release_evaluation/*.json) ;;
-            *) echo "::error::report_path must be a .json file under release_evaluation/"; exit 2 ;;
-          esac
-          case "$REPORT_PATH" in
-            *..*|*\\*) echo "::error::report_path must not contain '..' or backslashes"; exit 2 ;;
-          esac
+          if ! printf '%s' "$REPORT_PATH" | grep -qxE 'release_evaluation/[A-Za-z0-9._/-]+\.json' || printf '%s' "$REPORT_PATH" | grep -qF '..'; then
+            echo "::error::report_path must be a single-line .json path under release_evaluation/ (no '..')"
+            exit 2
+          fi
           if [ ! -f "$REPORT_PATH" ]; then
             echo "::error::No report at $REPORT_PATH: release is unverified, gate fails (not a pass)"
             exit 1
