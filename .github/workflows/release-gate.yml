@@ -35,7 +35,8 @@ jobs:
           REPORT_PATH: ${{ inputs.report_path }}
         run: |
           set -u
-          if ! printf '%s' "$REPORT_PATH" | grep -qxE 'release_evaluation/[A-Za-z0-9._/-]+\.json' || printf '%s' "$REPORT_PATH" | grep -qF '..'; then
+          re='^release_evaluation/[A-Za-z0-9._/-]+\.json$'
+          if [[ ! "$REPORT_PATH" =~ $re || "$REPORT_PATH" == *..* ]]; then
             echo "::error::report_path must be a single-line .json path under release_evaluation/ (no '..')"
             exit 2
           fi
