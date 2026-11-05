@@ -12,6 +12,7 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use uuid::Uuid;
 
 use crate::{
+    audio_clock::ClockEpoch,
     karaoke_session::{EventOrigin, KaraokeError, KaraokeState, ScoringMode, SessionSnapshot},
     karaoke_session_api::KaraokeSessionHost,
 };
@@ -263,6 +264,42 @@ impl KaraokeSessionController {
             session_id,
             _lease: lease,
         });
+        Ok(recovered)
+    }
+
+    /// {
+    ///   責務: [`bind_clock_epoch`: sessionが受理するclock世代を更新する(#133)。clockを再anchorした呼び出し側がseek/interrupt/recoverの後に呼ぶ]
+    ///   引数: [session_id, clock_epoch: 再anchor後のclock世代]
+    ///   戻り値: [`Result<(), ControllerError>`]
+    ///   エラー: [`Session(SessionNotFound)`]
+    /// }
+    ///
+    /// # Errors
+    /// Returns `SessionNotFound` when the id is not the current session.
+    pub fn bind_clock_epoch(
+        &self,
+        session_id: Uuid,
+        clock_epoch: ClockEpoch,
+    ) -> Result<(), ControllerError> {
+        Ok(self.host.set_clock_epoch(session_id, clock_epoch)?)
+    }
+
+    /// {
+    ///   責務: [`recover_with_clock`: 復旧と同時に、再anchorしたclock世代をsessionへ束縛する(#133)]
+    ///   処理: [1: `recover`で復旧する 2: 成功時のみclock世代を更新する(失敗時は旧世代のまま)]
+    ///   引数: [session_id, clock_epoch: 復旧後のclock世代]
+    ///   戻り値: [`Result<SessionSnapshot, ControllerError>`]
+    /// }
+    ///
+    /// # Errors
+    /// Same as `recover`.
+    pub fn recover_with_clock(
+        &self,
+        session_id: Uuid,
+        clock_epoch: ClockEpoch,
+    ) -> Result<SessionSnapshot, ControllerError> {
+        let recovered = self.recover(session_id)?;
+        self.bind_clock_epoch(session_id, clock_epoch)?;
         Ok(recovered)
     }
 

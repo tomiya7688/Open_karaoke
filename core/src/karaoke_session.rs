@@ -342,6 +342,7 @@ pub struct KaraokeSession {
     position: u64,
     position_source: PositionSource,
     clock_quality: ClockQuality,
+    clock_epoch: Option<ClockEpoch>,
     resume_state: KaraokeState,
     has_played: bool,
     downgrade: Option<DowngradeReason>,
@@ -386,6 +387,7 @@ impl KaraokeSession {
             position: 0,
             position_source: PositionSource::None,
             clock_quality: ClockQuality::Unknown,
+            clock_epoch: None,
             resume_state: KaraokeState::Ready,
             has_played: false,
             downgrade: None,
@@ -584,9 +586,28 @@ impl KaraokeSession {
     }
 
     /// {
+    ///   責務: [`set_clock_epoch`: sessionが受理するclock世代を設定/更新する(#133)。seek/interrupt/recoverでclockを再anchorした呼び出し側が新世代を伝える]
+    ///   処理: [1: 受理clock世代を置き換える(revision/epoch/イベントは変えない) 2: 以後は異なる世代の提示値を拒否する]
+    ///   引数: [clock_epoch: 受理するclock世代]
+    /// }
+    pub fn set_clock_epoch(&mut self, clock_epoch: ClockEpoch) {
+        self.clock_epoch = Some(clock_epoch);
+    }
+
+    /// {
+    ///   責務: [`clock_epoch`: 現在受理しているclock世代(未設定ならNone)]
+    ///   戻り値: [`Option<ClockEpoch>`]
+    /// }
+    #[must_use]
+    pub const fn clock_epoch(&self) -> Option<ClockEpoch> {
+        self.clock_epoch
+    }
+
+    /// {
     ///   責務: [`report_presented_from_clock`: 出力の提示済みstream sampleを`ClockSession`で曲位置へ写し、品質付きで報告する(107.4)]
     ///   処理: [
     ///     1: session epochを確認する(不一致は除外して件数に数える)
+    ///     1b: sessionが受理するclock世代が設定済みなら`clock_epoch`との不一致を除外して件数に数える(#133。未設定は従来どおりclock側の検査のみ)
     ///     2: output domainのanchorで`clock_epoch`のstream sampleを曲sampleへ写す
     ///     3: clockのepoch不一致は除外件数に数え、他のclock失敗は状態を変えず拒否する
     ///     4: 写した位置と遅延品質(昇格なし)を`report_presented`と同じ規則で適用する
@@ -606,6 +627,12 @@ impl KaraokeSession {
         presented: PresentedStreamSample,
     ) -> Result<SessionSnapshot, KaraokeError> {
         self.check_epoch(epoch)?;
+        if let Some(accepted) = self.clock_epoch
+            && accepted != clock_epoch
+        {
+            self.stale_rejections += 1;
+            return Err(KaraokeError::ClockRejected(ClockError::StaleEpoch));
+        }
         let mapped: MappedSongSample =
             match clock.resolve(ClockDomain::Output, clock_epoch, presented.0) {
                 Ok(mapped) => mapped,
@@ -1064,6 +1091,24 @@ impl KaraokeSessionRegistry {
             clock_epoch,
             presented,
         )
+    }
+
+    /// {
+    ///   責務: [`set_clock_epoch`: 出所を検証し、sessionが受理するclock世代を更新する(#133)]
+    ///   処理: [1: instance/session照合 2: 委譲]
+    ///   引数: [origin, clock_epoch]
+    ///   エラー: [`StaleInstance` `SessionNotFound`]
+    /// }
+    ///
+    /// # Errors
+    /// Propagates the origin rejection.
+    pub fn set_clock_epoch(
+        &mut self,
+        origin: EventOrigin,
+        clock_epoch: ClockEpoch,
+    ) -> Result<(), KaraokeError> {
+        self.origin_session(origin)?.set_clock_epoch(clock_epoch);
+        Ok(())
     }
 
     /// {
