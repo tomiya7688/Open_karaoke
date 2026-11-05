@@ -60,7 +60,17 @@ jobs:
               run: cargo build --locked -p open-karaoke-core
             - name: Evaluator owned Core lifecycle
               run: >-
-                  python -c "import os,pathlib,subprocess,sys; env=os.environ.copy(); env['OPEN_KARAOKE_TEST_CORE']=str(pathlib.Path('target/debug/open-karaoke-core'+('.exe' if sys.platform=='win32' else '')).resolve()); subprocess.run([sys.executable,'-m','pytest','python/tests/test_owned_core.py','python/tests/test_core_job_client.py','python/tests/test_job_runner.py','-q'],env=env,check=True)"
+                  python -c "import os,pathlib,subprocess,sys; env=os.environ.copy(); env['OPEN_KARAOKE_TEST_CORE']=str(pathlib.Path('target/debug/open-karaoke-core'+('.exe' if sys.platform=='win32' else '')).resolve()); subprocess.run([sys.executable,'-m','pytest','python/tests/test_owned_core.py','python/tests/test_core_job_client.py','python/tests/test_job_runner.py','python/tests/test_job_benchmark.py','-q'],env=env,check=True)"
+            - name: Job API benchmark aggregate (mock-v1 connectivity only)
+              run: >-
+                  python -c "import pathlib,subprocess,sys; core=pathlib.Path('target/debug/open-karaoke-core'+('.exe' if sys.platform=='win32' else '')).resolve(); pathlib.Path('artifacts/job-benchmark').mkdir(parents=True,exist_ok=True); subprocess.run([sys.executable,'-m','open_karaoke_analysis.job_benchmark','--core',str(core),'--python',sys.executable,'--data-root','artifacts/job-benchmark/data','--trials','3','--output','artifacts/job-benchmark/report.json'],check=True)"
+            - name: Retain anonymous Job API benchmark aggregate
+              if: always()
+              uses: actions/upload-artifact@v4
+              with:
+                  name: job-benchmark-${{ matrix.os }}
+                  path: artifacts/job-benchmark/report.json
+                  if-no-files-found: warn
             - name: Build Avalonia GUI and client
               run: dotnet build gui/OpenKaraoke.Gui/OpenKaraoke.Gui.csproj --configuration Release
             - name: Client contracts and real Core-Python session lifecycle
