@@ -117,3 +117,7 @@ Rust Coreの `SongStore` が4文書を保存・読込する。
 初期migration hookではversion未指定（v0扱い）の文書へv1必須フィールドを補完する。未知の将来versionは黙って読まずエラーとする。
 
 モデル更新や解析ロジック更新は `analysis_version` とartifact単位のversion/generationで追跡する。
+
+## 手編集の出自（#38、追加のみ・format_version不変）
+
+手編集した歌詞は `source: "manual"`、手編集したノートは `evidence.json` の `target_id=<note.id>` 項目の `edit_origin = {"source": "manual"}` で示す。読む側は未知のevidenceキーを無視してよい。詳細は[#38設計](design/issue-38-note-editor.md)。
