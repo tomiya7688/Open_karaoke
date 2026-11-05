@@ -1,6 +1,6 @@
 # #107 Core所有の KaraokeSession 設計
 
-> 状態: 107.1（純粋な状態機械）と107.2（認証付きtransport API、デバイス無し）を実装。107.3（Controller合成、fakeのみ）を実装。107.4以降は**未実装**。数値・実機品質の主張はしない。
+> 状態: 107.1（純粋な状態機械）と107.2（認証付きtransport API、デバイス無し）を実装。107.3（Controller合成、fakeのみ）を実装。107.4（提示timestamp→`clock_quality`、合成のみ）を実装。107.5以降は**未実装**。数値・実機品質の主張はしない。
 > 参照のみ: PR #111 の `docs/karaoke_session_design.md`（草案。マージ前のため本書は内容を再掲せず、差異は下記「草案との差」に記す）。
 
 ## 目的と責務の分け方
@@ -25,7 +25,7 @@
 | AC11 | 状態イベントは上限付き。遅い購読者はgapを検知しsnapshotで復旧 | 実装（`SessionEventLog`）。SSE配線は107.2で実装 |
 | AC12 | audio callbackはlock/alloc/network/Python無し | 本スライスはcallbackに接続しない（型に音声デバイス依存なし、`unsafe`禁止） |
 | AC13 | APIは#41のversioningに従う | 追加のみ（`pub mod karaoke_session`）。既存公開APIは不変。URLは未確定のまま |
-| AC14 | GUI/scoreに届くtimestamp/scoreにsource/quality情報 | 部分: 本スライスは位置の`PositionSource::Presented`と`ScoreEligibility`まで。`clock_quality`は107.4 |
+| AC14 | GUI/scoreに届くtimestamp/scoreにsource/quality情報 | 107.1: `PositionSource::Presented`と`ScoreEligibility`。107.4: snapshotの`clock_quality`を追加（実装、合成のみ） |
 
 ## 実装スライス
 | # | 内容 | 依存 | 状態 |
@@ -33,7 +33,7 @@
 | 107.1 | 純粋な状態機械・registry・イベントログ・加点ledger（`core/src/karaoke_session.rs`） | - | **実装** |
 | 107.2 | 認証付きtransport API（状態取得・play/pause/seek/stop・上限付きSSE）を状態機械へ配線。デバイス無し（`core/src/karaoke_session_api.rs`） | 107.1 | **実装** |
 | 107.3 | `KaraokeSessionController`: 曲の読取(`SongSource`)、device lease(`DeviceLeaseProvider`)、準備(preparing→ready)、stream error→`interrupt`、復旧。抽象とfakeでの合成のみ(`core/src/karaoke_controller.rs`)。実SongLibrary配線・実device lease・CPAL/worker組成は**後続**(下記) | #12 #13 | **合成を実装** |
-| 107.4 | output presentation timestamp（`ClockSession`のanchor/遅延品質）をpresented報告へ接続、`clock_quality` | #40 | 未 |
+| 107.4 | output presentation timestamp（`ClockSession`のanchor/遅延品質）をpresented報告へ接続、`clock_quality` | #40 | **実装（合成のみ）** |
 | 107.5 | C# client契約、SSE上限・購読数の実測 | #41 #36 | 未 |
 | 107.6 | リアルタイム音程・採点の接続（credit ledgerを利用） | #14 | 未 |
 | 107.7 | GUI接続・hotplug復旧UI・実機ゲート | #16 #40 #19 | 未 |
@@ -131,6 +131,26 @@ seekは `s < duration_samples` のみ（`out_of_range`）。内部イベント: 
 | T10 | stop後のreconcileで返却 | `t10_reconcile_releases_the_lease_after_a_client_stop` |
 
 後続(未実装): 実 SongLibrary 検証、実 device lease、MusicDecode/CaptureDispatcher/PlaybackMix worker 組成、CPAL stream error の実検出、Controllerのバックグラウンド駆動(reconcileの定期呼出し)。実機品質は未測定。
+
+## 107.4 提示timestampとclock_quality（実装済み・合成のみ）
+場所: `core/src/karaoke_session.rs`、テスト: `core/tests/karaoke_session_clock.rs`。既存公開APIは追加のみ（`ClockQuality`、`PresentedStreamSample`、`SessionSnapshot::clock_quality`、`KaraokeError::ClockRejected`、`report_presented_from_clock`（session/registry/host））。既存`report_presented`は品質`unknown`で動作不変。
+
+- `PresentedStreamSample(u64)`: 出力が提示したstream sample。送信済み/書込済みframe数と型で区別する（AC6）。
+- `report_presented_from_clock(epoch, &ClockSession, clock_epoch, presented)`: session epoch確認→Output anchorで曲sampleへ写す→既存の提示規則（playingのみ・後退/範囲外拒否・曲末でfinished）→位置と品質を更新。clockのepoch不一致は`stale_rejections`に計上し`clock_stale_epoch`、anchor無し・曲頭前は`clock_unavailable`（状態不変、0へclampしない）。
+- `ClockQuality`: `LatencyCalibration`を1対1で写す（`unknown`/`estimated`/`measured{uncertainty_samples}`）。昇格しない。seekで確定した位置と提示前は`unknown`。revisionは増やさない（位置更新と同じ）。
+
+| # | 条件 | テスト(`core/tests/karaoke_session_clock.rs`) |
+|---|---|---|
+| T1 | 未測定遅延は`unknown`（0遅延/測定済みにしない） | `t1_unknown_latency_is_reported_as_unknown_not_zero_or_measured` |
+| T2 | estimated/measured(不確かさ)を昇格なしで保持 | `t2_estimated_and_measured_quality_are_preserved_without_promotion` |
+| T3 | 位置は提示mapping由来で生stream数ではない(AC6) | `t3_position_follows_the_presented_mapping_not_the_raw_stream_count` |
+| T4 | clock失敗は状態不変、古いclock epochは計上 | `t4_clock_failures_leave_state_unchanged_and_stale_clock_is_counted` |
+| T5 | session規則(stale epoch/後退/範囲外/非playing)維持(AC5) | `t5_session_rules_still_apply_stale_epoch_regression_range_and_state` |
+| T6 | seekで`unknown`に戻る、曲末到達で品質保持 | `t6_seek_resets_quality_and_reaching_the_end_keeps_it` |
+| T7 | JSONに`clock_quality`(AC14) | `t7_plain_report_presented_has_unknown_quality_and_json_carries_the_field` |
+| T8 | 他instance/sessionはclockを使う前に拒否(AC8) | `t8_registry_rejects_foreign_origin_before_using_the_clock` |
+
+未確認: 実デバイスのpresentation timestamp供給、実測遅延・不確かさ、AudioIo/Controllerからの配線（後続、#40/#19の実機ゲート）。
 
 ## 草案(PR #111)との差
 - 草案の`Stopped`を踏襲。`command_id`履歴は草案例どおり128。

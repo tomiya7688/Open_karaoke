@@ -12,6 +12,10 @@ use std::collections::VecDeque;
 use serde::Serialize;
 use uuid::Uuid;
 
+use crate::audio_clock::{
+    ClockDomain, ClockEpoch, ClockError, ClockSession, LatencyCalibration, MappedSongSample,
+};
+
 /// Bounded `command_id` history per session.
 pub const COMMAND_HISTORY_LIMIT: usize = 128;
 /// Bounded state-event log per session.
@@ -96,6 +100,52 @@ pub enum PositionSource {
 }
 
 /// {
+///   責務: [提示済み位置の可聴時刻の品質(107.4)。未測定の遅延を0遅延や測定済みとして扱わない]
+///   フィールド: [
+///     unknown: 遅延補正が未測定(または提示timestampがまだ無い),
+///     estimated: 推定した補正のみ(不確かさ不明),
+///     measured{uncertainty_samples}: 測定した補正と不確かさ(48kHz sample)
+///   ]
+/// }
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case", tag = "kind")]
+pub enum ClockQuality {
+    Unknown,
+    Estimated,
+    Measured { uncertainty_samples: u64 },
+}
+
+impl ClockQuality {
+    /// {
+    ///   責務: [`from_latency`: clockの遅延較正を品質へ写す(品質を昇格させない)]
+    ///   処理: [1: Unknown→unknown 2: Estimated→estimated 3: Measured→measured(不確かさ保持)]
+    ///   引数: [latency: `ClockSession`が返した遅延較正]
+    ///   戻り値: [`ClockQuality`: 同じ品質段階]
+    /// }
+    #[must_use]
+    pub const fn from_latency(latency: LatencyCalibration) -> Self {
+        match latency {
+            LatencyCalibration::Unknown => Self::Unknown,
+            LatencyCalibration::Estimated { .. } => Self::Estimated,
+            LatencyCalibration::Measured {
+                uncertainty_samples,
+                ..
+            } => Self::Measured {
+                uncertainty_samples,
+            },
+        }
+    }
+}
+
+/// {
+///   責務: [出力デバイスが実際に提示(可聴化)したstream sample。送信済み/書込済みframe数ではない]
+///   フィールド: [0: 論理48kHz gridのoutput stream sample(デバイスの提示timestamp由来)]
+///   補足: [型で「書き込んだ数」との取り違えを防ぐ。値の供給元は実機ゲート(#40/#19)で検証する]
+/// }
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct PresentedStreamSample(pub u64);
+
+/// {
 ///   責務: [クライアントが送る再生コマンド]
 ///   フィールド: [Play, Pause, Seek{song_sample}: 48kHz整数sample, Stop]
 /// }
@@ -146,6 +196,8 @@ pub struct SessionSnapshot {
     pub transport_epoch: u64,
     pub position_song_sample: u64,
     pub position_source: PositionSource,
+    /// 107.4: 直近の提示済み位置の可聴時刻品質。`presented`以外の位置では`unknown`。
+    pub clock_quality: ClockQuality,
     pub duration_samples: u64,
     pub scoring_mode: ScoringMode,
     pub score_eligibility: ScoreEligibility,
@@ -207,9 +259,15 @@ pub enum KaraokeError {
     NotReady,
     Terminal,
     DeviceUnavailable,
-    StaleRevision { expected: u64, current: u64 },
+    StaleRevision {
+        expected: u64,
+        current: u64,
+    },
     StaleInstance,
-    StaleEpoch { observed: u64, current: u64 },
+    StaleEpoch {
+        observed: u64,
+        current: u64,
+    },
     OutOfRange,
     CommandIdConflict,
     SessionNotFound,
@@ -219,6 +277,8 @@ pub enum KaraokeError {
     InvalidRange,
     LedgerFull,
     InvalidDuration,
+    /// 107.4: `ClockSession`が提示timestampを曲位置へ写せなかった(状態は変えない)。
+    ClockRejected(ClockError),
 }
 
 impl KaraokeError {
@@ -246,6 +306,8 @@ impl KaraokeError {
             Self::InvalidRange => "invalid_range",
             Self::LedgerFull => "ledger_full",
             Self::InvalidDuration => "invalid_duration",
+            Self::ClockRejected(ClockError::StaleEpoch) => "clock_stale_epoch",
+            Self::ClockRejected(_) => "clock_unavailable",
         }
     }
 }
@@ -279,6 +341,7 @@ pub struct KaraokeSession {
     epoch: u64,
     position: u64,
     position_source: PositionSource,
+    clock_quality: ClockQuality,
     resume_state: KaraokeState,
     has_played: bool,
     downgrade: Option<DowngradeReason>,
@@ -322,6 +385,7 @@ impl KaraokeSession {
             epoch: 1,
             position: 0,
             position_source: PositionSource::None,
+            clock_quality: ClockQuality::Unknown,
             resume_state: KaraokeState::Ready,
             has_played: false,
             downgrade: None,
@@ -358,6 +422,7 @@ impl KaraokeSession {
             transport_epoch: self.epoch,
             position_song_sample: self.position,
             position_source: self.position_source,
+            clock_quality: self.clock_quality,
             duration_samples: self.duration_samples,
             scoring_mode: self.scoring_mode,
             score_eligibility,
@@ -466,6 +531,7 @@ impl KaraokeSession {
                 }
                 self.position = song_sample;
                 self.position_source = PositionSource::Committed;
+                self.clock_quality = ClockQuality::Unknown;
                 self.transition(state);
                 Ok(Disposition::Applied)
             }
@@ -514,6 +580,66 @@ impl KaraokeSession {
         epoch: u64,
         presented_song_sample: u64,
     ) -> Result<SessionSnapshot, KaraokeError> {
+        self.apply_presented(epoch, presented_song_sample, ClockQuality::Unknown)
+    }
+
+    /// {
+    ///   責務: [`report_presented_from_clock`: 出力の提示済みstream sampleを`ClockSession`で曲位置へ写し、品質付きで報告する(107.4)]
+    ///   処理: [
+    ///     1: session epochを確認する(不一致は除外して件数に数える)
+    ///     2: output domainのanchorで`clock_epoch`のstream sampleを曲sampleへ写す
+    ///     3: clockのepoch不一致は除外件数に数え、他のclock失敗は状態を変えず拒否する
+    ///     4: 写した位置と遅延品質(昇格なし)を`report_presented`と同じ規則で適用する
+    ///   ]
+    ///   引数: [epoch: session側の世代, clock: 所有するClockSession, clock_epoch: stream sampleを観測したclock世代, presented: 提示済みoutput stream sample(送信済みframe数ではない)]
+    ///   戻り値: [`Result<SessionSnapshot, KaraokeError>`: 更新後の状態]
+    ///   エラー: [`StaleEpoch` `ClockRejected` `NotPlaying` `PositionRegressed` `OutOfRange`]
+    /// }
+    ///
+    /// # Errors
+    /// Returns the rejection; state is unchanged except the stale counter.
+    pub fn report_presented_from_clock(
+        &mut self,
+        epoch: u64,
+        clock: &ClockSession,
+        clock_epoch: ClockEpoch,
+        presented: PresentedStreamSample,
+    ) -> Result<SessionSnapshot, KaraokeError> {
+        self.check_epoch(epoch)?;
+        let mapped: MappedSongSample =
+            match clock.resolve(ClockDomain::Output, clock_epoch, presented.0) {
+                Ok(mapped) => mapped,
+                Err(error) => {
+                    if error == ClockError::StaleEpoch {
+                        self.stale_rejections += 1;
+                    }
+                    return Err(KaraokeError::ClockRejected(error));
+                }
+            };
+        self.apply_presented(
+            epoch,
+            mapped.song_sample,
+            ClockQuality::from_latency(mapped.latency),
+        )
+    }
+
+    /// {
+    ///   責務: [`apply_presented`: 提示済み位置と品質を検証して反映する(内部)]
+    ///   処理: [
+    ///     1: epoch不一致は除外して件数に数える
+    ///     2: playing以外/後退/範囲外を拒否する
+    ///     3: 位置と品質を更新(revisionは増やさない)し、曲末到達でfinishedへ遷移する
+    ///   ]
+    ///   引数: [epoch, presented_song_sample, quality]
+    ///   戻り値: [`Result<SessionSnapshot, KaraokeError>`]
+    ///   エラー: [`StaleEpoch` `NotPlaying` `PositionRegressed` `OutOfRange`]
+    /// }
+    fn apply_presented(
+        &mut self,
+        epoch: u64,
+        presented_song_sample: u64,
+        quality: ClockQuality,
+    ) -> Result<SessionSnapshot, KaraokeError> {
         self.check_epoch(epoch)?;
         if self.state != KaraokeState::Playing {
             return Err(KaraokeError::NotPlaying);
@@ -526,6 +652,7 @@ impl KaraokeSession {
         }
         self.position = presented_song_sample;
         self.position_source = PositionSource::Presented;
+        self.clock_quality = quality;
         if presented_song_sample == self.duration_samples {
             self.transition(KaraokeState::Finished);
         }
@@ -912,6 +1039,31 @@ impl KaraokeSessionRegistry {
     ) -> Result<SessionSnapshot, KaraokeError> {
         self.origin_session(origin)?
             .report_presented(origin.epoch, presented_song_sample)
+    }
+
+    /// {
+    ///   責務: [`report_presented_from_clock`: 出所を検証し、clock変換済みの提示位置を品質付きで報告する(107.4)]
+    ///   処理: [1: instance/session照合 2: 委譲]
+    ///   引数: [origin, clock, clock_epoch, presented]
+    ///   戻り値: [`Result<SessionSnapshot, KaraokeError>`]
+    ///   エラー: [`StaleInstance` `SessionNotFound` `ClockRejected`とセッションの拒否]
+    /// }
+    ///
+    /// # Errors
+    /// Propagates the session rejection.
+    pub fn report_presented_from_clock(
+        &mut self,
+        origin: EventOrigin,
+        clock: &ClockSession,
+        clock_epoch: ClockEpoch,
+        presented: PresentedStreamSample,
+    ) -> Result<SessionSnapshot, KaraokeError> {
+        self.origin_session(origin)?.report_presented_from_clock(
+            origin.epoch,
+            clock,
+            clock_epoch,
+            presented,
+        )
     }
 
     /// {
