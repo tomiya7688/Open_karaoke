@@ -9,6 +9,9 @@ use open_karaoke_core::{
     AppState, Job, JobStatus,
     analysis_service::{AnalysisConfig, AnalysisService},
     app,
+    audio_engine::AudioIo,
+    karaoke_session::{CommandEnvelope, KaraokeCommand, ScoringMode},
+    karaoke_session_api::KaraokeSessionHost,
     model_plan::ModelSource,
 };
 use serde_json::{Value, json};
@@ -705,4 +708,156 @@ async fn windows_venv_redirector_python_completes_a_job() {
         std::fs::canonicalize(prefix.trim()).unwrap(),
         std::fs::canonicalize(&venv).unwrap()
     );
+}
+
+/// {
+///   責務: [`PlayingFixture`: 再生中(playing)のセッションを持つAppStateと、同時に回る模擬音声経路]
+///   フィールド: [state, router, host, session, instance, audio: mock出力を回す`AudioIo`]
+/// }
+struct PlayingFixture {
+    router: Router,
+    host: KaraokeSessionHost,
+    session: Uuid,
+    instance: Uuid,
+    audio: AudioIo,
+}
+
+/// {
+///   責務: [`playing_fixture`: 指定のAppStateでセッションをplayingにし、出力を有効にした`AudioIo`を作る]
+///   引数: [state: 設定済みの`AppState`, instance: 世代ID]
+///   戻り値: [`PlayingFixture`]
+/// }
+fn playing_fixture(state: AppState, instance: Uuid) -> PlayingFixture {
+    let host = state.karaoke_host();
+    let snapshot = host
+        .create(Uuid::new_v4(), 48_000 * 10, ScoringMode::WholeSong)
+        .unwrap();
+    assert!(host.finish_preparing(snapshot.session_id, Ok(())).unwrap());
+    let ready = host.snapshot(snapshot.session_id).unwrap();
+    host.execute(CommandEnvelope {
+        core_instance_id: instance,
+        session_id: snapshot.session_id,
+        command_id: Uuid::new_v4(),
+        expected_revision: ready.state_revision,
+        command: KaraokeCommand::Play,
+    })
+    .unwrap();
+    let audio = AudioIo::new(48_000).unwrap();
+    audio.set_playing(true);
+    PlayingFixture {
+        router: app(state),
+        host,
+        session: snapshot.session_id,
+        instance,
+        audio,
+    }
+}
+
+impl PlayingFixture {
+    /// {
+    ///   責務: [`pump`: mock出力callbackを1回回して出力位置が進むことを確認する]
+    ///   戻り値: [回した後の出力位置(frame)]
+    /// }
+    fn pump(&self) -> u64 {
+        let before = self.audio.counters().playback_sample_position;
+        let mut buffer = vec![0.0_f32; 480 * 2];
+        self.audio.render_mock(&mut buffer, 2);
+        let after = self.audio.counters().playback_sample_position;
+        assert!(after > before, "audio output must keep advancing");
+        after
+    }
+}
+
+#[tokio::test]
+async fn job_failure_and_cancel_do_not_disturb_playback() {
+    // #43 slice 43.4 (contract only; real device underrun behavior stays Unverified).
+    let instance = Uuid::new_v4();
+    let f = playing_fixture(AppState::new().with_core_instance_id(instance), instance);
+    let before = f.host.snapshot(f.session).unwrap();
+    f.pump();
+    let failing = create(&f.router, json!({"kind":"test","steps":3,"fail_at_step":2})).await;
+    let cancelled = create(&f.router, json!({"kind":"test","steps":100})).await;
+    call(
+        &f.router,
+        "POST",
+        &format!("/jobs/{cancelled}/cancel"),
+        Value::Null,
+    )
+    .await;
+    f.pump();
+    assert_eq!(terminal(&f.router, failing).await.status, JobStatus::Failed);
+    assert_eq!(
+        terminal(&f.router, cancelled).await.status,
+        JobStatus::Cancelled
+    );
+    f.pump();
+    assert_eq!(
+        f.host.snapshot(f.session).unwrap(),
+        before,
+        "Job outcomes never touch the playback session"
+    );
+    assert_eq!(f.instance, before.core_instance_id);
+}
+
+#[tokio::test]
+#[ignore = "Requires installed Python analysis package; explicitly executed in CI"]
+async fn python_heavy_job_defers_while_playing_and_worker_crash_keeps_playback() {
+    let root = tempfile::tempdir().unwrap();
+    let python = std::env::var_os("OPEN_KARAOKE_PYTHON")
+        .map_or_else(|| PathBuf::from("python"), PathBuf::from);
+    let service = AnalysisService::start(AnalysisConfig {
+        python: python.clone(),
+        artifact_root: root.path().join("artifacts"),
+        startup_timeout: Duration::from_secs(30),
+    })
+    .await
+    .unwrap();
+    let client = service.client();
+    let health = client.health().await.unwrap();
+    let instance = Uuid::new_v4();
+    let f = playing_fixture(
+        AppState::with_analysis(client.clone()).with_core_instance_id(instance),
+        instance,
+    );
+    let before = f.host.snapshot(f.session).unwrap();
+    // 43.2: a heavy job stays queued while playing, then can be cancelled.
+    let heavy = create(&f.router, json!({"kind":"analysis.stems"})).await;
+    sleep(Duration::from_millis(300)).await;
+    let (_, value) = call(&f.router, "GET", &format!("/jobs/{heavy}"), Value::Null).await;
+    assert_eq!(value["status"], "queued", "{value}");
+    assert_eq!(value["deferred_reason"], "playback_active");
+    call(
+        &f.router,
+        "POST",
+        &format!("/jobs/{heavy}/cancel"),
+        Value::Null,
+    )
+    .await;
+    assert_eq!(
+        terminal(&f.router, heavy).await.status,
+        JobStatus::Cancelled
+    );
+    // 43.4: a worker crash fails only the job; output and session continue.
+    let running = create(
+        &f.router,
+        json!({"kind":"analysis.mock", "analysis":{"options":{"steps":100,"delay_ms":100}}}),
+    )
+    .await;
+    sleep(Duration::from_millis(200)).await;
+    f.pump();
+    let pid = health["pid"].as_u64().unwrap();
+    let killed = tokio::process::Command::new(python)
+        .args([
+            "-c",
+            "import os,signal,sys; os.kill(int(sys.argv[1]), signal.SIGTERM)",
+        ])
+        .arg(pid.to_string())
+        .status()
+        .await
+        .unwrap();
+    assert!(killed.success());
+    assert_eq!(terminal(&f.router, running).await.status, JobStatus::Failed);
+    f.pump();
+    assert_eq!(f.host.snapshot(f.session).unwrap(), before);
+    service.shutdown().await;
 }
