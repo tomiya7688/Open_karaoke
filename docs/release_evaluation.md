@@ -54,6 +54,8 @@ python -m open_karaoke_analysis.release_evaluation <report.json>   # 0: リリ�
 `python -m open_karaoke_analysis.distribution_audit <tools/ffmpeg> <runtime-manifest.json> --inventory <ffmpeg-inventory.json> --evidence-ref <ref>`。
 `scripts/dependency-inventory.ps1 -FfmpegDirectory`が出力する`ffmpeg-inventory.json`（実体hash・buildconf hash）、`runtime-manifest.json`の`ffmpeg`台帳、`NOTICE.txt`、実バイナリの対応と、buildconfにGPL/nonfreeが無いことを検査する（規則は`core/src/ffmpeg_bundle.rs::verify_bundle`と同じ）。結果は`distribution/license_inventory_match`の行（全件一致=`1.0`、閾値`1.0`は規則でありデータ校正値ではない）。必須ファイルまたはinventoryが無い場合は`unverified`。SBOM・モデルライセンス・署名/Attestation(`distribution/signature_attestation`)は#39/#67の成果物待ちで本検査の範囲外（`unverified`のまま）。
 
-## 後続（本書の範囲外）
+## リリース判定ゲート（19.6）
 
-19.6 リリース判定ゲートworkflow。
+[.github/workflows/release-gate.yml](../.github/workflows/release-gate.yml)。**手動実行のみ**(workflow_dispatch、PR/pushでは動かない)。入力report_path(既定release_evaluation/1.0.0/report.json)に対し上記CLIをそのまま実行し、終了コードがjobの成否になる。0(全blockingがpass)以外は全て失敗: 報告書が無い・JSON不正(2)・fail/unverified(1)。continue-on-errorや「|| true」で失敗を隠さない。判定JSONはartifact release-verdictに残る。
+
+**現状は常に失敗する**: thresholds.jsonは全てnull(未校正)で、実歌唱・実機・配布物の結果も無く、release_evaluation/1.0.0/report.jsonはコミットされていない。blockingのpassは校正済み閾値が必須なので、実データが揃うまで合格に出来ない(合格の偽装禁止)。この性質はpython/tests/test_release_gate.pyが固定する。
