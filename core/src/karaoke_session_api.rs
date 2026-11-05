@@ -189,6 +189,28 @@ impl KaraokeSessionHost {
     }
 
     /// {
+    ///   責務: [`set_clock_epoch`: sessionが受理するclock世代を更新する(Controller用、#133)。seek/interrupt/recover後にclockを再anchorした世代を伝える]
+    ///   引数: [session_id, clock_epoch]
+    ///   戻り値: [`Result<(), KaraokeError>`]
+    ///   エラー: [`SessionNotFound`]
+    /// }
+    ///
+    /// # Errors
+    /// Returns `SessionNotFound` when the id is not the current session.
+    pub fn set_clock_epoch(
+        &self,
+        session_id: Uuid,
+        clock_epoch: ClockEpoch,
+    ) -> Result<(), KaraokeError> {
+        self.mutate(session_id, |registry| {
+            registry
+                .session_mut(session_id)?
+                .set_clock_epoch(clock_epoch);
+            Ok(())
+        })
+    }
+
+    /// {
     ///   責務: [`report_presented`: 提示済み位置を報告する(Controller用。クライアントAPIには無い)]
     ///   引数: [origin, presented_song_sample]
     ///   戻り値: [`Result<SessionSnapshot, KaraokeError>`]

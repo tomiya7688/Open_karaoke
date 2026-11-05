@@ -401,3 +401,75 @@ fn t10_reconcile_releases_the_lease_after_a_client_stop() {
     assert!(!env.controller.holds_lease());
     assert!(!env.controller.reconcile());
 }
+
+/// Issue #133: 復旧と同時に再anchorしたclock世代を束縛し、旧世代の提示値を拒否する。
+#[test]
+fn t11_recover_with_clock_binds_the_new_clock_epoch() {
+    use open_karaoke_core::{
+        audio_clock::{ClockAnchor, ClockDomain, ClockSession, LatencyCalibration},
+        karaoke_session::PresentedStreamSample,
+    };
+    let env = env();
+    let ready = env
+        .controller
+        .start(env.song, ScoringMode::WholeSong)
+        .unwrap();
+    let playing = env
+        .host
+        .execute(command(
+            &env,
+            ready.session_id,
+            ready.state_revision,
+            KaraokeCommand::Play,
+        ))
+        .unwrap()
+        .snapshot;
+    let mut clock = ClockSession::new();
+    let old_epoch = clock.epoch();
+    env.controller
+        .bind_clock_epoch(playing.session_id, old_epoch)
+        .unwrap();
+    env.controller
+        .stream_error(
+            origin(&env, playing.session_id, playing.transport_epoch),
+            "device_removed",
+        )
+        .unwrap();
+
+    // 復旧に失敗した間は旧世代のまま(束縛を進めない)。
+    env.leases.busy.store(true, Ordering::SeqCst);
+    let new_epoch = clock.begin_new_epoch().unwrap();
+    assert!(
+        env.controller
+            .recover_with_clock(playing.session_id, new_epoch)
+            .is_err()
+    );
+    env.leases.busy.store(false, Ordering::SeqCst);
+
+    let recovered = env
+        .controller
+        .recover_with_clock(playing.session_id, new_epoch)
+        .unwrap();
+    assert_eq!(recovered.state, KaraokeState::Paused);
+    clock
+        .bind(ClockAnchor {
+            epoch: new_epoch,
+            domain: ClockDomain::Output,
+            stream_sample: 0,
+            song_sample: 0,
+            drift_ppm: 0,
+            latency: LatencyCalibration::Unknown,
+        })
+        .unwrap();
+    // 旧世代の提示値は、再生状態に関わらず世代不一致(clock_stale_epoch)で拒否される。
+    let err = env
+        .host
+        .report_presented_from_clock(
+            origin(&env, recovered.session_id, recovered.transport_epoch),
+            &clock,
+            old_epoch,
+            PresentedStreamSample(1),
+        )
+        .unwrap_err();
+    assert_eq!(err.code(), "clock_stale_epoch");
+}

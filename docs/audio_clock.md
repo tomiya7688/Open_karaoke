@@ -160,6 +160,16 @@ A stale clock epoch counts as a stale rejection; unanchored or pre-roll samples 
 without changing state (`clock_stale_epoch`/`clock_unavailable`). Synthetic tests only; real
 device timestamps and measured latency remain Unverified until the #40/#19 hardware gates.
 
+Session/clock epoch binding (issue #133): the session may hold an accepted `ClockEpoch`
+(`set_clock_epoch`; `KaraokeSessionController::bind_clock_epoch` / `recover_with_clock`).
+After a seek/interrupt/recover the caller re-anchors the clock (`begin_new_epoch` + `bind`) and
+then tells the session the new epoch. While a value is held, `report_presented_from_clock`
+rejects any `clock_epoch` that differs (counted as a stale rejection, `clock_stale_epoch`),
+including a new clock epoch the session has not been told about yet (fail closed). When no epoch
+is held the behaviour is unchanged: only the `ClockSession` epoch check applies. The binding
+is a held value, not a type-level guarantee, and does not detect a different `ClockSession`
+instance that happens to share an epoch number. Synthetic tests only.
+
 ### Epoch-tagged PCM boundary (unit #40.3)
 
 `AudioIo::set_clock_epoch` is the process-side message that applies a `ClockSession` epoch

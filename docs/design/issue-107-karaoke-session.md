@@ -150,6 +150,8 @@ seekは `s < duration_samples` のみ（`out_of_range`）。内部イベント: 
 | T7 | JSONに`clock_quality`(AC14) | `t7_plain_report_presented_has_unknown_quality_and_json_carries_the_field` |
 | T8 | 他instance/sessionはclockを使う前に拒否(AC8) | `t8_registry_rejects_foreign_origin_before_using_the_clock` |
 
+#133 session/clock epoch束縛（追加のみ）: `KaraokeSession::set_clock_epoch`/`clock_epoch`、registry/host`set_clock_epoch`、`KaraokeSessionController::bind_clock_epoch`/`recover_with_clock`。受理clock世代が設定済みなら`report_presented_from_clock`は不一致の`clock_epoch`を`stale_rejections`に計上して`clock_stale_epoch`で拒否（状態不変）。未設定は従来動作。seek/interrupt/recover時にclockを再anchorした呼び出し側が新世代を伝える責務は変わらず、伝え忘れは新世代も拒否する（fail closed）。テスト: `t9_seek_then_old_or_unbound_clock_epoch_is_rejected_until_rebound`、`t10_unbound_session_keeps_the_legacy_clock_only_check`、`t11_registry_set_clock_epoch_validates_origin_and_binds`、controller側`t11_recover_with_clock_binds_the_new_clock_epoch`。型による保証ではなく保持値による検証。
+
 未確認: 実デバイスのpresentation timestamp供給、実測遅延・不確かさ、AudioIo/Controllerからの配線（後続、#40/#19の実機ゲート）。
 
 ## 草案(PR #111)との差

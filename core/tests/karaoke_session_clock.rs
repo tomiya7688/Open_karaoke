@@ -293,3 +293,116 @@ fn quality_mapping_never_promotes() {
         ClockQuality::Estimated
     );
 }
+
+/// { 責務: [clockを新世代へ進め、output anchorを張り直す(seek/recover後の再anchorを模す)] }
+fn reanchor(clock: &mut ClockSession, song_sample: u64) {
+    let epoch = clock.begin_new_epoch().unwrap();
+    clock
+        .bind(ClockAnchor {
+            epoch,
+            domain: ClockDomain::Output,
+            stream_sample: 0,
+            song_sample,
+            drift_ppm: 0,
+            latency: LatencyCalibration::Unknown,
+        })
+        .unwrap();
+}
+
+/// Issue #133 AC1/AC2: seek後は受理clock世代と一致しない提示値を拒否し、世代更新後は受理する。
+#[test]
+fn t9_seek_then_old_or_unbound_clock_epoch_is_rejected_until_rebound() {
+    let (mut s, instance) = playing();
+    let mut clock = clock_with(LatencyCalibration::Unknown);
+    let old_clock_epoch = clock.epoch();
+    s.set_clock_epoch(old_clock_epoch);
+    assert_eq!(s.clock_epoch(), Some(old_clock_epoch));
+    let epoch = s.snapshot().transport_epoch;
+    s.report_presented_from_clock(epoch, &clock, old_clock_epoch, PresentedStreamSample(100))
+        .unwrap();
+
+    send(
+        &mut s,
+        instance,
+        KaraokeCommand::Seek {
+            song_sample: 48_000,
+        },
+    );
+    let epoch = s.snapshot().transport_epoch;
+    reanchor(&mut clock, 48_000);
+    let new_clock_epoch = clock.epoch();
+    let before = s.snapshot();
+
+    // sessionへ新世代を伝える前: 新clock世代の値は束縛不一致で拒否(古い世代の混入を防ぐ)。
+    let err = s
+        .report_presented_from_clock(epoch, &clock, new_clock_epoch, PresentedStreamSample(10))
+        .unwrap_err();
+    assert_eq!(err.code(), "clock_stale_epoch");
+    assert_eq!(s.snapshot().stale_rejections, before.stale_rejections + 1);
+    assert_eq!(
+        s.snapshot().position_song_sample,
+        before.position_song_sample
+    );
+
+    s.set_clock_epoch(new_clock_epoch);
+    // 古いclock世代(seek前)の提示値は拒否される。
+    let err = s
+        .report_presented_from_clock(epoch, &clock, old_clock_epoch, PresentedStreamSample(10))
+        .unwrap_err();
+    assert_eq!(err.code(), "clock_stale_epoch");
+    assert_eq!(s.snapshot().stale_rejections, before.stale_rejections + 2);
+    assert_eq!(
+        s.snapshot().position_song_sample,
+        before.position_song_sample
+    );
+
+    // 新世代は受理され、新anchorで曲位置へ写る。
+    let got = s
+        .report_presented_from_clock(epoch, &clock, new_clock_epoch, PresentedStreamSample(480))
+        .unwrap();
+    assert_eq!(got.position_song_sample, 48_480);
+}
+
+/// Issue #133 AC3: 受理clock世代が未設定なら従来どおりclock側の検査のみ(互換)。
+#[test]
+fn t10_unbound_session_keeps_the_legacy_clock_only_check() {
+    let (mut s, _) = playing();
+    assert_eq!(s.clock_epoch(), None);
+    let clock = clock_with(LatencyCalibration::Unknown);
+    let epoch = s.snapshot().transport_epoch;
+    let got = s
+        .report_presented_from_clock(epoch, &clock, clock.epoch(), PresentedStreamSample(480))
+        .unwrap();
+    assert_eq!(got.position_song_sample, 480);
+}
+
+/// Issue #133: registryは出所を検証してから受理clock世代を更新する。
+#[test]
+fn t11_registry_set_clock_epoch_validates_origin_and_binds() {
+    let instance = Uuid::new_v4();
+    let mut reg = KaraokeSessionRegistry::new(instance);
+    let snap = reg
+        .create(Uuid::new_v4(), DURATION, ScoringMode::Practice)
+        .unwrap();
+    let clock = clock_with(LatencyCalibration::Unknown);
+    let own = EventOrigin {
+        core_instance_id: instance,
+        session_id: snap.session_id,
+        epoch: snap.transport_epoch,
+    };
+    let foreign = EventOrigin {
+        core_instance_id: Uuid::new_v4(),
+        ..own
+    };
+    assert_eq!(
+        reg.set_clock_epoch(foreign, clock.epoch())
+            .unwrap_err()
+            .code(),
+        "stale_instance"
+    );
+    reg.set_clock_epoch(own, clock.epoch()).unwrap();
+    assert_eq!(
+        reg.session_mut(snap.session_id).unwrap().clock_epoch(),
+        Some(clock.epoch())
+    );
+}
