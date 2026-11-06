@@ -16,6 +16,7 @@
 - [ ] 内部時刻は**48kHz整数sample index**。秒/MIDI tick/モデルhopは境界で変換（[architecture](architecture.md#オーディオ内部仕様)、[audio_clock](audio_clock.md)）
 - [ ] **realtime分離**: audio callbackにlock/確保/I/O/HTTP/Python/モデル推論を入れない。採点入力はエフェクト前のraw mic
 - [ ] モデルはAdapter越し。コードと重みのライセンスは別に確認し、公式配布物に含める依存は[Licensing](licensing.md)を満たす。ユーザーMODのloaderにライセンス硬制限を作らない
+- [ ] 品質警告は解析成功と別状態（`playable_with_warnings`）。blockは必須契約違反のみ。0..1の目安を確率と呼ばない（[#108設計](design/issue-108-quality-report.md)）
 - [ ] 保存形式・公開APIを変えるなら`format_version`/API版・migration・互換テストを同じPRに入れる
 - [ ] 無関係なリファクタ・一括置換・生成物・秘密・重み/音源をPRに混ぜない。署名/著作権者の新規表記は「Tomiya」（既存表記は一括置換しない）
 - [ ] 仕様・テスト・文書（`current_status.md`、各設計書冒頭の「状態」行と[設計書索引](design/README.md)の「状態・次に取るスライス」）を同じPRで更新。mock/合成fixtureの成功を実機能・実歌唱精度の証拠にしない
