@@ -231,7 +231,7 @@
 
           <!-- 歌詞と音程バー -->
           <Border Grid.Column="1" Classes="card">
-            <Grid RowDefinitions="Auto,Auto,*,Auto,Auto" RowSpacing="14">
+            <Grid RowDefinitions="Auto,Auto,*,Auto,Auto,Auto" RowSpacing="14">
               <Grid ColumnDefinitions="*,Auto" ColumnSpacing="16">
                 <StackPanel Spacing="2">
                   <TextBlock Classes="cardTitle" Text="{Binding Karaoke.Title}" TextTrimming="CharacterEllipsis" />
@@ -260,8 +260,30 @@
               <Slider Grid.Row="3" Minimum="0" Maximum="{Binding Karaoke.DurationSeconds}"
                       Value="{Binding Karaoke.PositionSeconds, Mode=TwoWay}" IsEnabled="{Binding Karaoke.HasSong}"
                       SmallChange="0.1" LargeChange="5" AutomationProperties.Name="表示位置" />
-              <TextBlock Grid.Row="4" Classes="caption" TextWrapping="Wrap"
-                         Text="歌詞と目標の音程を、指定した位置に合わせて表示します。伴奏の再生・マイクの音程表示・採点はまだありません。" />
+              <!-- Coreの歌唱セッションへの操作。位置・状態はCoreの報告だけを表示し、GUIは時計を持たない -->
+              <StackPanel Grid.Row="4" Spacing="8">
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                  <Button Content="再生" IsEnabled="{Binding Playback.CanPlay}" Click="PlayClick"
+                          AutomationProperties.Name="再生" />
+                  <Button Content="一時停止" IsEnabled="{Binding Playback.CanPause}" Click="PauseClick"
+                          AutomationProperties.Name="一時停止" />
+                  <Button Content="停止" IsEnabled="{Binding Playback.CanStop}" Click="StopClick"
+                          AutomationProperties.Name="停止" />
+                  <TextBlock Classes="caption" VerticalAlignment="Center" Text="{Binding Playback.StatusText}"
+                             TextWrapping="Wrap" />
+                </StackPanel>
+                <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+                  <Slider Minimum="0" Maximum="{Binding Playback.DurationSeconds}"
+                          Value="{Binding Playback.SeekTargetSeconds, Mode=TwoWay}" IsEnabled="{Binding Playback.CanSeek}"
+                          SmallChange="0.1" LargeChange="5" AutomationProperties.Name="シーク先" />
+                  <Button Grid.Column="1" Content="ここへシーク" IsEnabled="{Binding Playback.CanSeek}" Click="SeekClick"
+                          AutomationProperties.Name="シーク先へ移動" />
+                </Grid>
+                <TextBlock Classes="caption" TextWrapping="Wrap" Text="{Binding Playback.Notice}"
+                           IsVisible="{Binding Playback.HasNotice}" />
+              </StackPanel>
+              <TextBlock Grid.Row="5" Classes="caption" TextWrapping="Wrap"
+                         Text="歌詞と目標の音程を、Coreが報告する再生位置に合わせて表示します(上のスライダーは表示確認用)。マイクの音程表示・採点はまだありません。" />
             </Grid>
           </Border>
         </Grid>

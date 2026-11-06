@@ -38,6 +38,7 @@ internal static class NativeTests
                 Program.Check(packages is [{ Id: "demo", Status: "available", Name: "Demo" }], "Core did not forward the discovered package.");
                 var chosen = await connection.Api.SetModelSelectionAsync("mock", "demo", token);
                 Program.Check(chosen["mock"] == "demo" && (await connection.Api.GetModelSelectionAsync(token))["mock"] == "demo", "Core did not store the selection.");
+                Program.Check(await connection.Api.GetCurrentKaraokeSessionAsync(token) is null, "Core reported a karaoke session before any was created.");
                 var rejected = await Program.Throws<CoreApiException>(() => connection.Api.SetModelSelectionAsync("mock", "ghost", token));
                 Program.Check(rejected.StatusCode == HttpStatusCode.Conflict, "Core did not reject an unknown model.");
                 Program.Check((await connection.Api.SetModelSelectionAsync("mock", null, token)).Count == 0, "Core did not clear the selection.");

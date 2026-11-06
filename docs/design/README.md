@@ -22,7 +22,7 @@
 | #13 監視/Mixer | DSPのみ。デバイス接続・API・GUI未 | [Audio engine §Mixer](../audio_engine.md#mixer-and-monitoring-effects--issue-13-first-slice)、[karaoke session design](../karaoke_session_design.md) | #12 | #107のworker組成で接続 |
 | #14 リアルタイム採点 | 未実装 | [#14設計](issue-14-realtime-scoring.md)、[Scoring](../scoring.md) | #12 #40 | 14.1 |
 | #15 GUI/Core接続 | シェル実装済み | [Desktop client](../desktop_client.md) | #41 | #16/#110と並行 |
-| #16 カラオケ画面 | 表示のみ（再生連動未） | [#16設計](issue-16-karaoke-screen.md) | #107 #14 | 16.2（#107のAPI確定後） |
+| #16 カラオケ画面 | 16.1表示＋16.2 `PlaybackFollower`/再生操作（mock Coreのみ・実Window未確認） | [#16設計](issue-16-karaoke-screen.md) | #107 #14 | 16.3（歌唱線。#14のイベント待ち） |
 | #17 モデル選択 | 検出・保存選択済み。song各段はPython側pin済み | [Model Plugins](../model_plugins.md) | - | [#109設計](issue-109-model-plan.md) 109.2 |
 | #18 Evaluator/CI | 一部実装 | [Testing](../testing.md)、[実装単位](../implementation_plan.md#18の実装単位p0は空けておく) | - | #18.6cまで実装済み。精度回帰ゲートは後続 |
 | #19 リリース評価 | 未 | [#19設計](issue-19-release-evaluation.md) | #18 #42 #39 | 19.1 |

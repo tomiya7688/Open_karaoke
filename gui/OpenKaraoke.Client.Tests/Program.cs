@@ -50,6 +50,12 @@ internal static class Program
             ("read and write the mixer settings through Core", MixerTests.ClientRoute),
             ("send mixer edits in order and reset on disconnect", MixerTests.ViewModel),
             ("map model plan provenance for display", ModelPlanViewTests.Mapping),
+            ("read the karaoke session and send transport commands through Core", PlaybackFollowerTests.ClientRoutes),
+            ("discard stale revision and epoch and accept a new epoch", () => { PlaybackFollowerTests.StaleRules(); return Task.CompletedTask; }),
+            ("seek round trip ignores a late snapshot from before the seek", PlaybackFollowerTests.SeekRoundTrip),
+            ("show Core loss and never resume an old session", PlaybackFollowerTests.CoreLoss),
+            ("poll the session at a bounded interval and stop on detach", PlaybackFollowerTests.PollingLoop),
+            ("attach the follower on connect and detach on disconnect", PlaybackFollowerTests.ShellLifecycle),
         };
         if (args.Length == 2) tests.Add(("live C# to Rust to Python lifecycle", () => NativeTests.RunAsync(args[0], args[1])));
         var passed = 0;
