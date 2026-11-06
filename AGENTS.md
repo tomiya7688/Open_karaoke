@@ -15,6 +15,7 @@
 | ビルド・ローカル検査・CI | [docs/development.md](docs/development.md)、[docs/testing.md](docs/testing.md) |
 | レビュー（複数AI・PRレビュー）の起動と証跡 | `E:/projects/REVIEW_OPERATIONS.md`（作業の開始時と完了報告前に**実際に開く**） |
 | フォーマッター | `E:/projects/FORMATTER_OPERATIONS.md`、言語別コマンドは[チェックリスト§C](docs/implementation_checklist.md#c-整形とテスト変更範囲のみ全体は最後に1回) |
+| 強いモデルへ相談する（advisor）場面と禁止事項 | [docs/advisor.md](docs/advisor.md) |
 | ライセンス・モデル・配布条件 | [docs/licensing.md](docs/licensing.md) |
 
 ## 必ず守る規則
@@ -34,4 +35,5 @@ Claude Code / Codex / ChatGPT / GitHub Copilot / 人間の共通規則。手順�
 - worktree・検証用checkout・一時ファイルは**Eドライブのみ**（`E:/projects/worktrees/<topic>/Open_karaoke`、scratchは`E:/program_files/soft/claude/tmp`）。共有checkout `E:\projects\Open_karaoke` では作業しない。
 - 実装・整形・関連テスト・自己レビューの後に外部AIレビュー（`E:\projects\.review-tools\Invoke-AllReviews.ps1`）。証跡のない項目は「未実施」と報告する。レビュー担当は編集禁止・別レビュアーを起動しない。
 - 変更した言語の整形（`ruff` / `cargo fmt` / `dotnet format`）を変更範囲だけに実行し、コマンドと結果を報告に残す。
+- 方針確定前・同じ失敗が2回続いた時・完了報告前だけadvisor（Opus）に相談する。レビュー証跡の代わりにはならない。詳細は[docs/advisor.md](docs/advisor.md)。
 - 署名・著作権者の新規表記は「Tomiya」。既存表記の一括置換はしない。
