@@ -39,7 +39,8 @@ stdinを保持する起動元がセッションを所有し、閉じるとCore�
 | POST | `/karaoke-sessions/{id}/commands` | play/pause/seek/stop。`command_id`で冪等、`expected_revision`で競合拒否（Stopは免除）。成功は`{disposition,snapshot}`、拒否は`{error,code}`（404/409/422） |
 | GET | `/karaoke-sessions/{id}/events` | 状態イベントのSSE（同時8本まで、超過429）。`?after=N`/`Last-Event-ID`で再開、取りこぼしは`gap`+snapshot |
 | GET | `/songs` | 登録済み曲のUUID cursor一覧。limit / after指定可能 |
-| GET | `/songs/{id}` | 音声込み登録済み曲のSongBundle文書 |
+| GET | `/songs/{id}` | 音声込み登録済み曲のSongBundle文書。編集の`base_generation`は`song.artifacts.evidence.generation`（#38） |
+| PATCH | `/songs/{id}` | 歌詞・採点ノートの手編集を原子的に保存（#38 38.3）。下記「曲の手編集」 |
 
 GUI・Evaluatorはこの境界だけを利用する。Python workerの `POST /analysis/{role}` は
 別の認証情報を持つ内部APIであり、GUIから直接接続しない。
@@ -66,6 +67,30 @@ Coreが歌唱セッションの状態とコマンド順序の正本を持つ。�
 seekで確定した位置（`committed`）や提示前は`unknown`。sessionは受理するclock世代を保持でき（#133、Core内部のController用の追加API）、設定済みなら異なるclock世代の提示値は`clock_stale_epoch`で拒否する（未設定は従来どおり）。送信済みframe数は受け付けない。SSEはlive容量64を超えて遅れた購読者を閉じ、
 再接続で`snapshot`/`gap`から復旧する。デバイスは開かない（実機の品質は未測定）。契約は
 [設計](design/issue-107-karaoke-session.md)。
+
+## 曲の手編集（`PATCH /songs/{id}`、#38 38.3）
+
+本文は `{"base_generation":N,"ops":[...]}` のみ（`deny_unknown_fields`。曲IDはパスだけで本文に`song_id`を置けない）。
+`ops`は`update_lyric`/`update_note`/`add_lyric`/`add_note`/`delete_lyric`/`delete_note`で、sampleは48kHz整数
+（[設計](design/issue-38-note-editor.md)）。`base_generation`は直前の`GET /songs/{id}`の`song.artifacts.evidence.generation`
+（取込直後は1。編集成功ごとに+1）。成功は200 `{"song_id","generation","pending"}`で、`generation`が次の`base_generation`、
+`pending`は再生成待ち（`valid=false`）のartifact名（例: 歌詞だけ編集すると`["notes"]`）。
+
+| status | 条件 | `error`の接頭辞 |
+|---|---|---|
+| 400 | JSON構文不正・曲IDがUUIDでない（framework由来、JSON `error`に正規化） | - |
+| 404 | 曲が無い | `song_not_found:` |
+| 409 | `base_generation`が古い（再取得してやり直す。何も変えない） | `song_edit_conflict:` |
+| 413 | 本文が64KiB超、または書き出す文書が16MiB以上 | `song_import_limit:`（本文超過はframework由来） |
+| 422 | 不正range・MIDI範囲外・存在しない/重複ID・空op・op過多・未知/欠落項目・型違い（全op不適用） | `song_edit_rejected:`（形式不正はframework由来） |
+| 429 | 別の書込み中(`Busy`)またはSong library I/O budget満杯。再試行は呼び出し側 | `song_library_busy:` / `Song library I/O budget is busy` |
+| 500 | blocking worker異常終了（曲は不変） | `Song library worker failed` |
+| 503 | ライブラリ未設定・Core終了中 | - |
+
+認証・Host/Origin・API版ヘッダー・`Cache-Control: no-store`・64KiB本文上限・64件の同時要求上限は他ルートと共通。
+既存routeへのmethod追加なのでAPI版はv1のまま（[v1のまま許可する変更](#v1のまま許可する変更後方互換)）。
+`GET /songs/{id}`の応答の形は不変。同じ曲への同時PATCHは片方だけ成功し他方は409か429。
+元の解析結果のsnapshotは保持しない（[設計](design/issue-38-note-editor.md)の未決事項）。
 
 ## Jobの種類
 
