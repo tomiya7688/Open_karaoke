@@ -399,6 +399,96 @@ mod tests {
     }
 
     /// {
+    ///   責務: [`restart_contract_exposes_new_identity_and_rejects_old_jobs`: Core再起動を跨ぐ再接続契約を確認する]
+    ///   処理: [
+    ///     1: 旧sessionでJobを作成し`instance_id` を記録する,
+    ///     2: 同じtokenを再利用した最悪条件の新sessionで、別 `instance_id` と旧Jobの404 JSONを確認する,
+    ///     3: 新tokenの新sessionでは旧tokenが401になることを確認する,
+    ///     4: 新sessionで再bootstrapしたclientがJobを作成できることを確認する
+    ///   ]
+    ///   引数: []
+    ///   戻り値: []
+    /// }
+    #[tokio::test]
+    async fn restart_contract_exposes_new_identity_and_rejects_old_jobs() {
+        async fn send(
+            router: &Router,
+            method: &str,
+            path: &str,
+            token: &str,
+            body: &'static str,
+        ) -> (StatusCode, HeaderMap, serde_json::Value) {
+            let response = router
+                .clone()
+                .oneshot(
+                    Request::builder()
+                        .method(method)
+                        .uri(path)
+                        .header("host", "127.0.0.1:32145")
+                        .header("authorization", format!("Bearer {token}"))
+                        .header(CORE_API_VERSION_HEADER, "1")
+                        .header("content-type", "application/json")
+                        .body(Body::from(body))
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+            let status = response.status();
+            let headers = response.headers().clone();
+            let bytes = axum::body::to_bytes(response.into_body(), 1 << 20)
+                .await
+                .unwrap();
+            (status, headers, serde_json::from_slice(&bytes).unwrap())
+        }
+        const JOB: &str = r#"{"kind":"test","steps":1}"#;
+
+        let old = session(TOKEN).router(AppState::new());
+        let (_, _, old_identity) = send(&old, "GET", "/session", TOKEN, "").await;
+        let (status, _, job) = send(&old, "POST", "/jobs", TOKEN, JOB).await;
+        assert_eq!(status, StatusCode::ACCEPTED);
+        let old_job = job["id"].as_str().unwrap().to_owned();
+
+        // Worst case: a launcher violating the fresh-token rule still yields a new
+        // identity, and job history never carries over between instances.
+        let reused = session(TOKEN).router(AppState::new());
+        let (status, _, identity) = send(&reused, "GET", "/session", TOKEN, "").await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(identity["api_version"], CORE_API_VERSION);
+        assert_ne!(identity["instance_id"], old_identity["instance_id"]);
+        for (method, suffix) in [("GET", ""), ("POST", "/cancel"), ("GET", "/events")] {
+            let path = format!("/jobs/{old_job}{suffix}");
+            let (status, headers, body) = send(&reused, method, &path, TOKEN, "").await;
+            assert_eq!(status, StatusCode::NOT_FOUND, "{method} {suffix}");
+            assert_eq!(body, json!({"error": "job not found"}));
+            assert_eq!(headers[header::CACHE_CONTROL], "no-store");
+        }
+
+        let fresh_token = "f".repeat(64);
+        let restarted = session(&fresh_token).router(AppState::new());
+        let (status, headers, body) = send(&restarted, "GET", "/session", TOKEN, "").await;
+        assert_eq!(status, StatusCode::UNAUTHORIZED);
+        assert!(headers.contains_key(header::WWW_AUTHENTICATE));
+        assert!(!body.to_string().contains(TOKEN));
+        let path = format!("/jobs/{old_job}");
+        assert_eq!(
+            send(&restarted, "GET", &path, TOKEN, "").await.0,
+            StatusCode::UNAUTHORIZED
+        );
+
+        let (status, _, identity) = send(&restarted, "GET", "/session", &fresh_token, "").await;
+        assert_eq!(status, StatusCode::OK);
+        assert_ne!(identity["instance_id"], old_identity["instance_id"]);
+        assert_eq!(
+            send(&restarted, "POST", "/jobs", &fresh_token, JOB).await.0,
+            StatusCode::ACCEPTED
+        );
+        assert_eq!(
+            send(&restarted, "GET", &path, &fresh_token, "").await.0,
+            StatusCode::NOT_FOUND
+        );
+    }
+
+    /// {
     ///   責務: [`request_budget_rejects_overflow_and_recovers`: 同時処理の上限と枠の返却を確認する]
     ///   処理: [
     ///     1: 処理枠を全て占有した状態で認証済み要求が429になることを確認する,
