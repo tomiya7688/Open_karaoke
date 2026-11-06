@@ -1,6 +1,8 @@
 //! Core Job/API wiring for verified song imports. Clients supply a completed
 //! Core Job ID, never an arbitrary filesystem path or replacement `SongBundle`.
 
+#![allow(clippy::doc_markdown)] // JSON風宣言コメントがsnake_caseのフィールド名を含む
+
 use std::sync::Arc;
 
 use axum::{
@@ -13,7 +15,10 @@ use serde::Deserialize;
 use tokio::sync::{OwnedSemaphorePermit, watch};
 use uuid::Uuid;
 
-use crate::song_library::{ImportControl, ImportError, SongLibrary, SongPage};
+use crate::song_edit::{EditCommand, EditOp};
+use crate::song_library::{
+    EditedSong, ImportControl, ImportError, SongEditSaveError, SongLibrary, SongPage,
+};
 use crate::{ApiError, AppState, Job, JobStatus, song_data::SongBundle};
 
 #[derive(Debug, Deserialize)]
@@ -32,7 +37,7 @@ pub(crate) struct ImportWork {
 pub(crate) fn routes() -> Router<AppState> {
     Router::new()
         .route("/songs", get(list))
-        .route("/songs/{id}", get(load))
+        .route("/songs/{id}", get(load).patch(edit))
 }
 
 fn library(state: &AppState) -> Result<SongLibrary, ApiError> {
@@ -173,6 +178,65 @@ async fn load(
     .map_err(|_| worker_error())?
     .map(Json)
     .map_err(|error| api_error(&error))
+}
+
+/// {
+///   責務: [`SongEditRequest`: `PATCH /songs/{id}` の本文。曲IDはパスから取り、本文では受け付けない]
+///   フィールド: [base_generation(Evidence artifactのgeneration。GET /songs/{id}のsong.artifacts.evidence.generation), ops(編集op配列。sampleは48kHz整数)]
+///   制約: [未知フィールドは422。本文は全ルート共通の64KiBまで(超過413)]
+/// }
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SongEditRequest {
+    base_generation: u64,
+    ops: Vec<EditOp>,
+}
+
+/// {
+///   責務: [`edit`: `PATCH /songs/{id}` 公開済み曲へ手編集を原子的に保存する(#38 38.3)]
+///   処理: [ライブラリ取得(未設定/停止中は503) → I/O budget取得(満杯は429) → blockingでSongLibrary::edit_songを実行 → 成否をstatusへ写像]
+///   引数: [state, id(パスの曲UUID), request(本文)]
+///   戻り値: [200 {song_id, generation, pending} / 404 曲なし / 409 base_generation不一致 / 413 文書サイズ超過 / 422 編集違反 / 429 書込中・budget満杯 / 503]
+/// }
+async fn edit(
+    State(state): State<AppState>,
+    Path(id): Path<Uuid>,
+    Json(request): Json<SongEditRequest>,
+) -> Result<Json<EditedSong>, ApiError> {
+    let library = library(&state)?;
+    let permit = permit(&library)?;
+    let command = EditCommand {
+        song_id: id.to_string(),
+        base_generation: request.base_generation,
+        ops: request.ops,
+    };
+    tokio::task::spawn_blocking(move || {
+        let _permit = permit;
+        library.edit_song(id, &command)
+    })
+    .await
+    .map_err(|_| worker_error())?
+    .map(Json)
+    .map_err(|error| edit_error(&error))
+}
+
+/// {
+///   責務: [`edit_error`: 編集保存の失敗をHTTP statusとエラー本文へ写像する]
+///   処理: [GenerationConflict→409 / Edit(違反)→422 / Library(TooLarge)→413 / Library(その他)→`api_error`と同じ写像]
+///   引数: [error]
+///   戻り値: [ApiError(status, "song_edit_...: 説明")。内部パス等は含めない]
+/// }
+fn edit_error(error: &SongEditSaveError) -> ApiError {
+    match error {
+        SongEditSaveError::GenerationConflict { .. } => {
+            ApiError(StatusCode::CONFLICT, error.to_string())
+        }
+        SongEditSaveError::Edit(_) => ApiError(StatusCode::UNPROCESSABLE_ENTITY, error.to_string()),
+        SongEditSaveError::Library(ImportError::TooLarge) => {
+            ApiError(StatusCode::PAYLOAD_TOO_LARGE, error.to_string())
+        }
+        SongEditSaveError::Library(inner) => api_error(inner),
+    }
 }
 
 fn worker_error() -> ApiError {
