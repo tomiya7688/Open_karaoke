@@ -158,6 +158,22 @@ public interface ICoreApi
     Task<MixerSettings> SetMixerAsync(MixerSettings settings, CancellationToken cancellationToken = default) =>
         throw new NotSupportedException();
 
+    /// {
+    ///   責務: [GetCurrentKaraokeSessionAsync: 現行の歌唱セッションの状態を読む]
+    ///   引数: [cancellationToken: 中断]
+    ///   戻り値: [状態。セッションが無ければnull]
+    /// }
+    Task<KaraokeSessionSnapshot?> GetCurrentKaraokeSessionAsync(CancellationToken cancellationToken = default) =>
+        throw new NotSupportedException();
+
+    /// {
+    ///   責務: [SendKaraokeCommandAsync: 再生・一時停止・シーク・停止のコマンドを1件送る]
+    ///   引数: [sessionId: 対象セッション, request: 本文, cancellationToken: 中断]
+    ///   戻り値: [適用結果と適用後の状態]
+    /// }
+    Task<KaraokeCommandResult> SendKaraokeCommandAsync(Guid sessionId, KaraokeCommandRequest request, CancellationToken cancellationToken = default) =>
+        throw new NotSupportedException();
+
     Task<JobSnapshot> CreateJobAsync(CreateJobRequest job, CancellationToken cancellationToken = default);
     Task<JobSnapshot> GetJobAsync(Guid id, CancellationToken cancellationToken = default);
     Task<JobSnapshot> CancelJobAsync(Guid id, CancellationToken cancellationToken = default);
@@ -292,6 +308,53 @@ public sealed class CoreApiClient : ICoreApi, IDisposable
             !double.IsFinite(settings.EchoFeedback) || !double.IsFinite(settings.ReverbLevel))
             throw new ArgumentException("Mixer values must be finite.", nameof(settings));
         return (await SendAsync<MixerSettings>(HttpMethod.Put, "mixer", settings, cancellationToken).ConfigureAwait(false)).Validate();
+    }
+
+    /// {
+    ///   責務: [GetCurrentKaraokeSessionAsync: 現行の歌唱セッションを取得する]
+    ///   処理: [1: GET karaoke-sessions/currentを送る, 2: 404はセッション無しとしてnullにする, 3: 契約の範囲を確認する]
+    ///   引数: [cancellationToken: 中断]
+    ///   戻り値: [状態。無ければnull]
+    ///   エラー: [InvalidDataException: 契約外の応答, CoreApiException: 404以外の失敗]
+    /// }
+    public async Task<KaraokeSessionSnapshot?> GetCurrentKaraokeSessionAsync(CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            return (await SendAsync<KaraokeSessionSnapshot>(HttpMethod.Get, "karaoke-sessions/current", null, cancellationToken)
+                .ConfigureAwait(false)).Validate();
+        }
+        catch (CoreApiException error) when (error.StatusCode == HttpStatusCode.NotFound)
+        {
+            return null;
+        }
+    }
+
+    /// {
+    ///   責務: [SendKaraokeCommandAsync: 歌唱セッションへコマンドを1件送る]
+    ///   処理: [
+    ///     1: セッションIDとコマンド内容(種類・seekの移動先)を送る前に確認する,
+    ///     2: POST karaoke-sessions/{id}/commandsを送る,
+    ///     3: 応答のdispositionと状態を確認し、別セッションの応答は拒否する
+    ///   ]
+    ///   引数: [sessionId: 対象セッション, request: 本文, cancellationToken: 中断]
+    ///   戻り値: [適用結果]
+    ///   エラー: [ArgumentException: 送る内容が不正, InvalidDataException: 契約外の応答, CoreApiException: Coreが拒否した(409は競合・422は範囲外)]
+    /// }
+    public async Task<KaraokeCommandResult> SendKaraokeCommandAsync(
+        Guid sessionId, KaraokeCommandRequest request, CancellationToken cancellationToken = default)
+    {
+        if (sessionId == Guid.Empty) throw new ArgumentException("Empty session ID.", nameof(sessionId));
+        if (request?.Command is null || request.CoreInstanceId == Guid.Empty || request.CommandId == Guid.Empty ||
+            request.Command.Type is not ("play" or "pause" or "seek" or "stop") ||
+            (request.Command.Type == "seek") != request.Command.SongSample.HasValue)
+            throw new ArgumentException("Invalid karaoke command.", nameof(request));
+        var result = await SendAsync<KaraokeCommandResult>(
+            HttpMethod.Post, $"karaoke-sessions/{sessionId:D}/commands", request, cancellationToken).ConfigureAwait(false);
+        if (result.Disposition is not ("applied" or "no_op" or "replayed") || result.Snapshot is null ||
+            result.Snapshot.Validate().SessionId != sessionId)
+            throw new InvalidDataException("Invalid Core karaoke command result.");
+        return result;
     }
 
     private static Dictionary<string, string> ValidSelection(ModelSelectionResponse value)

@@ -27,6 +27,7 @@ public sealed class KaraokeViewModel : INotifyPropertyChanged
     public static readonly ulong LeadSamples = 1 * (ulong)SongTimeline.SampleRate;
     public static readonly ulong WindowSamples = 6 * (ulong)SongTimeline.SampleRate;
     private SongTimeline? _timeline;
+    private Guid? _songId;
     private ulong _position;
     private int _lowestNote;
     private int _highestNote;
@@ -34,6 +35,8 @@ public sealed class KaraokeViewModel : INotifyPropertyChanged
     public event PropertyChangedEventHandler? PropertyChanged;
 
     public bool HasSong => _timeline is not null;
+    /// <summary>表示中の曲のID。不明(未指定で読み込んだ)ならnull。</summary>
+    public Guid? SongId => _songId;
     public string Title => _timeline?.Title ?? "曲を選んでください";
     public string Artist => _timeline?.Artist ?? "";
     public ulong PositionSamples => _position;
@@ -57,13 +60,14 @@ public sealed class KaraokeViewModel : INotifyPropertyChanged
     ///     1: 曲と音程バーの音域(前後2半音の余白付き)を記録する,
     ///     2: 位置を0にして変更を通知する
     ///   ]
-    ///   引数: [timeline: 検証済みの曲]
+    ///   引数: [timeline: 検証済みの曲, songId: 曲のID(再生セッションの曲と照合する。不明ならnull)]
     ///   戻り値: []
     /// }
-    public void Load(SongTimeline timeline)
+    public void Load(SongTimeline timeline, Guid? songId = null)
     {
         ArgumentNullException.ThrowIfNull(timeline);
         _timeline = timeline;
+        _songId = songId;
         _lowestNote = timeline.Notes.Count == 0 ? 57 : Math.Max(0, timeline.Notes.Min(n => n.MidiNote) - 2);
         _highestNote = timeline.Notes.Count == 0 ? 72 : Math.Min(127, timeline.Notes.Max(n => n.MidiNote) + 2);
         _position = 0;
@@ -79,6 +83,7 @@ public sealed class KaraokeViewModel : INotifyPropertyChanged
     public void Clear()
     {
         _timeline = null;
+        _songId = null;
         _position = 0;
         Changed();
     }

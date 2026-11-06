@@ -45,6 +45,7 @@ public sealed class ShellViewModel : INotifyPropertyChanged, IAsyncDisposable
 
     public ShellViewModel(Func<string, string, string?, CancellationToken, Task<ICoreConnection>>? launch = null)
     {
+        Playback = new PlaybackFollower(Karaoke);
         _launch = launch ?? (async (executable, data, python, token) =>
             await CoreConnection.StartAsync(executable, data, python, token));
     }
@@ -79,6 +80,8 @@ public sealed class ShellViewModel : INotifyPropertyChanged, IAsyncDisposable
     public KaraokeViewModel Karaoke { get; } = new();
     // モニタ音量・エコー・リバーブの調整。接続・切断に合わせて読み込みと破棄だけをここから指示する。
     public MixerViewModel Mixer { get; } = new();
+    // Coreの歌唱セッションへの追従と再生操作(#16 16.2)。接続・切断に合わせて開始と破棄だけをここから指示する。
+    public PlaybackFollower Playback { get; }
     public IReadOnlyList<SongListItem> Songs => _songs;
     // 読み込み中は選択を変えない(完了した曲と選択がずれないようにする)。
     public SongListItem? SelectedSong
@@ -167,6 +170,7 @@ public sealed class ShellViewModel : INotifyPropertyChanged, IAsyncDisposable
             RebuildModelChoices();
             _ = MonitorConnectionAsync(epoch, _connection, token);
             _ = Mixer.AttachAsync(_connection.Api, token);
+            Playback.Attach(_connection.Api, _connection.InstanceId, token);
         }
         catch (OperationCanceledException) when (token.IsCancellationRequested) { }
         catch (Exception error)
@@ -490,7 +494,7 @@ public sealed class ShellViewModel : INotifyPropertyChanged, IAsyncDisposable
         try
         {
             var timeline = new SongTimeline(await connection.Api.GetSongAsync(id, token));
-            if (epoch == _epoch && _selectedSong?.SongId == id) Karaoke.Load(timeline);
+            if (epoch == _epoch && _selectedSong?.SongId == id) Karaoke.Load(timeline, id);
         }
         catch (OperationCanceledException) when (token.IsCancellationRequested) { }
         catch (Exception error)
@@ -573,6 +577,7 @@ public sealed class ShellViewModel : INotifyPropertyChanged, IAsyncDisposable
         _songsLoaded = _songsTruncated = false;
         Karaoke.Clear();
         Mixer.Detach();
+        Playback.Detach();
         Changed();
         try
         {

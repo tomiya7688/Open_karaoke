@@ -28,7 +28,7 @@ Issue #15の初期GUIシェル。Rust Core API以外へ接続せず、Python・�
 - 計算は `KaraokeViewModel`(GUIライブラリ非依存)が行い、`PitchBarView` は渡された比率を描くだけにする。
 
 **ここまでは表示位置をスライダーで指定する確認用画面で、カラオケ再生は未完成。** [Audio clock](audio_clock.md)の契約どおり、
-GUIは独自の再生時計を作らない。伴奏の再生とCoreが報告する再生位置への追従は#12、マイクの音程表示と採点結果は#14と組み合わせて追加する。
+GUIは独自の再生時計を作らない。Coreが報告する再生位置への追従と再生操作は`PlaybackFollower`（[#16設計 16.2](design/issue-16-karaoke-screen.md#162-実装playbackfollower)）が担う。伴奏の再生は#12、マイクの音程表示と採点結果は#14と組み合わせて追加する。
 `GET /songs/{id}` の応答は、Coreが文書ごとに許す16MiBの4文書分に1MiBを足した65MiBまで読む。
 曲一覧を含む他のAPIの応答は従来どおり1MiBまで。どちらもContent-Lengthがなくても読みながら打ち切る。
 ヘッダー待ちも本文の受信が止まった応答も、要求から受信完了までの期限(曲データ60秒、他は10秒)で打ち切る。

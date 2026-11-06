@@ -185,6 +185,8 @@ def inspect_changes(base: str, head: str = "HEAD") -> tuple[int, list[str]]:
         cwd=ROOT,
         check=True,
         text=True,
+        encoding="utf-8",
+        errors="replace",
         capture_output=True,
     ).stdout
     rows = parse_added_lines(diff)
@@ -195,6 +197,8 @@ def inspect_changes(base: str, head: str = "HEAD") -> tuple[int, list[str]]:
             cwd=ROOT,
             check=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             capture_output=True,
         ).stdout.splitlines()
         for path in untracked:
