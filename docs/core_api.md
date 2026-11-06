@@ -78,11 +78,13 @@ seekで確定した位置（`committed`）や提示前は`unknown`。sessionは�
 
 | status | 条件 | `error`の接頭辞 |
 |---|---|---|
+| 400 | JSON構文不正・曲IDがUUIDでない（framework由来、JSON `error`に正規化） | - |
 | 404 | 曲が無い | `song_not_found:` |
 | 409 | `base_generation`が古い（再取得してやり直す。何も変えない） | `song_edit_conflict:` |
 | 413 | 本文が64KiB超、または書き出す文書が16MiB以上 | `song_import_limit:`（本文超過はframework由来） |
 | 422 | 不正range・MIDI範囲外・存在しない/重複ID・空op・op過多・未知/欠落項目・型違い（全op不適用） | `song_edit_rejected:`（形式不正はframework由来） |
 | 429 | 別の書込み中(`Busy`)またはSong library I/O budget満杯。再試行は呼び出し側 | `song_library_busy:` / `Song library I/O budget is busy` |
+| 500 | blocking worker異常終了（曲は不変） | `Song library worker failed` |
 | 503 | ライブラリ未設定・Core終了中 | - |
 
 認証・Host/Origin・API版ヘッダー・`Cache-Control: no-store`・64KiB本文上限・64件の同時要求上限は他ルートと共通。
