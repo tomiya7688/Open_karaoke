@@ -1,6 +1,6 @@
 # #38 任意の歌詞・採点ノート編集 設計
 
-> 状態: 38.1実装済み（編集コマンド型と検証の純関数 `core/src/song_edit.rs`）。38.2実装済み（保存・世代管理・下流invalidate `core/src/song_library/edit.rs`）。38.3以降（API・GUI）は未実装。P3、#16の後続。
+> 状態: 38.1実装済み（編集コマンド型と検証の純関数 `core/src/song_edit.rs`）。38.2実装済み（保存・世代管理・下流invalidate `core/src/song_library/edit.rs`）。38.3実装済み（`PATCH /songs/{id}` `core/src/song_api.rs`）。38.4以降（GUI）は未実装。P3、#16の後続。
 > 通常導線（編集せず歌う）を妨げないことが最優先。
 
 ## 目的
@@ -73,12 +73,30 @@
 | 9 | 再取込で編集を上書きしない（中断後の再取込でも復旧して保つ） | `reimporting_the_original_analysis_never_overwrites_an_edited_song`、`reimport_after_a_crashed_swap_recovers_edits_instead_of_republishing` |
 | 10 | 破損した公開曲を編集で変更しない | `damaged_published_song_is_never_modified_by_an_edit` |
 
+## 38.3 決定事項と受入条件の照合（実装済み）
+**決定**（契約の詳細は [Core API](../core_api.md#曲の手編集patch-songsid-38-38-3)）
+- `PATCH /songs/{id}`、本文`{base_generation, ops}`のみ。曲IDはパスから取りEditCommandへ詰める（本文の`song_id`は`deny_unknown_fields`で422。パスと本文の食い違いは構造上起きない）。
+- 応答は`EditedSong`（`song_id`,`generation`,`pending`）。GUIは`GET /songs/{id}`の`song.artifacts.evidence.generation`を`base_generation`に使う（新しい読取APIは足さない）。
+- 状態写像: `GenerationConflict`→409、`EditError`→422、`TooLarge`→413、`NotFound`→404、`Busy`/I/O budget満杯→429、他の保存層エラーは既存`/songs`と同じ写像（Io/Json→422）。`error`は`{"error":"<接頭辞>: ..."}`の1文字列で、接頭辞が機械判別キー。違反の詳細（op位置）はメッセージ連結のみで、op単位の構造化は38.4で必要になった時に追加（任意フィールド追加はv1互換）。
+- 制限: 本文は全ルート共通64KiB（`MAX_EDIT_OPS`=1024は到達前に本文上限で止まり得る）。保存はblocking taskで、Song library I/O budget（4枠）の枠を1つ使う。認証・Origin・版・no-storeは既存ミドルウェア/Sessionを通る。
+- 互換: 既存routeへのmethod追加＝v1後方互換。`GET /songs/{id}`の形は不変。
+
+| # | 条件 | テスト |
+|---|---|---|
+| 1 | PATCHで保存・世代+1・GETで保持（歌詞`source=manual`、`pending=["notes"]`） | `song_api::tests::patch_saves_edit_advances_generation_and_get_reflects_it` |
+| 2 | 競合409・検証失敗422（空op含む）・曲なし404、いずれも曲不変 | `patch_maps_conflict_validation_and_missing_song_to_status_codes` |
+| 3 | 不正本文（未知項目・`song_id`本文指定・欠落・負数・未知op・MIDI範囲外）は422、不正パスIDは4xx、曲不変 | `patch_rejects_malformed_bodies_without_touching_the_song` |
+| 4 | 本文64KiB超は413、I/O budget満杯は429、曲不変 | `patch_enforces_body_limit_and_io_budget` |
+| 5 | Origin拒否403・API版不一致426 | `patch_keeps_origin_and_version_guards` |
+| 6 | 認証なしは401+no-store（全製品ルート一覧に追加） | `session::tests::every_product_route_requires_a_session` |
+| 7 | 保存・原子性・同時編集は38.2のテストで担保 | `core/tests/song_edit_save.rs`（変更なし） |
+
 ## 実装スライス
 | # | 内容 | 依存 | 完了条件・テスト |
 |---|---|---|---|
 | 38.1 | 編集コマンド型と検証（純関数）、出自表現の決定（`format_version`上げ要否） | #3 | `core/tests/`: 不正range・不正参照ID拒否、原子性、決定的出力 |
 | 38.2 | 保存+世代管理+下流invalidate（`SongLibrary`上）**実装済み** | 38.1 | 再読込保持、`base_generation`競合、invalidate伝播 |
-| 38.3 | Core公開API（`PATCH`系、#41の版管理に従う） | 38.2, #41 | 認証/上限/サイズ制限のcontract test |
+| 38.3 | Core公開API（`PATCH`系、#41の版管理に従う）**実装済み** | 38.2, #41 | 認証/上限/サイズ制限のcontract test |
 | 38.4 | `SongEditorViewModel`+Undo/Redo+一覧表示 | 38.3, #15 | `Client.Tests`: Undo/Redo往復、拒否時のロールバック表示 |
 | 38.5 | プレビュー再生・シーク連携 | 38.4, #16/#107 | 編集中の区間を再生できる（headless smoke+実機は`Unverified`） |
 
@@ -94,4 +112,4 @@
 ## 未決事項
 - 元結果の保持方式（snapshotファイルか`evidence.json`内か）とNoteのsource欄
 - 部分編集後に#36の再解析が走った場合の衝突規則（手編集を優先するか）
-- APIの形（#41確定後）と同時編集の扱い
+- 部分失敗のop単位構造化エラー（38.4で必要になった時に任意フィールドとして追加）
