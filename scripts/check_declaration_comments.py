@@ -66,10 +66,9 @@ def production_language(path: str) -> str | None:
         return "rs"
     if path.startswith("python/src/open_karaoke_analysis/") and path.endswith(".py"):
         return "py"
-    if (
-        path.startswith(("gui/OpenKaraoke.Client/", "gui/OpenKaraoke.Gui/"))
-        and path.endswith(".cs")
-    ):
+    if path.startswith(
+        ("gui/OpenKaraoke.Client/", "gui/OpenKaraoke.Gui/")
+    ) and path.endswith(".cs"):
         return "cs"
     return None
 
@@ -93,7 +92,9 @@ def preceding_docs(lines: list[str], index: int) -> str:
     return "\n".join(reversed(doc))
 
 
-def check_python(source: str, added: set[int]) -> list[tuple[int, str, tuple[str, ...]]]:
+def check_python(
+    source: str, added: set[int]
+) -> list[tuple[int, str, tuple[str, ...]]]:
     """{
       責務: [新規/署名変更されたPython宣言のdocstring必須項目を検査する]
       処理: [1: ASTを読む, 2: diff追加行と宣言の署名を照合する, 3: docstringの必要項目を確認する]
@@ -141,7 +142,9 @@ def check_slash_docs(
         elif CS_ACCESS.match(item):
             if CS_TYPE.search(item):
                 kind = "type"
-            elif CS_METHOD.search(item) and not item.strip().startswith("public event "):
+            elif CS_METHOD.search(item) and not item.strip().startswith(
+                "public event "
+            ):
                 kind = "call"
         if kind is None:
             continue
@@ -161,24 +164,47 @@ def inspect_changes(base: str, head: str = "HEAD") -> tuple[int, list[str]]:
       戻り値: [確認した宣言の概数と違反メッセージ]
       エラー: [git差分取得またはPython AST解析に失敗した場合は例外を送出する]
     }"""
-    paths = ["core/src", "python/src/open_karaoke_analysis",
-             "gui/OpenKaraoke.Client", "gui/OpenKaraoke.Gui"]
+    paths = [
+        "core/src",
+        "python/src/open_karaoke_analysis",
+        "gui/OpenKaraoke.Client",
+        "gui/OpenKaraoke.Gui",
+    ]
     ref_args = [base] if head == "WORKTREE" else [base, head]
     diff = subprocess.run(
-        ["git", "diff", "--no-ext-diff", "--unified=0", "--diff-filter=ACMR",
-         *ref_args, "--", *paths],
-        cwd=ROOT, check=True, text=True, capture_output=True
+        [
+            "git",
+            "diff",
+            "--no-ext-diff",
+            "--unified=0",
+            "--diff-filter=ACMR",
+            *ref_args,
+            "--",
+            *paths,
+        ],
+        cwd=ROOT,
+        check=True,
+        text=True,
+        capture_output=True,
     ).stdout
     rows = parse_added_lines(diff)
     if head == "WORKTREE":
         # git diff does not include untracked files; inspect their declarations too.
         untracked = subprocess.run(
             ["git", "ls-files", "--others", "--exclude-standard", "--", *paths],
-            cwd=ROOT, check=True, text=True, capture_output=True
+            cwd=ROOT,
+            check=True,
+            text=True,
+            capture_output=True,
         ).stdout.splitlines()
         for path in untracked:
             if production_language(path):
-                rows[path] = set(range(1, len((ROOT / path).read_text(encoding="utf-8").splitlines()) + 1))
+                rows[path] = set(
+                    range(
+                        1,
+                        len((ROOT / path).read_text(encoding="utf-8").splitlines()) + 1,
+                    )
+                )
     failures: list[str] = []
     for path, added in sorted(rows.items()):
         lang = production_language(path)
@@ -187,7 +213,8 @@ def inspect_changes(base: str, head: str = "HEAD") -> tuple[int, list[str]]:
         content = (ROOT / path).read_text(encoding="utf-8")
         errors = (
             check_python(content, added)
-            if lang == "py" else check_slash_docs(content, added, lang)
+            if lang == "py"
+            else check_slash_docs(content, added, lang)
         )
         for line_no, name, missing in errors:
             failures.append(f"{path}:{line_no}: {name}: 不足 {', '.join(missing)}")
@@ -203,12 +230,17 @@ def main() -> int:
     }"""
     parser = argparse.ArgumentParser(description="PR差分の宣言コメントを確認")
     parser.add_argument("--base", required=True, help="比較元git commit/ref")
-    parser.add_argument("--head", default="HEAD", help="比較先git commit/ref（WORKTREEも指定可能）")
+    parser.add_argument(
+        "--head", default="HEAD", help="比較先git commit/ref（WORKTREEも指定可能）"
+    )
     opts = parser.parse_args()
     try:
         files, errors = inspect_changes(opts.base, opts.head)
     except (OSError, UnicodeError, SyntaxError, subprocess.CalledProcessError) as error:
-        print(f"UNVERIFIED: 宣言コメント差分検査を実施できません: {error}", file=sys.stderr)
+        print(
+            f"UNVERIFIED: 宣言コメント差分検査を実施できません: {error}",
+            file=sys.stderr,
+        )
         return 2
     for message in errors:
         print(message, file=sys.stderr)
