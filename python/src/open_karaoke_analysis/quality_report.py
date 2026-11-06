@@ -610,7 +610,7 @@ def report_from_json(text: str) -> QualityReport:
     }
     """
     try:
-        raw = json.loads(text, parse_constant=_reject_constant)
+        raw = json.loads(text, parse_constant=_reject_constant, object_pairs_hook=_no_duplicates)
     except ValueError as error:
         raise _fail(f"invalid json: {error}") from error
     keys = {
@@ -649,6 +649,24 @@ def report_from_json(text: str) -> QualityReport:
     if raw["report_sha256"] != report.sha256():
         raise _fail("report_sha256 mismatch")
     return report
+
+
+def _no_duplicates(pairs: list) -> dict:
+    """
+    {
+      責務: [_no_duplicates: 重複キーを持つJSONオブジェクトを拒否する]
+      処理: [1: キーの重複を検査, 2: dictにする]
+      引数: [pairs: (キー, 値)の列]
+      戻り値: [dict]
+      エラー: [QualityReportError: 重複キー]
+    }
+    """
+    result: dict = {}
+    for key, value in pairs:
+        if key in result:
+            raise _fail(f"duplicate key: {key}")
+        result[key] = value
+    return result
 
 
 def _reject_constant(name: str) -> None:

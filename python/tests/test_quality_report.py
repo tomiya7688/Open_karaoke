@@ -220,3 +220,25 @@ def test_invalid_signals_and_builder_inputs_are_rejected():
             inputs=(InputRef("a", 1, H), InputRef("a", 1, H)),
             stage_models={},
         )
+
+
+def test_duplicate_keys_and_wrong_container_types_are_rejected():
+    text = report_to_json(_report())
+    with pytest.raises(QualityReportError):
+        report_from_json(text.replace('"attempt":', '"attempt":{},"attempt":', 1))
+    for bad in ("[]", "1", "null", '"x"'):
+        with pytest.raises(QualityReportError):
+            report_from_json(bad)
+    for key, value in (("inputs", [1]), ("flags", ["x"]), ("stage_models", [[]]), ("assessor", 5)):
+        data = json.loads(text)
+        data[key] = value
+        with pytest.raises(QualityReportError):
+            report_from_json(json.dumps(data))
+    data = json.loads(report_to_json(_report(_signals())))
+    data["flags"][0]["stage"] = ["lyrics"]
+    with pytest.raises(QualityReportError):
+        report_from_json(json.dumps(data))
+    data = json.loads(report_to_json(_report(_signals())))
+    data["flags"][0]["heuristic_score"] = True
+    with pytest.raises(QualityReportError):
+        report_from_json(json.dumps(data))

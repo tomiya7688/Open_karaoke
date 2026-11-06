@@ -7,7 +7,7 @@
 構造的に正しいだけで不正確な解析出力を、成功/失敗とは別の「品質状態」として版付きで記録する。再解析(RepairPlanner)の入力になる土台を、Core/GUIに依存しない自己完結した層として先に作る。
 
 ## 受入条件（Issue #108 と依頼から番号化）
-1. `quality_report` は `format_version` 付きの版付きデータ型とJSON形式を持つ。未知の版・未知のキー・型違いは `QualityReportError` で拒否する（fail closed）。
+1. `quality_report` は `format_version` 付きの版付きデータ型とJSON形式を持つ。未知の版・未知のキー・重複キー・型違いは `QualityReportError` で拒否する（fail closed）。
 2. 次を記録する: assessor(model/weights/options とその `options_sha256`)、各段のモデル参照、入力artifactの名前・版・SHA-256、flagごとのsample範囲（48 kHz整数）、診断名、校正状態、処理出典(attempt)。
 3. 校正状態 `hard_integrity` / `diagnostic` / `calibrated` を分離する。`calibrated` は `calibration_id` が必須、他は `calibration_id` を持てない。`hard_integrity` は `heuristic_score` を持てない。
 4. 不正なSHA-256（64桁小文字16進数以外）と、`report_sha256` 不一致は読込時に拒否する。
