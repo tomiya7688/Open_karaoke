@@ -37,7 +37,7 @@
 | #44 多ASR研究 | 後回し | `docs/quality_and_ux_design.md` | #7 #8 #42 | 基線評価後 |
 | #106 設計レビュー | PR #111 | `docs/implementation_navigation.md` | - | PR #111 の統合 |
 | #107 歌唱Session | 107.1実装（純粋な状態機械）、107.2実装（認証付きtransport API、デバイス無し）。deviceは未 | [#107設計](issue-107-karaoke-session.md)、`docs/karaoke_session_design.md`(PR #111) | #12 #13 #14 #40 #41 | 107.3（Controller・worker組成・device lease、#12/#13依存） |
-| #108 品質/再解析 | 設計（PR #111） | `docs/quality_and_ux_design.md` | #36 #42 | 同上 |
+| #108 品質/再解析 | 108.1実装（版付きquality_report型・合成flag→レポートの純関数）。service接続・Repair・Core/GUI未 | [#108設計](issue-108-quality-report.md)、`docs/quality_and_ux_design.md`(PR #111) | #36 #42 | 108.2（service/song接続と`quality_report.json`公開） |
 | #109 実効モデル固定 | 設計（PR #111） | `docs/quality_and_ux_design.md` | #17 #36 #41 | 同上 |
 | #110 初回UX | 設計（PR #111） | `docs/quality_and_ux_design.md` | #12 #13 #16 #17 #39 #40 #41 #43 | 同上 |
 | #58 PR整理 / #66 Python CA / #67 署名 | 運用・セキュリティ | [Development](../development.md#python-trust-tooling-66) | - | 設計書不要（コード設計を伴わない） |
