@@ -46,7 +46,7 @@ public sealed record KaraokeSessionSnapshot(
     /// }
     public KaraokeSessionSnapshot Validate()
     {
-        if (SessionId == Guid.Empty || CoreInstanceId == Guid.Empty ||
+        if (SessionId == Guid.Empty || CoreInstanceId == Guid.Empty || SongId == Guid.Empty ||
             State is not ("preparing" or "ready" or "playing" or "paused" or "interrupted" or "finished" or "stopped" or "failed") ||
             PositionSource is not ("none" or "committed" or "presented") ||
             ClockQuality?.Kind is not ("unknown" or "estimated" or "measured") ||

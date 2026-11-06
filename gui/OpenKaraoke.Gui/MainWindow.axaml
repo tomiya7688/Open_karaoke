@@ -279,6 +279,7 @@
                   <Button Grid.Column="1" Content="ここへシーク" IsEnabled="{Binding Playback.CanSeek}" Click="SeekClick"
                           AutomationProperties.Name="シーク先へ移動" />
                 </Grid>
+                <TextBlock Classes="caption" TextWrapping="Wrap" Text="{Binding Playback.ClockQualityText, StringFormat=可聴時刻の品質: {0}}" />
                 <TextBlock Classes="caption" TextWrapping="Wrap" Text="{Binding Playback.Notice}"
                            IsVisible="{Binding Playback.HasNotice}" />
               </StackPanel>

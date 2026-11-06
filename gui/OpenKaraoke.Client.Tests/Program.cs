@@ -54,6 +54,7 @@ internal static class Program
             ("discard stale revision and epoch and accept a new epoch", () => { PlaybackFollowerTests.StaleRules(); return Task.CompletedTask; }),
             ("seek round trip ignores a late snapshot from before the seek", PlaybackFollowerTests.SeekRoundTrip),
             ("show Core loss and never resume an old session", PlaybackFollowerTests.CoreLoss),
+            ("cancel queued commands after a session switch and ignore late failures", PlaybackFollowerTests.CommandRaces),
             ("poll the session at a bounded interval and stop on detach", PlaybackFollowerTests.PollingLoop),
             ("attach the follower on connect and detach on disconnect", PlaybackFollowerTests.ShellLifecycle),
         };

@@ -46,8 +46,8 @@
 - 契約は [#107 107.2](issue-107-karaoke-session.md#1072-transport-api実装済み) のとおり。Coreがセッションを作る/位置を報告するrouteはクライアントに無く、GUIは `GET /karaoke-sessions/current`（404=セッション無し）と `POST /karaoke-sessions/{id}/commands` だけを使う。
 - 状態の取得は200ms間隔の一定間隔取得（`WatchJobAsync`と同じ方針）。SSEは107.5のsubscription上限の実測後に検討する（未決事項に残す）。取得失敗はその場で「Core切断」表示にして次の成功で復帰する。
 - 受理規則（`PlaybackFollower.Apply`）: 別Core世代=捨てる / 別セッション=取得経路だけ乗り換え（コマンド応答では捨てる） / `state_revision`が現行より古い=捨てる / `transport_epoch`が現行より古い=捨てる / 同revision・同epochで再生位置が後退=捨てる / 新epochまたは新セッション=受理して`EpochChanged`を通知（16.3で歌唱線・暫定採点を破棄する）。
-- 操作: 各コマンドは1件ずつ送り、その時点の最新`state_revision`・宛先Core世代・新しい`command_id`を付ける。409は**自動再送せず**状態を取得し直して「もう一度」と知らせる（二重適用を避ける）。422は範囲外、その他の失敗はCore切断表示。seekは曲の終端直前へ収める（Coreはduration未満のみ受理）。
-- 表示: `interrupted`/`failed`/Core切断/セッション無しで「再生中」と見せず、位置は`ready/playing/paused/finished`のときだけ、表示中の曲とセッションの曲が同じ場合に反映する。Core再接続（新`Attach`）は旧セッションを自動で再開せず、コマンドを送らない。
+- 操作: 各コマンドは1件ずつ送り、その時点の最新`state_revision`・宛先Core世代・新しい`command_id`を付ける。409は**自動再送せず**状態を取得し直して「もう一度」と知らせる（二重適用を避ける）。422は範囲外、その他の失敗はCore切断表示。seekは曲の終端直前へ収める（Coreはduration未満のみ受理）。待機中にセッションが切り替わった操作は新セッションへ送らず取り消す。stopは中断（interrupted）中も送れる。切断後に遅れて失敗した操作は表示へ影響させない。
+- 表示: `interrupted`/`failed`/Core切断/セッション無しで「再生中」と見せず、位置は`ready/playing/paused/finished`のときだけ、表示中の曲のIDがセッションの曲と一致する場合だけ反映する（ID不明・不一致は反映せず状態文で示す）。可聴時刻の品質（`clock_quality`）は操作行に表示する。Core再接続（新`Attach`）は旧セッションを自動で再開せず、コマンドを送らない。
 - シーク先は専用スライダー（`SeekTargetSeconds`）で指定して「ここへシーク」で送る。既存の「表示位置」スライダーは16.1の確認用のままで、Coreの位置報告に上書きされる。
 
 ### 16.2 受入条件の照合

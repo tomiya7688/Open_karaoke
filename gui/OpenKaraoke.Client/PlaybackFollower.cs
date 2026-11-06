@@ -135,10 +135,10 @@ public sealed class PlaybackFollower : INotifyPropertyChanged
         FollowerLink.Detached => "Coreに接続すると操作できます",
         FollowerLink.NoSession => "歌唱セッションはありません",
         FollowerLink.CoreLost => $"Coreと通信できません。再生位置は不明です({_lostReason})",
-        _ => StateText(_session!) + (SongMismatch ? "(表示中の曲とは別の曲です)" : ""),
+        _ => StateText(_session!) + (SongMismatch ? "(表示中の曲と一致しないか、照合できません)" : ""),
     };
 
-    private bool SongMismatch => _session is not null && _karaoke.SongId is { } shown && shown != _session.SongId;
+    private bool SongMismatch => _session is not null && _karaoke.SongId != _session.SongId;
 
     /// <summary>接続（取得ループ）の完了待ち。テストと切断処理用。</summary>
     public Task Idle => _loop;
@@ -252,7 +252,7 @@ public sealed class PlaybackFollower : INotifyPropertyChanged
     ///     3: revisionが古い、またはepochが現行より古い更新は捨てる,
     ///     4: 同じ版・同じepochで再生位置が後退する更新は捨てる,
     ///     5: 受理したら保存し、新しいepochなら通知する(歌唱線等の表示状態の破棄用),
-    ///     6: 位置が意味を持つ状態(ready/playing/paused/finished)だけ、同じ曲を表示中のときに位置を反映する
+    ///     6: 位置が意味を持つ状態(ready/playing/paused/finished)だけ、表示中の曲のIDが一致するときに位置を反映する(ID不明も反映しない)
     ///   ]
     ///   引数: [snapshot: 受け取った状態, allowNewSession: 別セッションへの乗り換えを許すか]
     ///   戻り値: [反映結果]
@@ -326,6 +326,14 @@ public sealed class PlaybackFollower : INotifyPropertyChanged
     }
 
     /// {
+    ///   責務: [CanSend: そのコマンドを今送れるかを返す]
+    ///   処理: [1: stopは中断中でも送れる(CanStopと同じ条件), 2: 他は再生可能な状態(Operable)のみ]
+    ///   引数: [type: play | pause | seek | stop]
+    ///   戻り値: [送れるならtrue]
+    /// }
+    private bool CanSend(string type) => type == "stop" ? CanStop : Operable;
+
+    /// {
     ///   責務: [PlayAsync: 再生をCoreへ依頼する]
     ///   処理: [1: playコマンドを送る]
     ///   引数: [なし]
@@ -367,8 +375,8 @@ public sealed class PlaybackFollower : INotifyPropertyChanged
     /// {
     ///   責務: [CommandAsync: コマンドを1件ずつCoreへ送り、結果を同じ受理規則で反映する]
     ///   処理: [
-    ///     1: 操作できない状態なら理由を表示して送らない,
-    ///     2: 直前の操作が終わるまで待ち、その時点の最新revisionで送る,
+    ///     1: 操作できない状態なら理由を表示して送らない(stopは中断中も可),
+    ///     2: 直前の操作が終わるまで待ち、待つ間にセッションが切り替わったら取り消し、同じセッションなら最新revisionで送る,
     ///     3: 成功したら結果の状態をApply(コマンド応答)へ渡す,
     ///     4: 409(競合)は自動で再送せず、状態を取得し直して「もう一度」と知らせる(二重適用を避ける),
     ///     5: 422は範囲外、それ以外の通信失敗はCore切断として表示する
@@ -378,13 +386,14 @@ public sealed class PlaybackFollower : INotifyPropertyChanged
     /// }
     private async Task CommandAsync(string type, ulong? sample)
     {
-        if (!Operable)
+        if (!CanSend(type))
         {
             SetNotice("今は操作できません");
             return;
         }
         var generation = _generation;
         var api = _api!;
+        var targetSession = _session!.SessionId;
         try
         {
             await _gate.WaitAsync(_token);
@@ -392,8 +401,13 @@ public sealed class PlaybackFollower : INotifyPropertyChanged
         catch (OperationCanceledException) when (_token.IsCancellationRequested) { return; }
         try
         {
-            if (generation != _generation || !Operable) return;
+            if (generation != _generation || !CanSend(type)) return;
             var session = _session!;
+            if (session.SessionId != targetSession)
+            {
+                SetNotice("セッションが切り替わったため操作を取り消しました");
+                return;
+            }
             var request = new KaraokeCommandRequest(
                 session.CoreInstanceId, _newCommandId(), session.StateRevision, new KaraokeCommandBody(type, sample));
             var result = await api.SendKaraokeCommandAsync(session.SessionId, request, _token);
@@ -410,9 +424,10 @@ public sealed class PlaybackFollower : INotifyPropertyChanged
         {
             SetNotice("その位置にはシークできません");
         }
-        catch (Exception error) when (generation == _generation)
+        catch (Exception error)
         {
-            SetLost(error);
+            // 切断後に遅れて失敗した古い世代の操作は、画面へ影響させず握りつぶす(click handlerへ例外を出さない)。
+            if (generation == _generation) SetLost(error);
         }
         finally
         {

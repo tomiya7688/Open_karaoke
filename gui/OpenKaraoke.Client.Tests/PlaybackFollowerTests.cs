@@ -70,6 +70,8 @@ internal static class PlaybackFollowerTests
         await Throws<InvalidDataException>(() => badState.GetCurrentKaraokeSessionAsync());
         using var beyond = SongTests.TestClient((_, _) => Task.FromResult(SongTests.Raw(body.Replace("96000", "999999"))));
         await Throws<InvalidDataException>(() => beyond.GetCurrentKaraokeSessionAsync());
+        using var noSong = SongTests.TestClient((_, _) => Task.FromResult(SongTests.Raw(body.Replace(SongId.ToString(), Guid.Empty.ToString()))));
+        await Throws<InvalidDataException>(() => noSong.GetCurrentKaraokeSessionAsync());
         using var other = SongTests.TestClient((_, _) => Task.FromResult(SongTests.Raw($$"""{"disposition":"applied","snapshot":{{body}}}""")));
         await Throws<InvalidDataException>(() => other.SendKaraokeCommandAsync(Guid.NewGuid(), seek));
         await Throws<ArgumentException>(() => client.SendKaraokeCommandAsync(Session, seek with { Command = new("seek") }));
@@ -134,7 +136,7 @@ internal static class PlaybackFollowerTests
         var guarded = new PlaybackFollower(foreign, autoPoll: false);
         guarded.Attach(api, Instance, new CancellationTokenSource().Token);
         guarded.Apply(Snap("playing", 1, 1, 5 * Second), true);
-        Check(foreign.PositionSamples == 0 && guarded.StatusText.Contains("別の曲"), "A different song's position moved the display.");
+        Check(foreign.PositionSamples == 0 && guarded.StatusText.Contains("表示中の曲"), "A different song's position moved the display.");
     }
 
     /// {
@@ -243,6 +245,12 @@ internal static class PlaybackFollowerTests
         Check(!follower.IsPlaying && !follower.CanPlay && !follower.CanSeek && follower.CanStop && follower.StatusText.Contains("中断") &&
             karaoke.PositionSamples == 2 * Second, "An interrupted session looked playing.");
 
+        // 中断中でも停止は送れる(再開は自動でしない)。
+        api.OnCommand = request => Snap("stopped", request.ExpectedRevision + 1, 3, 2 * Second);
+        await follower.StopAsync();
+        Check(api.Sent.Count == 1 && api.Sent[0].Command.Type == "stop" && follower.State == "stopped", "Stop was refused while interrupted.");
+        api.Sent.Clear();
+
         api.Current = null;
         await follower.PollOnceAsync();
         Check(follower.Link == FollowerLink.NoSession && follower.Session is null && !follower.IsPlaying, "A vanished session was kept.");
@@ -259,6 +267,49 @@ internal static class PlaybackFollowerTests
         await follower.PollOnceAsync();
         Check(follower.Link == FollowerLink.NoSession && follower.Discarded == 1 && api.Sent.Count == 0 && !follower.IsPlaying,
             "A stale-generation session was resumed after reconnecting.");
+    }
+
+    /// {
+    ///   責務: [CommandRaces: 待機中のセッション切替と、切断後に遅れて失敗する操作を安全に扱うことを確かめる]
+    ///   処理: [
+    ///     1: 操作の応答待ちの間に別セッションへ切り替わっても、待機していた旧セッション宛の操作は新セッションへ送らない,
+    ///     2: 切断後に遅れて失敗した操作は例外を出さず、表示も変えない
+    ///   ]
+    ///   引数: []
+    ///   戻り値: []
+    /// }
+    internal static async Task CommandRaces()
+    {
+        var karaoke = new KaraokeViewModel();
+        karaoke.Load(new SongTimeline(SongTests.Song(10 * Second, [], [])), SongId);
+        var follower = new PlaybackFollower(karaoke, autoPoll: false);
+        var api = new FakeSessionApi { Current = Snap("playing", 3, 1, 2 * Second) };
+        follower.Attach(api, Instance, new CancellationTokenSource().Token);
+        await follower.PollOnceAsync();
+        api.Hold = new TaskCompletionSource();
+        api.OnCommand = request => Snap("playing", request.ExpectedRevision + 1, 2, 4 * Second);
+        var first = follower.SeekAsync(4 * Second);
+        await api.Entered.Task;
+        var queued = follower.StopAsync();
+        var other = Guid.NewGuid();
+        api.Current = Snap("ready", 1, 1, 0, session: other);
+        await follower.PollOnceAsync();
+        api.Hold.SetResult();
+        await first;
+        await queued;
+        Check(api.Sent.Count == 1 && follower.Session!.SessionId == other && follower.Notice.Contains("切り替わった"),
+            "A command queued for the old session was sent to the new one.");
+
+        var late = new FakeSessionApi { Current = Snap("playing", 3, 1, 2 * Second), Hold = new TaskCompletionSource(), Fail = HttpStatusCode.ServiceUnavailable };
+        var detached = new PlaybackFollower(new KaraokeViewModel(), autoPoll: false);
+        detached.Attach(late, Instance, new CancellationTokenSource().Token);
+        await detached.PollOnceAsync();
+        var pending = detached.PauseAsync();
+        await late.Entered.Task;
+        detached.Detach();
+        late.Hold.SetResult();
+        await pending;
+        Check(detached.Link == FollowerLink.Detached, "A late failure changed a detached follower.");
     }
 
     /// {
@@ -318,6 +369,8 @@ internal static class PlaybackFollowerTests
         public Func<KaraokeCommandRequest, KaraokeSessionSnapshot>? OnCommand { get; set; }
         public List<KaraokeCommandRequest> Sent { get; } = [];
         public int Polls;
+        public TaskCompletionSource? Hold { get; set; }
+        public TaskCompletionSource Entered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
         public Task<KaraokeSessionSnapshot?> GetCurrentKaraokeSessionAsync(CancellationToken cancellationToken = default)
         {
@@ -325,13 +378,18 @@ internal static class PlaybackFollowerTests
             return ThrowOnPoll is { } error ? Task.FromException<KaraokeSessionSnapshot?>(error) : Task.FromResult(Current);
         }
 
-        public Task<KaraokeCommandResult> SendKaraokeCommandAsync(Guid sessionId, KaraokeCommandRequest request, CancellationToken cancellationToken = default)
+        public async Task<KaraokeCommandResult> SendKaraokeCommandAsync(Guid sessionId, KaraokeCommandRequest request, CancellationToken cancellationToken = default)
         {
             Sent.Add(request);
-            if (Fail is { } status) return Task.FromException<KaraokeCommandResult>(new CoreApiException(status));
+            if (Hold is { } hold)
+            {
+                Entered.TrySetResult();
+                await hold.Task;
+            }
+            if (Fail is { } status) throw new CoreApiException(status);
             var snapshot = OnCommand!(request);
             Current = snapshot;
-            return Task.FromResult(new KaraokeCommandResult("applied", snapshot));
+            return new KaraokeCommandResult("applied", snapshot);
         }
 
         public Task<CoreIdentity> GetIdentityAsync(CancellationToken cancellationToken = default) => Task.FromResult(new CoreIdentity("open-karaoke-core", 1, Instance));
