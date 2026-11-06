@@ -2,7 +2,7 @@
 
 > 状態: 設計のみ（実装0%）。`RealtimePitchDetector` / `ScoringEngine` は**新設**で、現mainには存在しない。
 > 既存のオフライン `python/src/open_karaoke_analysis/pitch*.py` はリアルタイム採点の代替ではない。
-> 上位の契約は [Scoring](../scoring.md)。歌唱セッションへの結線は #107（PR #111 の `karaoke_session_design.md`）で定義される。
+> 上位の契約は [Scoring](../scoring.md)。歌唱セッションへの結線は #107（[karaoke_session_design.md](../karaoke_session_design.md)）で定義される。
 
 ## 目的
 再生中のraw（エフェクト前）マイクPCMから時刻付きF0を作り、採点譜面（`notes.json`）と比較して、pitch / timing / coverage / stability を**別指標**で保持するスコアを出す。
