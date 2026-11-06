@@ -25,11 +25,12 @@ gh pr list --json number,headRefName,title --jq '.[]|"\(.number) \(.headRefName)
 
 ## 2. 読む範囲
 
-- `AI_CONTEXT.md` の「正本」と `docs/ai_workflow.md` の **Task routes 表の該当1行** だけ。
+- `AI_CONTEXT.md`の入口と **`docs/implementation_navigation.md`の対象Issue1行**を読み、全体経路・編集する型/関数・触らない境界・対応テストを特定する。該当節の設計書のみ読む。
+- `docs/ai_workflow.md`のTask routesは、入口が不足するときだけ追加で読む。全docsを読み込んでから編集場所を探さない。
 - 該当sourceは `git grep -n` で位置を絞り、Readは offset/limit 付き。
 - 読まない: `target/` `.venv/` `node_modules/` `artifacts/` `**/bin` `**/obj` 、モデル重み・音源。
 - 守る境界: 48 kHz整数sample index、音声callbackへPython/I/O/alloc禁止、モデルはAdapter越し、mock/合成fixtureの成功を実曲精度と言わない。
-- コーディングルールは `docs/coding_rules.md` の「必須」だけ確認（JSON-like宣言コメント）。
+- コーディングルールは`docs/coding_rules.md`の必須項目を確認。**追加・署名変更するクラス/メソッド/関数にはJSON-like宣言コメント**を記載し、実装とずれた既存コメントも更新。既存不足と自動検査の範囲は`docs/comment_coverage.md`。
 
 ## 3. 検証
 

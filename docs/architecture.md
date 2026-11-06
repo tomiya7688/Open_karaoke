@@ -194,6 +194,16 @@ Jobには進捗、処理段階、開始/終了時刻、エラー、生成物参�
 
 UIやログ表示時のみ秒へ変換する。
 
+## 歌唱セッションの所有者（提案）
+
+再生/入力/ミキサー/クロック/採点を横断するユースケースの所有者は、
+Rustの`KaraokeSessionController`とする（**まだ未実装**）。
+状態遷移・公開API案・旧epochの廃棄・不確かな採点の扱いを
+[Karaoke session integration design](karaoke_session_design.md) に、
+解析品質の評価/再解析とユーザー導線を
+[Analysis quality and UX design](quality_and_ux_design.md) に記載する。
+GUIは所有せず、Audio callbackは外部API/重い推論に依存しない。
+
 ## マイク処理
 
 一般的なカラオケと同様、ユーザーのマイク音声を低遅延でモニタリングしつつ、採点処理にも利用する。

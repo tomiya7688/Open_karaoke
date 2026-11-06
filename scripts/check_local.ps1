@@ -151,6 +151,23 @@ function Get-CheckPlan {
                 } "python -m pytest -q $($pyTests -join ' ')" $pyTests))
     }
 
+    # 追加・署名変更した本番コードの宣言コメントのみ検証。既存負債で全PRを止めない。
+    $commentFiles = @(@($Files) + @($Untracked) | Where-Object {
+        $_ -match '^core/src/.+[.]rs$' -or
+        $_ -match '^python/src/open_karaoke_analysis/.+[.]py$' -or
+        $_ -match '^gui/OpenKaraoke[.](Client|Gui)/.+[.]cs$'
+    } | Sort-Object -Unique)
+    if ($commentFiles.Count -and $MergeBase) {
+        $plan.Add((New-Check 'decl-comments' '変更宣言のJSON-likeコメント' $true { param($d)
+                    Invoke-Python (@('scripts/check_declaration_comments.py', '--base', $d, '--head', 'WORKTREE'))
+                } 'pwsh scripts/check_local.ps1' $MergeBase))
+    }
+    elseif ($commentFiles.Count) {
+        $plan.Add((New-Check 'decl-comments' '宣言コメント（比較元なし）' $false { param($d)
+                    throw 'UNVERIFIED: 比較元git refがなく差分宣言の検査を実行できません'
+                } '差分を持つ作業ブランチで pwsh scripts/check_local.ps1'))
+    }
+
     $rust = @($Files | Where-Object { $_ -like 'core/*' -or $_ -in @('Cargo.toml', 'Cargo.lock', 'rust-toolchain.toml') })
     if ($rust.Count -or $Everything) {
         $rust | ForEach-Object { [void]$covered.Add($_) }

@@ -9,7 +9,7 @@ Rust Core / Python Analysis Service / C#・Avalonia GUI のモノレポ。
 共通規則と確認表は [AGENTS.md](AGENTS.md) と [実装チェックリスト](docs/implementation_checklist.md)（pull・ブランチ・PR・CI・自己レビュー・マージ）。ここでは繰り返さない。
 
 1. 今回の依頼と対象Issueを確認する。「次」の場合もIssueの状態を取得する。
-2. [設計書索引](docs/design/README.md)の該当行から設計書と次のスライスを選ぶ。
+2. [設計書索引](docs/design/README.md)と[実装者向け編集マップ](docs/implementation_navigation.md#issueから編集箇所を選ぶ)の対象Issue1行から、設計書・編集する型/関数・触らない境界・最初のテストを選ぶ。
 3. [Remote delta](docs/ai_workflow.md#remote-delta)で未統合PR・他者作業との重複を確認する。
 4. [Task routes](docs/ai_workflow.md#task-routes)の該当行からsourceとtestsだけを選び、Goal / Required / Acceptance / Working setを短く決めて実装へ進む。
 5. 対象検証から始め、共有契約の変更や不明な影響があれば検証範囲を広げる。
@@ -20,7 +20,7 @@ Rust Core / Python Analysis Service / C#・Avalonia GUI のモノレポ。
 - 要件・責務: [requirements](docs/requirements.md)、[architecture](docs/architecture.md)。必要な節だけ読む。
 - 実際の挙動・互換性: 作業対象SHAのsource、matching tests、API・保存形式の定義。
 - 共同作業の手順(pull・ブランチ・PR・CI・自己レビュー・マージ): [collaboration](docs/collaboration.md)。
-- コーディングルール: [coding rules](docs/coding_rules.md)（JSON-like宣言コメントを含む。「必須」は必ず守る）。設計背景は[architecture](docs/architecture.md)を参照する。
+- コーディングルール: [coding rules](docs/coding_rules.md)（JSON-like宣言コメントは必須）。既存不足の実例は[監査](docs/comment_coverage.md)。追加・署名変更の検査は`check_local.ps1`とCIへ接続。設計背景は[architecture](docs/architecture.md)。
 - 検証手順: [development](docs/development.md)、`scripts/check.ps1`、`.github/workflows/`。
 - 現在の実装と未評価範囲: [Current status](docs/current_status.md)。記載日のmain SHAと作業対象のSHAを区別する。
 - 歌詞抽出 #7（実装あり・Issue受け入れ条件は要確認）: [Lyric transcription](docs/lyric_transcription.md)、`python/src/open_karaoke_analysis/lyrics.py`、`whisper_backend.py`、`lyric_evaluator.py`、`python/tests/test_lyric*.py`。実録歌唱の評価は別途確認する。
@@ -36,6 +36,8 @@ Rust Core / Python Analysis Service / C#・Avalonia GUI のモノレポ。
 仕様・コード・Issueの不一致は明示する。要約で原典を上書きしない。
 
 ## 探索を増やさない
+
+- 最初に読むのは**IssueのAcceptance、編集マップの該当1行、設計書の該当節、編集対象sourceと対応テスト**まで。全体のフローと触らない責務は編集マップにある。
 
 - `git diff --name-only` / `git grep -n` / ファイル名・見出しで絞ってから対象行を読む。
 - 同じSHAの既読ファイルやツールスキーマを繰り返し取得しない。

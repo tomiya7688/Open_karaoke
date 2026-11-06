@@ -9,7 +9,7 @@
 
 ## Issue一覧
 
-「状態」は実装有無の要約（精度・実機の受入は別）。未マージPR #111 が追加するファイルは `コード表記` で示し、マージ後にリンクへ置換する。
+「状態」は実装有無の要約（精度・実機の受入は別）。設計書へのリンクは実ファイルを指す。
 
 | Issue | 状態 | 設計書 / 正本 | 依存 | 次に取るスライス |
 |---|---|---|---|---|
@@ -19,7 +19,7 @@
 | #6 Stem | Adapter実装/実録未評価 | [Stem](../stem_separation.md) | #4 | #42のデータ後に評価 |
 | #7 歌詞認識 | Adapter実装/実録未評価 | [歌詞認識](../lyric_transcription.md) | #6 | 同上 |
 | #8 歌詞整列 | Adapter実装/実録未評価 | [Alignment](../lyric_alignment.md) | #7 | 同上 |
-| #13 監視/Mixer | DSPのみ。デバイス接続・API・GUI未 | [Audio engine §Mixer](../audio_engine.md#mixer-and-monitoring-effects--issue-13-first-slice)、`docs/karaoke_session_design.md` | #12 | #107のworker組成で接続 |
+| #13 監視/Mixer | DSPのみ。デバイス接続・API・GUI未 | [Audio engine §Mixer](../audio_engine.md#mixer-and-monitoring-effects--issue-13-first-slice)、[karaoke session design](../karaoke_session_design.md) | #12 | #107のworker組成で接続 |
 | #14 リアルタイム採点 | 未実装 | [#14設計](issue-14-realtime-scoring.md)、[Scoring](../scoring.md) | #12 #40 | 14.1 |
 | #15 GUI/Core接続 | シェル実装済み | [Desktop client](../desktop_client.md) | #41 | #16/#110と並行 |
 | #16 カラオケ画面 | 表示のみ（再生連動未） | [#16設計](issue-16-karaoke-screen.md) | #107 #14 | 16.2（#107のAPI確定後） |
@@ -31,15 +31,15 @@
 | #38 任意編集 | 38.1〜38.3実装済み（検証・保存・`PATCH /songs/{id}`）。GUI未（P3） | [#38設計](issue-38-note-editor.md) | #3 #15 #16 | 38.4 |
 | #39 Windows配布 | 配布候補zipのみ（39.1 配置解決実装済み） | [#39設計](issue-39-windows-packaging.md) | #15 #17 #67 | 39.2 |
 | #40 クロック/遅延 | 合成契約済み。物理校正未 | [Audio clock](../audio_clock.md)、[実装単位](../implementation_plan.md#40の実装単位p0は空けておく) | #12 | plan記載の次単位 |
-| #41 Core API保護 | 一部実装、PR #95 | [Core API](../core_api.md)、[実装単位](../implementation_plan.md#41の実装単位p0は空けておく) | #2 #15 | PR #95 の統合後 |
+| #41 Core API保護 | 一部実装（PR #95統合済み） | [Core API](../core_api.md)、[実装単位](../implementation_plan.md#41の実装単位p0は空けておく) | #2 #15 | plan記載の次単位 |
 | #42 実歌唱データ | 一部実装 | [データセット](../dataset_evaluation.md)、[実装単位](../implementation_plan.md#42の実装単位p0は空けておく) | #18 | plan記載の次単位 |
 | #43 推論分離 | 未 | [#43設計](issue-43-inference-isolation.md) | #12 #107 | 43.1/43.2/43.4契約実装済み、43.3設定面定義・43.5手順書済み(実機は未確認) |
-| #44 多ASR研究 | 後回し | `docs/quality_and_ux_design.md` | #7 #8 #42 | 基線評価後 |
-| #106 設計レビュー | PR #111 | `docs/implementation_navigation.md` | - | PR #111 の統合 |
-| #107 歌唱Session | 107.1実装（純粋な状態機械）、107.2実装（認証付きtransport API、デバイス無し）。deviceは未 | [#107設計](issue-107-karaoke-session.md)、`docs/karaoke_session_design.md`(PR #111) | #12 #13 #14 #40 #41 | 107.3（Controller・worker組成・device lease、#12/#13依存） |
-| #108 品質/再解析 | 108.1実装（版付きquality_report型・合成flag→レポートの純関数）。service接続・Repair・Core/GUI未 | [#108設計](issue-108-quality-report.md)、`docs/quality_and_ux_design.md`(PR #111) | #36 #42 | 108.2（service/song接続と`quality_report.json`公開） |
-| #109 実効モデル固定 | 設計（PR #111） | `docs/quality_and_ux_design.md` | #17 #36 #41 | 同上 |
-| #110 初回UX | 設計（PR #111） | `docs/quality_and_ux_design.md` | #12 #13 #16 #17 #39 #40 #41 #43 | 同上 |
+| #44 多ASR研究 | 後回し | [quality and ux design](../quality_and_ux_design.md) | #7 #8 #42 | 基線評価後 |
+| #106 設計レビュー | 設計文書・宣言コメントCI検査を統合 | [implementation navigation](../implementation_navigation.md) | - | なし（E2E実装は#107/#14/#16） |
+| #107 歌唱Session | 107.1〜107.4実装（状態機械・transport API・Controller・clock quality接続、合成テストのみ）。実device/SongLibrary組成・C# clientは未 | [#107設計](issue-107-karaoke-session.md)、[karaoke session design](../karaoke_session_design.md)| #12 #13 #14 #40 #41 | 実SongLibrary/実device lease/worker組成（#12/#13依存） |
+| #108 品質/再解析 | 108.1実装（版付きquality_report型・合成flag→レポートの純関数）。service接続・Repair・Core/GUI未 | [#108設計](issue-108-quality-report.md)、[quality and ux design](../quality_and_ux_design.md) | #36 #42 | 108.2（service/song接続と`quality_report.json`公開） |
+| #109 実効モデル固定 | 設計書統合済み・実装は後続 | [quality and ux design](../quality_and_ux_design.md) | #17 #36 #41 | 同上 |
+| #110 初回UX | 設計書統合済み・実装は後続 | [quality and ux design](../quality_and_ux_design.md) | #12 #13 #16 #17 #39 #40 #41 #43 | 同上 |
 | #58 PR整理 / #66 Python CA / #67 署名 | 運用・セキュリティ | [Development](../development.md#python-trust-tooling-66) | - | 設計書不要（コード設計を伴わない） |
 
 ## 依存順（歌えるE2Eまでの推奨）

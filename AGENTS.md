@@ -5,6 +5,7 @@
 | やりたいこと | 読む1ファイル |
 |---|---|
 | プロジェクト概要・正本・守る境界 | [AI_CONTEXT.md](AI_CONTEXT.md) |
+| 実装者向け編集マップ（Issue→設計書・編集対象・禁止する越境・最初のテスト） | [docs/implementation_navigation.md](docs/implementation_navigation.md#issueから編集箇所を選ぶ) |
 | Issueの設計・実装スライスを知る | [docs/design/README.md](docs/design/README.md) → 該当Issueの設計書（`docs/design/issue-<N>-*.md`） |
 | 着手前・PR前に確認する（唯一のチェックリスト） | [docs/implementation_checklist.md](docs/implementation_checklist.md) |
 | pull・ブランチ・PR・CI・自己レビュー・マージの手順 | [docs/collaboration.md](docs/collaboration.md) |
@@ -24,7 +25,7 @@ Claude Code / Codex / ChatGPT / GitHub Copilot / 人間の共通規則。手順�
 
 1. **毎回、作業前に必ず pull する。** `git fetch` → `git switch main` → `git pull --ff-only origin main`。最新の `main` からブランチを作る。
 2. 着手前に、同じIssue・ファイルの未統合PR/ブランチや統合済みの実装がないか確認し、Issueへ着手を宣言する。
-3. **コーディングルール [docs/coding_rules.md](docs/coding_rules.md) の「必須」には必ず従う。** 設計書（[索引](docs/design/README.md)）を実装前に確認・更新し、型・API・失敗経路が変わるなら設計書も同じPRで更新する。
+3. **コーディングルール [docs/coding_rules.md](docs/coding_rules.md) の「必須」には必ず従う。** 設計書（[索引](docs/design/README.md)）を実装前に確認・更新し、型・API・失敗経路が変わるなら設計書も同じPRで更新する。 新規・変更宣言の日本語JSON-like宣言コメントを同時更新する（`scripts/check_declaration_comments.py`でCI検査）。
 4. PR作成前のローカル検査は[共同作業ルール §3](docs/collaboration.md#3-作業終了-prを作る)に従う。
 5. **作業終了時は必ずPRを作成する。** `main` へ直接pushしない。
 6. CIの結果(最新head SHAで全て成功)と自己レビューの**両方**が問題なければ、`gh pr merge --squash --delete-branch` でマージする。問題があれば直して再検証し、判断が要る場合は[人へ確認する条件](docs/collaboration.md#5-マージ)に従いPRを開いたまま報告する。

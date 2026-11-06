@@ -1,7 +1,7 @@
 # #107 Core所有の KaraokeSession 設計
 
 > 状態: 107.1（純粋な状態機械）と107.2（認証付きtransport API、デバイス無し）を実装。107.3（Controller合成、fakeのみ）を実装。107.4（提示timestamp→`clock_quality`、合成のみ）を実装。107.5以降は**未実装**。数値・実機品質の主張はしない。
-> 参照のみ: PR #111 の `docs/karaoke_session_design.md`（草案。マージ前のため本書は内容を再掲せず、差異は下記「草案との差」に記す）。
+> 参照のみ: [karaoke_session_design.md](../karaoke_session_design.md)（上位設計。本書は内容を再掲せず、差異は下記「上位設計との差」に記す）。
 
 ## 目的と責務の分け方
 再生・マイク・採点・クロックを横断する「1つの歌唱セッション」の**状態とコマンド順序の正本**をCoreに置く。
@@ -154,7 +154,7 @@ seekは `s < duration_samples` のみ（`out_of_range`）。内部イベント: 
 
 未確認: 実デバイスのpresentation timestamp供給、実測遅延・不確かさ、AudioIo/Controllerからの配線（後続、#40/#19の実機ゲート）。
 
-## 草案(PR #111)との差
+## 上位設計(karaoke_session_design.md)との差
 - 草案の`Stopped`を踏襲。`command_id`履歴は草案例どおり128。
 - 草案は「Stop on terminalは同じsnapshot」。本書はさらにStopをrevision免除にした（理由は上記）。
 - 草案のAPI表は#41のversioningに合わせて確定する。107.2のURLは暫定（`X-Open-Karaoke-Api-Version: 1`の下に追加のみ。変更時は#41の手順で版を上げる）。
