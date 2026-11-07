@@ -102,6 +102,33 @@ public sealed partial class MainWindow : Window
         _model.Editor.AddNote(start, end, 60);
     }
     /// {
+    ///   責務: [PreviewLyricClick: 行の歌詞の区間を試聴するボタン]
+    ///   処理: [1: ボタンの行(EditorLyricRow)の区間をプレビュー再生する]
+    ///   引数: [sender: ボタン, args: Avaloniaのイベント]
+    ///   戻り値: [なし]
+    /// }
+    private async void PreviewLyricClick(object? sender, RoutedEventArgs args)
+    {
+        if ((sender as Control)?.DataContext is EditorLyricRow row) await _model.Preview.PlayRangeAsync(row.StartSample, row.EndSample);
+    }
+    /// {
+    ///   責務: [PreviewNoteClick: 行のノートの区間を試聴するボタン]
+    ///   処理: [1: ボタンの行(EditorNoteRow)の区間をプレビュー再生する]
+    ///   引数: [sender: ボタン, args: Avaloniaのイベント]
+    ///   戻り値: [なし]
+    /// }
+    private async void PreviewNoteClick(object? sender, RoutedEventArgs args)
+    {
+        if ((sender as Control)?.DataContext is EditorNoteRow row) await _model.Preview.PlayRangeAsync(row.StartSample, row.EndSample);
+    }
+    /// {
+    ///   責務: [StopPreviewClick: 区間の試聴を止めるボタン]
+    ///   処理: [1: 終端の予約を捨てて一時停止を依頼する]
+    ///   引数: [sender, args: Avaloniaのイベント]
+    ///   戻り値: [なし]
+    /// }
+    private async void StopPreviewClick(object? sender, RoutedEventArgs args) => await _model.Preview.StopAsync();
+    /// {
     ///   責務: [DeleteLyricClick: 行の歌詞を削除するボタン]
     ///   処理: [1: ボタンの行(EditorLyricRow)を削除する]
     ///   引数: [sender: ボタン, args: Avaloniaのイベント]

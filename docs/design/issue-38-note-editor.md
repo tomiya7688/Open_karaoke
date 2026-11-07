@@ -1,6 +1,6 @@
 # #38 任意の歌詞・採点ノート編集 設計
 
-> 状態: 38.1実装済み（編集コマンド型と検証の純関数 `core/src/song_edit.rs`）。38.2実装済み（保存・世代管理・下流invalidate `core/src/song_library/edit.rs`）。38.3実装済み（`PATCH /songs/{id}` `core/src/song_api.rs`）。38.4実装済み（GUIの編集UI `gui/OpenKaraoke.Client/SongEditorViewModel.cs`）。38.5（プレビュー再生）は未実装。P3、#16の後続。
+> 状態: 38.1実装済み（編集コマンド型と検証の純関数 `core/src/song_edit.rs`）。38.2実装済み（保存・世代管理・下流invalidate `core/src/song_library/edit.rs`）。38.3実装済み（`PATCH /songs/{id}` `core/src/song_api.rs`）。38.4実装済み（GUIの編集UI `gui/OpenKaraoke.Client/SongEditorViewModel.cs`）。38.5実装済み（区間のプレビュー再生 `gui/OpenKaraoke.Client/PreviewController.cs`、実機の音は`Unverified`）。P3、#16の後続。
 > 通常導線（編集せず歌う）を妨げないことが最優先。
 
 ## 目的
@@ -103,7 +103,7 @@
   - 429・通信失敗: 変更を残し、手動の再保存を促す。
 - 表示への反映: 保存成功後、歌詞・音程バーの表示を保存した内容で更新し、表示位置を保つ。
 - UI: 「歌詞編集」タブ。歌詞（本文・開始・終了秒）とノート（開始・終了秒・音高）を表で編集し、追加・削除・保存・元に戻す・やり直し・保存済みへ戻す・最新を読み直す。入力欄は確定（フォーカスを外す）時に反映。このセッションで編集した行に「手編集」と表示する。
-- 範囲外: 保存後の出自（Core側の`source=manual`・`edit_origin`）の表示は、現在のAPIがevidenceを返さないため未対応。プレビュー再生・シークは38.5。
+- 範囲外: 保存後の出自（Core側の`source=manual`・`edit_origin`）の表示は、現在のAPIがevidenceを返さないため未対応。プレビュー再生・シークは38.5（下記）。
 
 | # | 条件 | テスト（`gui/OpenKaraoke.Client.Tests/EditorTests.cs`） |
 |---|---|---|
@@ -113,6 +113,22 @@
 | 4 | 409は変更を残して止め、422/413はロールバックしRedoで復元、429/通信失敗は手動再保存、404は曲なし、保存中の曲の切替で遅い結果を捨てる | `Failures` |
 | 5 | 曲表示で編集対象になり、保存で表示が更新され位置を保つ。競合で表示は不変。切断で消える | `ShellFlow` |
 
+## 38.5 決定事項と受入条件の照合（実装済み）
+**決定**
+- 構成: `PreviewController`（`gui/OpenKaraoke.Client/PreviewController.cs`、`ShellViewModel.Preview`）が`PlaybackFollower`（#16 16.2）の`seek`/`play`/`pause`だけを使う。再生・時計・採点はCoreのセッション（#107）が持ち、GUIは区間の依頼と終端での一時停止だけを行う。編集状態（Undo/Redo・未保存）は変えない読み取り専用の利用。
+- 区間: 歌詞・ノート行の`StartSample`〜`EndSample`（48kHz整数sample、未保存の編集中の値も可）。終端は曲の長さへ収める。空の区間は送らない。
+- 開始条件: 編集中の曲と追従中セッションの曲IDが一致し、セッションがシーク可能であること。満たさなければ理由を表示し何も送らない（自動でセッションを作らない。セッションは「曲・歌詞」タブの再生と共通）。
+- 流れ: 開始へseek→反映位置が区間内か確認→再生中でなければplay→終端予約。位置が終端以降になったらpauseを1回だけ送る（送信中は重ねない）。
+- 予約の破棄: 一時停止・停止・別セッション・別の曲・切断・「試聴を止める」で終端予約を捨て、後の位置で勝手に止めない。シーク拒否では再生を送らない。
+- UI: 歌詞・ノート各行の「試聴」と「試聴を止める」。通知は`Preview.Notice`。
+- 範囲外/未検証: 実機の音声出力・遅延・終端の精度（ポーリング間隔200ms分の超過あり）は`Unverified`。サンプル精度の停止はCore側のrange再生が必要で将来課題。
+
+| # | 条件 | テスト（`gui/OpenKaraoke.Client.Tests/PreviewTests.cs`） |
+|---|---|---|
+| 1 | 区間へseekしてplay、終端手前では止めず終端でpauseを1回だけ送る。再生中はplayを重ねず、終端は曲末へ収める | `RangePlayback` |
+| 2 | 空区間・曲の不一致・セッション無し・シーク拒否では再生しない。ユーザーの一時停止・切断で予約を捨てる。停止はプレビュー中だけpause | `Refusals` |
+| 3 | 行の範囲がsampleで公開され、Shellがプレビューを持つ | `ShellWiring` |
+
 ## 実装スライス
 | # | 内容 | 依存 | 完了条件・テスト |
 |---|---|---|---|
@@ -120,7 +136,7 @@
 | 38.2 | 保存+世代管理+下流invalidate（`SongLibrary`上）**実装済み** | 38.1 | 再読込保持、`base_generation`競合、invalidate伝播 |
 | 38.3 | Core公開API（`PATCH`系、#41の版管理に従う）**実装済み** | 38.2, #41 | 認証/上限/サイズ制限のcontract test |
 | 38.4 | `SongEditorViewModel`+Undo/Redo+一覧表示**実装済み** | 38.3, #15 | `Client.Tests`: Undo/Redo往復、拒否時のロールバック表示 |
-| 38.5 | プレビュー再生・シーク連携 | 38.4, #16/#107 | 編集中の区間を再生できる（headless smoke+実機は`Unverified`） |
+| 38.5 | プレビュー再生・シーク連携**実装済み** | 38.4, #16/#107 | 編集中の区間を再生できる（headless smoke+実機は`Unverified`） |
 
 ## 触るファイル
 `core/src/song_data.rs`（型/validate/migration）、`core/src/song_library/`、`core/src/song_api.rs`（ルート追加）、`gui/OpenKaraoke.Client/CoreApiClient.cs`・新設`SongEditorViewModel.cs`、`gui/OpenKaraoke.Client.Tests/`、必要なら`docs/song_format.md`。

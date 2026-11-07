@@ -399,7 +399,14 @@
                           AutomationProperties.Name="未保存の変更を捨てる" />
                   <Button Content="最新を読み直す" Margin="0,0,8,8" IsEnabled="{Binding CanLoadSong}" Click="LoadSongClick"
                           AutomationProperties.Name="Coreから曲を読み直す" />
+                  <Button Content="試聴を止める" Margin="0,0,8,8" IsEnabled="{Binding Preview.IsPreviewing}" Click="StopPreviewClick"
+                          AutomationProperties.Name="区間の試聴を止める" />
                 </WrapPanel>
+                <TextBlock Classes="caption" TextWrapping="Wrap"
+                           Text="試聴は「曲・歌詞」タブの再生と同じCoreの歌唱セッションで、行の区間だけを再生します。先に再生セッションを用意してください。" />
+                <Border Classes="infoBar" IsVisible="{Binding Preview.HasNotice}">
+                  <SelectableTextBlock Text="{Binding Preview.Notice}" TextWrapping="Wrap" />
+                </Border>
               </StackPanel>
             </Border>
             <Border Classes="card" IsVisible="{Binding Editor.HasSong}">
@@ -419,6 +426,7 @@
                                  AutomationProperties.Name="歌詞の終了秒" />
                         <StackPanel Grid.Column="3" Orientation="Horizontal" Spacing="6">
                           <TextBlock Classes="caption" Text="手編集" IsVisible="{Binding IsEdited}" VerticalAlignment="Center" />
+                          <Button Content="試聴" Click="PreviewLyricClick" AutomationProperties.Name="この歌詞の区間を試聴" />
                           <Button Content="削除" Click="DeleteLyricClick" AutomationProperties.Name="歌詞を削除" />
                         </StackPanel>
                       </Grid>
@@ -445,6 +453,7 @@
                                  AutomationProperties.Name="音高(MIDIノート番号)" />
                         <StackPanel Grid.Column="3" Orientation="Horizontal" Spacing="6">
                           <TextBlock Classes="caption" Text="手編集" IsVisible="{Binding IsEdited}" VerticalAlignment="Center" />
+                          <Button Content="試聴" Click="PreviewNoteClick" AutomationProperties.Name="このノートの区間を試聴" />
                           <Button Content="削除" Click="DeleteNoteClick" AutomationProperties.Name="ノートを削除" />
                         </StackPanel>
                       </Grid>

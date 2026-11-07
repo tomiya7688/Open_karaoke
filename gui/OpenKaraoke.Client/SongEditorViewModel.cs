@@ -17,6 +17,8 @@ internal sealed record EditSnapshot(LyricSegment[] Lyrics, ScoringNote[] Notes);
 public sealed class EditorLyricRow(SongEditorViewModel owner, LyricSegment segment)
 {
     public string Id { get; } = segment.Id;
+    public ulong StartSample => segment.StartSample;
+    public ulong EndSample => segment.EndSample;
     public string Text
     {
         get => segment.Text;
@@ -55,6 +57,8 @@ public sealed class EditorLyricRow(SongEditorViewModel owner, LyricSegment segme
 public sealed class EditorNoteRow(SongEditorViewModel owner, ScoringNote note)
 {
     public string Id { get; } = note.Id;
+    public ulong StartSample => note.StartSample;
+    public ulong EndSample => note.EndSample;
     public int MidiNote
     {
         get => note.MidiNote;
