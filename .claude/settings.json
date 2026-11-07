@@ -12,6 +12,17 @@
           }
         ]
       }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/hooks/prompt_cloud.py\"",
+            "timeout": 30
+          }
+        ]
+      }
     ]
   }
 }
