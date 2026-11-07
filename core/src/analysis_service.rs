@@ -24,6 +24,8 @@ pub struct AnalysisConfig {
     pub python: PathBuf,
     pub artifact_root: PathBuf,
     pub startup_timeout: Duration,
+    /// Python worker子プロセスのOS優先度(Issue #43 43.3)。既定は`Inherit`。
+    pub worker_priority: crate::inference_policy::WorkerPriority,
 }
 
 #[derive(Clone, Deserialize)]
@@ -325,6 +327,27 @@ fn venv_base_interpreter(python: &Path) -> Option<PathBuf> {
     base.is_file().then_some(base)
 }
 
+/// {
+///   責務: [`apply_worker_priority`: worker子プロセスの起動前にOS優先度を設定する]
+///   処理: [1: Windowsではpriority classをcreation flagsへ設定, 2: inheritと非Windowsでは何もしない]
+///   引数: [command: 起動前のコマンド, priority: 方針]
+///   戻り値: []
+///   副作用: [commandのcreation flagsを変更する]
+/// }
+fn apply_worker_priority(command: &mut Command, priority: crate::inference_policy::WorkerPriority) {
+    #[cfg(windows)]
+    {
+        let flags = priority.creation_flags();
+        if flags != 0 {
+            command.creation_flags(flags);
+        }
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = (command, priority);
+    }
+}
+
 async fn launch(config: &AnalysisConfig, http: &Client) -> Result<Running, String> {
     let runtime = config.artifact_root.join(".runtime");
     fs::create_dir_all(&runtime)
@@ -346,6 +369,7 @@ async fn launch(config: &AnalysisConfig, http: &Client) -> Result<Running, Strin
         command.env_remove(VENV_LAUNCHER_ENV);
         command
     };
+    apply_worker_priority(&mut command, config.worker_priority);
     let mut child = command
         .args(["-m", "open_karaoke_analysis", "--artifact-root"])
         .arg(&config.artifact_root)

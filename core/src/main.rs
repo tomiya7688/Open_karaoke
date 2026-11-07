@@ -11,6 +11,7 @@ use open_karaoke_core::{
     AppState, CORE_API_VERSION,
     analysis_service::{AnalysisConfig, AnalysisService},
     ffmpeg_bundle::{MediaTools, verify_bundle},
+    inference_policy::{WorkerPriority, parse_max_heavy_jobs},
     runtime_layout::{RUNTIME_MANIFEST_FILE, RuntimeLayout, RuntimeManifest},
     song_library::SongLibrary,
 };
@@ -62,18 +63,36 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             std::env::var_os("HOME").map(|p| PathBuf::from(p).join(".local/share/OpenKaraoke"))
         })
         .ok_or("Set OPEN_KARAOKE_DATA_DIR to a writable application data directory")?;
+    // 範囲外の値は暗黙に丸めず起動時に拒否する(未設定なら現行挙動)。
+    // UTF-8でない値も未設定扱いにせず拒否する。
+    let worker_priority = match std::env::var("OPEN_KARAOKE_WORKER_PRIORITY") {
+        Ok(text) => WorkerPriority::parse(&text)?,
+        Err(std::env::VarError::NotPresent) => WorkerPriority::Inherit,
+        Err(error) => return Err(format!("OPEN_KARAOKE_WORKER_PRIORITY: {error}").into()),
+    };
+    let (worker_priority, warning) = worker_priority.effective();
+    if let Some(warning) = warning {
+        eprintln!("warning: {warning}");
+    }
+    let max_heavy_jobs = match std::env::var("OPEN_KARAOKE_MAX_HEAVY_JOBS") {
+        Ok(text) => parse_max_heavy_jobs(&text)?,
+        Err(std::env::VarError::NotPresent) => None,
+        Err(error) => return Err(format!("OPEN_KARAOKE_MAX_HEAVY_JOBS: {error}").into()),
+    };
     let library = SongLibrary::open(data.join("artifacts"), data.join("songs"))?;
     let service = AnalysisService::start(AnalysisConfig {
         python,
         artifact_root: data.join("artifacts"),
         startup_timeout: Duration::from_secs(30),
+        worker_priority,
     })
     .await
     .map_err(std::io::Error::other)?;
     let state = AppState::with_analysis(service.client())
         .with_core_instance_id(instance_id)
         .with_song_library(library)
-        .with_media_tools(media_tools);
+        .with_media_tools(media_tools)
+        .with_max_concurrent_heavy_jobs(max_heavy_jobs);
     let router = session.router(state.clone());
     if let Err(error) = publish_ready(port, instance_id) {
         // A launcher that exited during startup must not leave its worker behind.
