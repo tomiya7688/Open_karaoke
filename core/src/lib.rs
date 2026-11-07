@@ -1264,7 +1264,7 @@ mod tests {
 
     /// {
     ///   責務: [`heavy_slot_unlimited_by_default_and_limit_one_serializes`: 既定は無制限で、上限1なら2件目の重いJobが枠解放まで待つことを検証する]
-    ///   処理: [1: 既定で即開始, 2: 上限1で2件目がdeferred(heavy_job_limit), 3: 枠解放で開始]
+    ///   処理: [1: 既定で即開始, 2: 上限1で2件目が`deferred`(`heavy_job_limit`), 3: 枠解放で開始]
     ///   引数: []
     ///   戻り値: []
     /// }
@@ -1306,7 +1306,7 @@ mod tests {
 
     /// {
     ///   責務: [`heavy_slot_wait_is_cancellable_and_bounded`: 枠待ちがcancelで終わり、上限時間でfailedになることを検証する]
-    ///   処理: [1: 枠を占有, 2: 待機中にcancelしてcancelled, 3: 別Jobがdeferred_timeoutでfailed]
+    ///   処理: [1: 枠を占有, 2: 待機中にcancelしてcancelled, 3: 別Jobが`deferred_timeout`でfailed]
     ///   引数: []
     ///   戻り値: []
     /// }
