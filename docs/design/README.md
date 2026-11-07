@@ -33,7 +33,7 @@
 | #40 クロック/遅延 | 合成契約済み。物理校正未 | [Audio clock](../audio_clock.md)、[実装単位](../implementation_plan.md#40の実装単位p0は空けておく) | #12 | plan記載の次単位 |
 | #41 Core API保護 | 一部実装（PR #95統合済み） | [Core API](../core_api.md)、[実装単位](../implementation_plan.md#41の実装単位p0は空けておく) | #2 #15 | plan記載の次単位 |
 | #42 実歌唱データ | 一部実装 | [データセット](../dataset_evaluation.md)、[実装単位](../implementation_plan.md#42の実装単位p0は空けておく) | #18 | plan記載の次単位 |
-| #43 推論分離 | 未 | [#43設計](issue-43-inference-isolation.md) | #12 #107 | 43.1/43.2/43.4契約実装済み、43.3設定面定義・43.5手順書済み(実機は未確認) |
+| #43 推論分離 | 未 | [#43設計](issue-43-inference-isolation.md) | #12 #107 | 43.1/43.2/43.4契約実装済み、43.3機構実装済み(既定不変・効果は未測定)・43.5手順書済み(実機は未確認) |
 | #44 多ASR研究 | 後回し | [quality and ux design](../quality_and_ux_design.md) | #7 #8 #42 | 基線評価後 |
 | #106 設計レビュー | 設計文書・宣言コメントCI検査を統合 | [implementation navigation](../implementation_navigation.md) | - | なし（E2E実装は#107/#14/#16） |
 | #107 歌唱Session | 107.1〜107.4実装（状態機械・transport API・Controller・clock quality接続、合成テストのみ）。実device/SongLibrary組成・C# clientは未 | [#107設計](issue-107-karaoke-session.md)、[karaoke session design](../karaoke_session_design.md)| #12 #13 #14 #40 #41 | 実SongLibrary/実device lease/worker組成（#12/#13依存） |

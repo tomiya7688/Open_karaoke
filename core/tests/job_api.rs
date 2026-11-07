@@ -534,6 +534,7 @@ async fn missing_python_has_actionable_error() {
         python: root.path().join("no-python-here"),
         artifact_root: root.path().join("artifacts"),
         startup_timeout: Duration::from_secs(1),
+        worker_priority: open_karaoke_core::inference_policy::WorkerPriority::Inherit,
     })
     .await;
     assert!(result.err().unwrap().contains("analysis_spawn"));
@@ -572,6 +573,7 @@ async fn python_startup_mock_cancel_crash_recovery_shutdown() {
         python: python.clone(),
         artifact_root: root.path().join("artifacts"),
         startup_timeout: Duration::from_secs(30),
+        worker_priority: open_karaoke_core::inference_policy::WorkerPriority::Inherit,
     })
     .await
     .unwrap();
@@ -696,6 +698,7 @@ async fn windows_venv_redirector_python_completes_a_job() {
         python: venv.join("Scripts/python.exe"),
         artifact_root: root.path().join("artifacts"),
         startup_timeout: Duration::from_secs(30),
+        worker_priority: open_karaoke_core::inference_policy::WorkerPriority::Inherit,
     })
     .await
     .unwrap();
@@ -809,6 +812,7 @@ async fn python_heavy_job_defers_while_playing_and_worker_crash_keeps_playback()
         python: python.clone(),
         artifact_root: root.path().join("artifacts"),
         startup_timeout: Duration::from_secs(30),
+        worker_priority: open_karaoke_core::inference_policy::WorkerPriority::Inherit,
     })
     .await
     .unwrap();
