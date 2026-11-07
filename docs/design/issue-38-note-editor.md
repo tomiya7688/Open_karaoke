@@ -1,6 +1,6 @@
 # #38 任意の歌詞・採点ノート編集 設計
 
-> 状態: 38.1実装済み（編集コマンド型と検証の純関数 `core/src/song_edit.rs`）。38.2実装済み（保存・世代管理・下流invalidate `core/src/song_library/edit.rs`）。38.3実装済み（`PATCH /songs/{id}` `core/src/song_api.rs`）。38.4以降（GUI）は未実装。P3、#16の後続。
+> 状態: 38.1実装済み（編集コマンド型と検証の純関数 `core/src/song_edit.rs`）。38.2実装済み（保存・世代管理・下流invalidate `core/src/song_library/edit.rs`）。38.3実装済み（`PATCH /songs/{id}` `core/src/song_api.rs`）。38.4実装済み（GUIの編集UI `gui/OpenKaraoke.Client/SongEditorViewModel.cs`）。38.5（プレビュー再生）は未実装。P3、#16の後続。
 > 通常導線（編集せず歌う）を妨げないことが最優先。
 
 ## 目的
@@ -91,13 +91,35 @@
 | 6 | 認証なしは401+no-store（全製品ルート一覧に追加） | `session::tests::every_product_route_requires_a_session` |
 | 7 | 保存・原子性・同時編集は38.2のテストで担保 | `core/tests/song_edit_save.rs`（変更なし） |
 
+## 38.4 決定事項と受入条件の照合（実装済み）
+**決定**
+- 構成: `SongEditorViewModel`（`gui/OpenKaraoke.Client/SongEditorViewModel.cs`）が基準（保存済み）と作業中の2つの状態と、Undo/Redoスタックを持つ。確定はCoreで、GUIは`SongBundle`を書かない。`ShellViewModel.Editor`が曲の表示・切断・競合時の再読込と連動する。
+- 通信: `ICoreApi.EditSongAsync`（`PATCH /songs/{id}`、本文は`base_generation`と`ops`のみ）。`base_generation`は`GET /songs/{id}`の`song.artifacts.evidence.generation`（`SongBundle.EvidenceGeneration`）。Coreが世代を返さない曲は編集不可（`Unsupported`）。
+- op変換: 保存時に基準と作業中の差分から`add_lyric`→`add_note`→`update_*`→`delete_note`→`delete_lyric`の順で作る（参照中の歌詞を先に消さない）。1024件超と64KiB超は送る前に知らせる。
+- 失敗の表示（いずれも自動再試行しない）:
+  - 409: 競合として未保存の変更を残し、保存と編集を止めて「最新を読み直す」を促す。読み直すと未保存の変更は破棄される。
+  - 404: 曲なしとして同様に止める。
+  - 422/413: Coreは何も保存していないので、画面を保存済みの状態へ戻し、拒否された編集は「やり直し」で取り戻せる。
+  - 429・通信失敗: 変更を残し、手動の再保存を促す。
+- 表示への反映: 保存成功後、歌詞・音程バーの表示を保存した内容で更新し、表示位置を保つ。
+- UI: 「歌詞編集」タブ。歌詞（本文・開始・終了秒）とノート（開始・終了秒・音高）を表で編集し、追加・削除・保存・元に戻す・やり直し・保存済みへ戻す・最新を読み直す。入力欄は確定（フォーカスを外す）時に反映。このセッションで編集した行に「手編集」と表示する。
+- 範囲外: 保存後の出自（Core側の`source=manual`・`edit_origin`）の表示は、現在のAPIがevidenceを返さないため未対応。プレビュー再生・シークは38.5。
+
+| # | 条件 | テスト（`gui/OpenKaraoke.Client.Tests/EditorTests.cs`） |
+|---|---|---|
+| 1 | PATCHの経路・本文（base_generation+ops、snake_case）、409/404/413/422/429は1回だけ返し再試行しない | `ClientRoute` |
+| 2 | Undo/Redo往復、新しい編集でRedo破棄、不正な範囲・音高・空本文・参照中の歌詞削除は状態不変で理由を示す | `UndoRedo` |
+| 3 | 差分のop順序、成功で世代更新・再生成待ち表示、変更なしは要求しない | `SaveOps` |
+| 4 | 409は変更を残して止め、422/413はロールバックしRedoで復元、429/通信失敗は手動再保存、404は曲なし、保存中の曲の切替で遅い結果を捨てる | `Failures` |
+| 5 | 曲表示で編集対象になり、保存で表示が更新され位置を保つ。競合で表示は不変。切断で消える | `ShellFlow` |
+
 ## 実装スライス
 | # | 内容 | 依存 | 完了条件・テスト |
 |---|---|---|---|
 | 38.1 | 編集コマンド型と検証（純関数）、出自表現の決定（`format_version`上げ要否） | #3 | `core/tests/`: 不正range・不正参照ID拒否、原子性、決定的出力 |
 | 38.2 | 保存+世代管理+下流invalidate（`SongLibrary`上）**実装済み** | 38.1 | 再読込保持、`base_generation`競合、invalidate伝播 |
 | 38.3 | Core公開API（`PATCH`系、#41の版管理に従う）**実装済み** | 38.2, #41 | 認証/上限/サイズ制限のcontract test |
-| 38.4 | `SongEditorViewModel`+Undo/Redo+一覧表示 | 38.3, #15 | `Client.Tests`: Undo/Redo往復、拒否時のロールバック表示 |
+| 38.4 | `SongEditorViewModel`+Undo/Redo+一覧表示**実装済み** | 38.3, #15 | `Client.Tests`: Undo/Redo往復、拒否時のロールバック表示 |
 | 38.5 | プレビュー再生・シーク連携 | 38.4, #16/#107 | 編集中の区間を再生できる（headless smoke+実機は`Unverified`） |
 
 ## 触るファイル

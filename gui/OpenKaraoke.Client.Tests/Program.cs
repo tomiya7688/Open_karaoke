@@ -57,6 +57,11 @@ internal static class Program
             ("cancel queued commands after a session switch and ignore late failures", PlaybackFollowerTests.CommandRaces),
             ("poll the session at a bounded interval and stop on detach", PlaybackFollowerTests.PollingLoop),
             ("attach the follower on connect and detach on disconnect", PlaybackFollowerTests.ShellLifecycle),
+            ("send note edits to Core with the base generation and never retry a conflict", EditorTests.ClientRoute),
+            ("undo and redo lyric and note edits and reject invalid input", EditorTests.UndoRedo),
+            ("convert edits to ordered ops and advance the generation on save", EditorTests.SaveOps),
+            ("show 409, 404, 413, 422 and 429 and roll back rejected edits", EditorTests.Failures),
+            ("edit the shown song and follow the saved result", EditorTests.ShellFlow),
         };
         if (args.Length == 2) tests.Add(("live C# to Rust to Python lifecycle", () => NativeTests.RunAsync(args[0], args[1])));
         var passed = 0;
