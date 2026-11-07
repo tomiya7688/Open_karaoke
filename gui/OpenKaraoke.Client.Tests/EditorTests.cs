@@ -19,7 +19,7 @@ internal static class EditorTests
     ///   引数: [generation: evidenceの世代]
     ///   戻り値: [曲データ]
     /// }
-    private static SongBundle Bundle(ulong generation = 3)
+    internal static SongBundle Bundle(ulong generation = 3)
     {
         var fixture = SongTests.Fixture();
         return fixture with

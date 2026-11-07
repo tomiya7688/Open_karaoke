@@ -46,6 +46,7 @@ public sealed class ShellViewModel : INotifyPropertyChanged, IAsyncDisposable
     public ShellViewModel(Func<string, string, string?, CancellationToken, Task<ICoreConnection>>? launch = null)
     {
         Playback = new PlaybackFollower(Karaoke);
+        Preview = new PreviewController(Playback, Karaoke, Editor);
         Editor.Saved += OnEditSaved;
         _launch = launch ?? (async (executable, data, python, token) =>
             await CoreConnection.StartAsync(executable, data, python, token));
@@ -90,6 +91,13 @@ public sealed class ShellViewModel : INotifyPropertyChanged, IAsyncDisposable
     ///   戻り値: [編集用ViewModel]
     /// }
     public SongEditorViewModel Editor { get; } = new();
+    /// {
+    ///   責務: [Preview: 編集中の区間のプレビュー再生(#38 38.5)。再生と時計はCoreのセッションが持つ]
+    ///   処理: [1: 追従・表示位置・編集状態を束ねて、区間の再生と終端での一時停止だけを依頼する]
+    ///   引数: []
+    ///   戻り値: [プレビュー制御]
+    /// }
+    public PreviewController Preview { get; }
     public IReadOnlyList<SongListItem> Songs => _songs;
     // 読み込み中は選択を変えない(完了した曲と選択がずれないようにする)。
     public SongListItem? SelectedSong

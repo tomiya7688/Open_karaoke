@@ -12,16 +12,16 @@ namespace OpenKaraoke.Client.Tests;
 internal static class PlaybackFollowerTests
 {
     private const ulong Second = SongTimeline.SampleRate;
-    private static readonly Guid Instance = Guid.Parse("11111111-1111-1111-1111-111111111111");
+    internal static readonly Guid Instance = Guid.Parse("11111111-1111-1111-1111-111111111111");
     private static readonly Guid Session = Guid.Parse("22222222-2222-2222-2222-222222222222");
-    private static readonly Guid SongId = Guid.Parse("33333333-3333-3333-3333-333333333333");
+    internal static readonly Guid SongId = Guid.Parse("33333333-3333-3333-3333-333333333333");
 
     /// {
     ///   責務: [Snap: テスト用の状態を作る]
     ///   引数: [state, revision, epoch, position(sample), session, instance, duration]
     ///   戻り値: [状態]
     /// }
-    private static KaraokeSessionSnapshot Snap(
+    internal static KaraokeSessionSnapshot Snap(
         string state, ulong revision, ulong epoch, ulong position, Guid? session = null, Guid? instance = null, ulong duration = 10 * Second) =>
         new(session ?? Session, instance ?? Instance, SongId, state, revision, epoch, position,
             state == "playing" ? "presented" : "committed", new ClockQualityInfo("unknown"), duration, "practice",
@@ -361,7 +361,7 @@ internal static class PlaybackFollowerTests
     ///   責務: [FakeSessionApi: 歌唱セッションの取得・コマンドをテストから操作できるFake]
     ///   フィールド: [Current: 取得で返す状態, ThrowOnPoll: 取得を失敗させる, Fail: コマンドをこのHTTP状態で拒否する, OnCommand: コマンドから結果の状態を作る, Sent: 受け取ったコマンド, Polls: 取得回数]
     /// }
-    private sealed class FakeSessionApi : ICoreApi
+    internal sealed class FakeSessionApi : ICoreApi
     {
         public KaraokeSessionSnapshot? Current { get; set; }
         public Exception? ThrowOnPoll { get; set; }

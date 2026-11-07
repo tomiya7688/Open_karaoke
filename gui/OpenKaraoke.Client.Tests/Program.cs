@@ -62,6 +62,9 @@ internal static class Program
             ("convert edits to ordered ops and advance the generation on save", EditorTests.SaveOps),
             ("show 409, 404, 413, 422 and 429 and roll back rejected edits", EditorTests.Failures),
             ("edit the shown song and follow the saved result", EditorTests.ShellFlow),
+            ("preview an edited range and pause once at its end", PreviewTests.RangePlayback),
+            ("refuse or cancel the preview without leaving a reservation", PreviewTests.Refusals),
+            ("expose row ranges and the preview from the shell", PreviewTests.ShellWiring),
         };
         if (args.Length == 2) tests.Add(("live C# to Rust to Python lifecycle", () => NativeTests.RunAsync(args[0], args[1])));
         var passed = 0;
