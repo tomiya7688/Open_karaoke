@@ -13,6 +13,7 @@ import soundfile as sf
 
 from open_karaoke_analysis.adapters import AdapterRegistry, AnalysisCancelled, AnalysisContext
 from open_karaoke_analysis.contracts import ModelInfo, Role, ServiceError
+from open_karaoke_analysis.quality_report import report_from_json
 from open_karaoke_analysis.song import STAGES, SongAdapter
 
 
@@ -155,6 +156,10 @@ def test_pipeline_order_provenance_reference_and_immutable_input(tmp_path, sourc
         data = (tmp_path / asset["source"]).read_bytes()
         assert len(data) == asset["bytes"]
         assert hashlib.sha256(data).hexdigest() == asset["sha256"]
+    report_path = next(a for a in artifacts if a.endswith("/quality_report.json"))
+    report = report_from_json((tmp_path / report_path).read_text(encoding="utf-8"))
+    assert report.playability == "playable" and report.flags == ()
+    assert [name for name, _ in report.stage_models] == list(STAGES)
     source.write_bytes(b"replaced after analysis")
     snapshot = next(a for a in doc["assets"] if a["destination"] == "audio/original_48k.wav")
     copied = (tmp_path / snapshot["source"]).read_bytes()

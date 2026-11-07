@@ -1,6 +1,6 @@
 # #108 版付き解析品質レポート 設計
 
-> 状態: 108.1 実装（Python純関数とデータ型のみ）。108.2以降は未実装。精度・実歌唱での有効性は主張しない（合成flagでの契約テストのみ）。
+> 状態: 108.1 実装（Python純関数とデータ型）、108.2 実装（`song.py`が完了時に`quality_report.json`をworker artifactとして公開。Core/GUI/bundle未接続）。108.3以降は未実装。精度・実歌唱での有効性は主張しない（合成flagでの契約テストのみ）。
 > 上位設計は [quality_and_ux_design.md](../quality_and_ux_design.md)（PR #139 で統合済み）。衝突時は同書へ追随する。
 
 ## 目的
@@ -19,7 +19,7 @@
 ## 非目標（後続スライス）
 | スライス | 内容 |
 |---|---|
-| 108.2 | `service.py`/`song.py` へ接続し完了artifactに `quality_report.json` を公開（重複公開検証） |
+| 108.2（実装済） | `song.py`の`_quality_report`が、検証済み歌詞区間の重なり(boundary)だけを診断し、歌詞・音符artifactのhash、各段のモデル参照(未公開の重みhashはnull)を付けて`quality_report.json`を結果の直前に公開。Whisper反復・整列被覆率は上流が値を出すまで評価しない。SongBundleやassetsには入れない |
 | 108.3 | RepairPlanner（上限回数・長さ・CPU/VRAM/時間・キャンセル、共有artifact変更追跡と下流invalidate） |
 | 108.4 | RepairExecutor（選択的再解析、attempt出典の記録、`kind=repair` と親レポートhash） |
 | 108.5 | Core API転送とGUIのwarning/repair availability表示（一意コードの文言表） |

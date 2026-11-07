@@ -13,6 +13,15 @@ from pydantic import BaseModel, ConfigDict, Field
 from .adapters import AdapterRegistry, AnalysisContext, resolve_artifact, validate_adapter_options
 from .artifact_io import hash_file, read_json_object
 from .contracts import ModelInfo, Role, ServiceError
+from .quality_report import (
+    BoundarySignal,
+    InputRef,
+    ModelRef,
+    QualityOptions,
+    assess_signals,
+    build_quality_report,
+    report_to_json,
+)
 
 RATE = 48_000
 MAX_SAMPLES = 30 * 60 * RATE
@@ -190,6 +199,66 @@ def _canonical(document: dict, key: str, duration: int, version: int) -> list[di
         ):
             raise ServiceError("invalid_song_artifact", "Invalid canonical MIDI note")
     return rows
+
+
+def _quality_report(
+    segments: list[dict],
+    stages: list[dict],
+    observed: dict[str, tuple[str, int]],
+    prefix: dict[str, str],
+) -> dict:
+    """
+    {
+      責務: [_quality_report: 完了した解析から版付き品質レポート(診断のみ)を組む]
+      処理: [
+        1: 歌詞区間の重なりをBoundarySignalにして閾値判定,
+        2: 歌詞・音符artifactをInputRefに、各段のモデルをModelRefにする,
+        3: レポートを正規JSONから辞書へ戻して返す
+      ]
+      引数: [
+        segments: 検証済み歌詞区間, stages: 段記録,
+        observed: artifact→(sha256,bytes), prefix: 段→出力接頭辞
+      ]
+      戻り値: [quality_report辞書]
+      副作用: [なし]
+      エラー: [QualityReportError: 契約違反]
+      補足: [Whisper反復・整列被覆率は上流が公開するまで評価しない(推測しない)。精度は主張しない]
+    }
+    """
+    options = QualityOptions()
+    ordered = sorted(segments, key=lambda row: (row["start_sample"], row["end_sample"]))
+    edges = tuple(
+        BoundarySignal(
+            "alignment", after["start_sample"], min(before["end_sample"], after["end_sample"]),
+            min(before["end_sample"], after["end_sample"]) - after["start_sample"],
+        )
+        for before, after in zip(ordered, ordered[1:], strict=False)
+        if before["end_sample"] > after["start_sample"]
+    )  # fmt: skip
+    inputs = tuple(
+        InputRef(name, 1, observed[f"{prefix[stage]}/{name}.json"][0])
+        for stage, name in (("alignment", "lyrics"), ("notes", "notes"))
+    )
+    models = {}
+    for stage in stages:
+        info = stage["model"]
+        weights = (stage["runtime"] or {}).get("weights_sha256")
+        models[stage["role"]] = ModelRef(
+            "m" + re.sub(r"[^a-z0-9_.]", "_", str(info["id"]).lower())[:63],
+            str(info["version"])[:64] or "unknown",
+            weights if isinstance(weights, str) else None,
+            hashlib.sha256(
+                json.dumps(stage["options"], sort_keys=True, default=str).encode()
+            ).hexdigest(),
+        )
+    report = build_quality_report(
+        options=options,
+        assessor_version="1",
+        inputs=inputs,
+        stage_models=models,
+        flags=assess_signals(options, boundaries=edges),
+    )
+    return json.loads(report_to_json(report))
 
 
 class SongAdapter:
@@ -471,7 +540,10 @@ class SongAdapter:
         # 完了後にJobのmodel_planへ載せる。受付時に確定したプラン自体は変更しない。
         context.runtime_report.update(runtime_report)
         context.report(0.98, "song.publishing")
+        quality = context.write_json(
+            "quality_report.json", _quality_report(segments, stages, observed, prefix)
+        )
         result = context.write_json(
             "song-result.json", {"format_version": 1, "bundle": bundle, "assets": assets}
         )
-        return [*artifacts, result]
+        return [*artifacts, quality, result]
