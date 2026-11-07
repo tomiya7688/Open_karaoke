@@ -685,12 +685,14 @@ async fn run_job(
         state.finish(id, JobStatus::Cancelled, None).await;
         return;
     }
-    if is_heavy_kind(&request.kind) && !wait_while_playing(&state, id).await {
+    // 再生待ちと枠待ちは1つの締切を共有し、合計の待機を`defer_max_wait`以内に抑える。
+    let defer_deadline = defer_deadline(&state);
+    if is_heavy_kind(&request.kind) && !wait_while_playing(&state, id, defer_deadline).await {
         return;
     }
     // 同時数枠はJobの終了(この関数の戻り)まで保持する。
     let _heavy_slot = if is_heavy_kind(&request.kind) {
-        match acquire_heavy_slot(&state, id).await {
+        match acquire_heavy_slot(&state, id, defer_deadline).await {
             Ok(permit) => permit,
             Err(()) => return,
         }
@@ -742,6 +744,16 @@ async fn run_job(
 }
 
 /// {
+///   責務: [`defer_deadline`: 重いJobの開始待ち(再生待ち+枠待ち)全体の締切を返す]
+///   処理: [1: 現在時刻に`defer_max_wait`を足す]
+///   引数: [state]
+///   戻り値: [`tokio::time::Instant`: 待機の締切]
+/// }
+fn defer_deadline(state: &AppState) -> tokio::time::Instant {
+    tokio::time::Instant::now() + state.inference.defer_max_wait
+}
+
+/// {
 ///   責務: [`is_heavy_kind`: 再生中は開始を待たせる重い推論Jobかを判定する]
 ///   処理: [1: `analysis.`役割のうち mock 以外(stems/lyrics/alignment/pitch/events/notes/song)を重いとみなす]
 ///   引数: [kind: Job種別]
@@ -755,14 +767,13 @@ fn is_heavy_kind(kind: &str) -> bool {
 /// {
 ///   責務: [`wait_while_playing`: 再生中の間、重いJobをqueuedのまま開始待ちにする]
 ///   処理: [1: 方針が無効か再生中でなければ即座に開始可とする, 2: 待機中は`deferred_reason`とstage`deferred`を公開する, 3: 一定間隔で再生状態とcancelを確認する, 4: 上限時間を超えたらfailedにする]
-///   引数: [state, id: Job ID]
+///   引数: [state, id: Job ID, deadline: 枠待ちと共有する待機の締切]
 ///   戻り値: [`bool`: 開始してよければtrue。cancelled/failedで終端済みならfalse]
 /// }
-async fn wait_while_playing(state: &AppState, id: Uuid) -> bool {
+async fn wait_while_playing(state: &AppState, id: Uuid, deadline: tokio::time::Instant) -> bool {
     if !state.inference.defer_while_playing {
         return true;
     }
-    let deadline = tokio::time::Instant::now() + state.inference.defer_max_wait;
     let mut announced = false;
     while state.playback_active() {
         if !announced {
@@ -801,19 +812,19 @@ async fn wait_while_playing(state: &AppState, id: Uuid) -> bool {
 
 /// {
 ///   責務: [`acquire_heavy_slot`: 重いJobの同時実行枠を取得するまでqueuedのまま待つ]
-///   処理: [1: 枠設定が無ければ即開始, 2: 空きが無ければ`deferred_reason`とstage`deferred`を公開, 3: 一定間隔で枠・cancel・上限時間を確認, 4: 上限超過はfailed]
-///   引数: [state, id: Job ID]
+///   処理: [1: 枠設定が無ければ即開始, 2: 空きが無ければ`deferred_reason`とstage`deferred`を公開, 3: 一定間隔で枠・cancel・締切を確認, 4: 締切超過はfailed]
+///   引数: [state, id: Job ID, deadline: 再生待ちと共有する待機の締切]
 ///   戻り値: [`Result<Option<OwnedSemaphorePermit>, ()>`: Okは開始可(無制限ならNone)。Errはcancelled/failedで終端済み]
 ///   副作用: [待機中のJob表を更新する]
 /// }
 async fn acquire_heavy_slot(
     state: &AppState,
     id: Uuid,
+    deadline: tokio::time::Instant,
 ) -> Result<Option<OwnedSemaphorePermit>, ()> {
     let Some(slots) = state.heavy_slots.clone() else {
         return Ok(None);
     };
-    let deadline = tokio::time::Instant::now() + state.inference.defer_max_wait;
     let mut announced = false;
     loop {
         if let Ok(permit) = Arc::clone(&slots).try_acquire_owned() {
@@ -1217,7 +1228,7 @@ mod tests {
         let id = queued_job(&state, "analysis.stems").await;
         let waiter = tokio::spawn({
             let state = state.clone();
-            async move { wait_while_playing(&state, id).await }
+            async move { wait_while_playing(&state, id, defer_deadline(&state)).await }
         });
         tokio::time::sleep(Duration::from_millis(200)).await;
         assert!(!waiter.is_finished(), "must keep waiting during playback");
@@ -1246,7 +1257,7 @@ mod tests {
         let id = queued_job(&state, "analysis.song").await;
         let waiter = tokio::spawn({
             let state = state.clone();
-            async move { wait_while_playing(&state, id).await }
+            async move { wait_while_playing(&state, id, defer_deadline(&state)).await }
         });
         tokio::time::sleep(Duration::from_millis(120)).await;
         state.jobs.write().await.get_mut(&id).unwrap().cancelled = true;
@@ -1272,17 +1283,22 @@ mod tests {
     async fn heavy_slot_unlimited_by_default_and_limit_one_serializes() {
         let state = AppState::new();
         let id = queued_job(&state, "analysis.song").await;
-        assert!(matches!(acquire_heavy_slot(&state, id).await, Ok(None)));
+        assert!(matches!(
+            acquire_heavy_slot(&state, id, defer_deadline(&state)).await,
+            Ok(None)
+        ));
 
         let state = AppState::new().with_max_concurrent_heavy_jobs(std::num::NonZeroUsize::new(1));
         let first = queued_job(&state, "analysis.song").await;
         let second = queued_job(&state, "analysis.lyrics").await;
-        let held = acquire_heavy_slot(&state, first).await.unwrap();
+        let held = acquire_heavy_slot(&state, first, defer_deadline(&state))
+            .await
+            .unwrap();
         assert!(held.is_some());
         let waiter = tokio::spawn({
             let state = state.clone();
             async move {
-                acquire_heavy_slot(&state, second)
+                acquire_heavy_slot(&state, second, defer_deadline(&state))
                     .await
                     .map(|p| p.is_some())
             }
@@ -1316,12 +1332,18 @@ mod tests {
             .with_max_concurrent_heavy_jobs(std::num::NonZeroUsize::new(1))
             .with_defer_max_wait(Duration::from_millis(200));
         let holder = queued_job(&state, "analysis.song").await;
-        let _held = acquire_heavy_slot(&state, holder).await.unwrap();
+        let _held = acquire_heavy_slot(&state, holder, defer_deadline(&state))
+            .await
+            .unwrap();
 
         let cancelled = queued_job(&state, "analysis.song").await;
         let waiter = tokio::spawn({
             let state = state.clone();
-            async move { acquire_heavy_slot(&state, cancelled).await.map(|_| ()) }
+            async move {
+                acquire_heavy_slot(&state, cancelled, defer_deadline(&state))
+                    .await
+                    .map(|_| ())
+            }
         });
         tokio::time::sleep(Duration::from_millis(80)).await;
         state
@@ -1337,8 +1359,18 @@ mod tests {
             JobStatus::Cancelled
         );
 
+        // 再生待ちで締切を使い切った後は、枠待ちで待たずにすぐ打ち切る(締切の共有)。
+        let spent = queued_job(&state, "analysis.song").await;
+        let started = tokio::time::Instant::now();
+        assert!(acquire_heavy_slot(&state, spent, started).await.is_err());
+        assert!(started.elapsed() < Duration::from_millis(150));
+
         let timed_out = queued_job(&state, "analysis.song").await;
-        assert!(acquire_heavy_slot(&state, timed_out).await.is_err());
+        assert!(
+            acquire_heavy_slot(&state, timed_out, defer_deadline(&state))
+                .await
+                .is_err()
+        );
         let job = state.snapshot(timed_out).await.unwrap();
         assert_eq!(job.status, JobStatus::Failed);
         assert!(job.error.unwrap().contains("deferred_timeout"));
@@ -1352,7 +1384,7 @@ mod tests {
             .with_defer_max_wait(Duration::from_millis(150));
         start_playing(&state, instance);
         let id = queued_job(&state, "analysis.lyrics").await;
-        assert!(!wait_while_playing(&state, id).await);
+        assert!(!wait_while_playing(&state, id, defer_deadline(&state)).await);
         let job = state.snapshot(id).await.unwrap();
         assert_eq!(job.status, JobStatus::Failed);
         assert!(job.error.unwrap().contains("deferred_timeout"));
@@ -1367,13 +1399,19 @@ mod tests {
         let instance = Uuid::new_v4();
         let idle = AppState::new().with_core_instance_id(instance);
         let id = queued_job(&idle, "analysis.stems").await;
-        assert!(wait_while_playing(&idle, id).await, "no session: start now");
+        assert!(
+            wait_while_playing(&idle, id, defer_deadline(&idle)).await,
+            "no session: start now"
+        );
         let off = AppState::new()
             .with_core_instance_id(instance)
             .with_defer_while_playing(false);
         start_playing(&off, instance);
         let id = queued_job(&off, "analysis.stems").await;
-        assert!(wait_while_playing(&off, id).await, "policy off: start now");
+        assert!(
+            wait_while_playing(&off, id, defer_deadline(&off)).await,
+            "policy off: start now"
+        );
         assert_eq!(off.snapshot(id).await.unwrap().deferred_reason, None);
     }
 }
