@@ -66,6 +66,7 @@ impl WorkerPriority {
 
     /// {
     ///   責務: [`creation_flags`: 子プロセス起動時にWindowsへ渡すpriority classフラグを返す]
+    ///   処理: [1: Windowsなら方針に対応するフラグを返す, 2: inheritと非Windowsは0]
     ///   引数: []
     ///   戻り値: [`u32`: inheritまたは非Windowsは0]
     /// }
@@ -109,6 +110,12 @@ pub fn parse_max_heavy_jobs(text: &str) -> Result<Option<NonZeroUsize>, String> 
 mod tests {
     use super::*;
 
+    /// {
+    ///   責務: [`priority_parses_all_values_and_rejects_others`: 取り得る3値の解析と範囲外の拒否を検証する]
+    ///   処理: [1: 大小・空白を無視して3値を受理, 2: 範囲外を拒否, 3: 既定はinherit]
+    ///   引数: []
+    ///   戻り値: []
+    /// }
     #[test]
     fn priority_parses_all_values_and_rejects_others() {
         assert_eq!(
@@ -126,6 +133,12 @@ mod tests {
         assert_eq!(WorkerPriority::default(), WorkerPriority::Inherit);
     }
 
+    /// {
+    ///   責務: [`inherit_is_always_effective_without_warning`: inheritは全OSで警告なしに有効でフラグ0であることを検証する]
+    ///   処理: [1: effectiveが同値と警告なしを返す, 2: `creation_flags`が0]
+    ///   引数: []
+    ///   戻り値: []
+    /// }
     #[test]
     fn inherit_is_always_effective_without_warning() {
         assert_eq!(
@@ -135,6 +148,12 @@ mod tests {
         assert_eq!(WorkerPriority::Inherit.creation_flags(), 0);
     }
 
+    /// {
+    ///   責務: [`non_inherit_priority_is_platform_gated`: inherit以外はWindowsだけで有効になることを検証する]
+    ///   処理: [1: Windowsでは有効とフラグ値を確認, 2: それ以外はinheritへ落ちて警告とフラグ0]
+    ///   引数: []
+    ///   戻り値: []
+    /// }
     #[test]
     fn non_inherit_priority_is_platform_gated() {
         let (effective, warning) = WorkerPriority::Idle.effective();
@@ -150,6 +169,12 @@ mod tests {
         }
     }
 
+    /// {
+    ///   責務: [`max_heavy_jobs_accepts_unlimited_or_positive_integer`: 同時数設定がunlimitedか1以上の整数だけを受理することを検証する]
+    ///   処理: [1: unlimitedは無制限, 2: 正の整数は上限, 3: 0・負数・非数値を拒否]
+    ///   引数: []
+    ///   戻り値: []
+    /// }
     #[test]
     fn max_heavy_jobs_accepts_unlimited_or_positive_integer() {
         assert_eq!(parse_max_heavy_jobs("unlimited"), Ok(None));
