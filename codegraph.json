@@ -1,0 +1,20 @@
+{
+  "exclude": [
+    "**/.env",
+    "**/.env.*",
+    "**/*credential*",
+    "**/*secret*",
+    "**/*password*",
+    "**/*token*",
+    "**/*api*key*",
+    "**/*private*key*",
+    "**/*.pem",
+    "**/*.key",
+    "**/*.p12",
+    "**/*.pfx",
+    "**/*.jks",
+    "**/.review-private/**",
+    "**/.secrets/**",
+    "**/secrets/**"
+  ]
+}
