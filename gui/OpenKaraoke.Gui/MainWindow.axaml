@@ -374,6 +374,88 @@
           </StackPanel>
         </ScrollViewer>
       </TabItem>
+      <TabItem Header="歌詞編集">
+        <ScrollViewer>
+          <StackPanel Spacing="16" Margin="0,12,0,20">
+            <Border Classes="card">
+              <StackPanel Spacing="12">
+                <StackPanel Spacing="4">
+                  <TextBlock Classes="cardTitle" Text="歌詞とノートの手直し" />
+                  <TextBlock Classes="caption" TextWrapping="Wrap"
+                             Text="「曲・歌詞」タブで曲を表示してから編集します。編集しなくても歌えます。入力欄は確定(フォーカスを外す)したときに反映され、「保存」を押すまでCoreには書き込まれません。" />
+                  <TextBlock Text="{Binding Editor.StatusText}" FontWeight="SemiBold" />
+                </StackPanel>
+                <Border Classes="infoBar" IsVisible="{Binding Editor.HasNotice}">
+                  <SelectableTextBlock Text="{Binding Editor.Notice}" TextWrapping="Wrap" />
+                </Border>
+                <WrapPanel Orientation="Horizontal">
+                  <Button Classes="accent" Content="保存" Margin="0,0,8,8" IsEnabled="{Binding Editor.CanSave}" Click="SaveEditsClick"
+                          AutomationProperties.Name="編集を保存" />
+                  <Button Content="元に戻す" Margin="0,0,8,8" IsEnabled="{Binding Editor.CanUndo}" Click="UndoEditClick"
+                          AutomationProperties.Name="編集を元に戻す" />
+                  <Button Content="やり直し" Margin="0,0,8,8" IsEnabled="{Binding Editor.CanRedo}" Click="RedoEditClick"
+                          AutomationProperties.Name="編集をやり直す" />
+                  <Button Content="保存済みの状態へ戻す" Margin="0,0,8,8" IsEnabled="{Binding Editor.CanRevert}" Click="RevertEditsClick"
+                          AutomationProperties.Name="未保存の変更を捨てる" />
+                  <Button Content="最新を読み直す" Margin="0,0,8,8" IsEnabled="{Binding CanLoadSong}" Click="LoadSongClick"
+                          AutomationProperties.Name="Coreから曲を読み直す" />
+                </WrapPanel>
+              </StackPanel>
+            </Border>
+            <Border Classes="card" IsVisible="{Binding Editor.HasSong}">
+              <StackPanel Spacing="10">
+                <Grid ColumnDefinitions="*,Auto">
+                  <TextBlock Classes="cardTitle" Text="歌詞" />
+                  <Button Grid.Column="1" Content="歌詞を追加(表示位置から2秒)" IsEnabled="{Binding Editor.CanEdit}" Click="AddLyricClick" />
+                </Grid>
+                <ItemsControl ItemsSource="{Binding Editor.LyricRows}" AutomationProperties.Name="歌詞の一覧">
+                  <ItemsControl.ItemTemplate>
+                    <DataTemplate x:DataType="client:EditorLyricRow">
+                      <Grid ColumnDefinitions="*,90,90,Auto" ColumnSpacing="8" Margin="0,3">
+                        <TextBox Text="{Binding Text, Mode=TwoWay, UpdateSourceTrigger=LostFocus}" AutomationProperties.Name="歌詞の本文" />
+                        <TextBox Grid.Column="1" Text="{Binding StartSeconds, StringFormat={}{0:0.00}, Mode=TwoWay, UpdateSourceTrigger=LostFocus}"
+                                 AutomationProperties.Name="歌詞の開始秒" />
+                        <TextBox Grid.Column="2" Text="{Binding EndSeconds, StringFormat={}{0:0.00}, Mode=TwoWay, UpdateSourceTrigger=LostFocus}"
+                                 AutomationProperties.Name="歌詞の終了秒" />
+                        <StackPanel Grid.Column="3" Orientation="Horizontal" Spacing="6">
+                          <TextBlock Classes="caption" Text="手編集" IsVisible="{Binding IsEdited}" VerticalAlignment="Center" />
+                          <Button Content="削除" Click="DeleteLyricClick" AutomationProperties.Name="歌詞を削除" />
+                        </StackPanel>
+                      </Grid>
+                    </DataTemplate>
+                  </ItemsControl.ItemTemplate>
+                </ItemsControl>
+              </StackPanel>
+            </Border>
+            <Border Classes="card" IsVisible="{Binding Editor.HasSong}">
+              <StackPanel Spacing="10">
+                <Grid ColumnDefinitions="*,Auto">
+                  <TextBlock Classes="cardTitle" Text="採点ノート" />
+                  <Button Grid.Column="1" Content="ノートを追加(表示位置から1秒・C4)" IsEnabled="{Binding Editor.CanEdit}" Click="AddNoteClick" />
+                </Grid>
+                <ItemsControl ItemsSource="{Binding Editor.NoteRows}" AutomationProperties.Name="ノートの一覧">
+                  <ItemsControl.ItemTemplate>
+                    <DataTemplate x:DataType="client:EditorNoteRow">
+                      <Grid ColumnDefinitions="90,90,90,Auto" ColumnSpacing="8" Margin="0,3">
+                        <TextBox Text="{Binding StartSeconds, StringFormat={}{0:0.00}, Mode=TwoWay, UpdateSourceTrigger=LostFocus}"
+                                 AutomationProperties.Name="ノートの開始秒" />
+                        <TextBox Grid.Column="1" Text="{Binding EndSeconds, StringFormat={}{0:0.00}, Mode=TwoWay, UpdateSourceTrigger=LostFocus}"
+                                 AutomationProperties.Name="ノートの終了秒" />
+                        <TextBox Grid.Column="2" Text="{Binding MidiNote, Mode=TwoWay, UpdateSourceTrigger=LostFocus}"
+                                 AutomationProperties.Name="音高(MIDIノート番号)" />
+                        <StackPanel Grid.Column="3" Orientation="Horizontal" Spacing="6">
+                          <TextBlock Classes="caption" Text="手編集" IsVisible="{Binding IsEdited}" VerticalAlignment="Center" />
+                          <Button Content="削除" Click="DeleteNoteClick" AutomationProperties.Name="ノートを削除" />
+                        </StackPanel>
+                      </Grid>
+                    </DataTemplate>
+                  </ItemsControl.ItemTemplate>
+                </ItemsControl>
+              </StackPanel>
+            </Border>
+          </StackPanel>
+        </ScrollViewer>
+      </TabItem>
     </TabControl>
 
     <!-- 下部の注意書き -->

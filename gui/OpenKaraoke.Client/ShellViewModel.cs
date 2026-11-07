@@ -46,6 +46,7 @@ public sealed class ShellViewModel : INotifyPropertyChanged, IAsyncDisposable
     public ShellViewModel(Func<string, string, string?, CancellationToken, Task<ICoreConnection>>? launch = null)
     {
         Playback = new PlaybackFollower(Karaoke);
+        Editor.Saved += OnEditSaved;
         _launch = launch ?? (async (executable, data, python, token) =>
             await CoreConnection.StartAsync(executable, data, python, token));
     }
@@ -82,6 +83,13 @@ public sealed class ShellViewModel : INotifyPropertyChanged, IAsyncDisposable
     public MixerViewModel Mixer { get; } = new();
     // Coreの歌唱セッションへの追従と再生操作(#16 16.2)。接続・切断に合わせて開始と破棄だけをここから指示する。
     public PlaybackFollower Playback { get; }
+    /// {
+    ///   責務: [Editor: 歌詞・ノートの手編集(#38 38.4)。保存はCoreのPATCH /songs/{id}]
+    ///   処理: [1: 曲の読込・切断に合わせて読込と破棄だけをここから指示する]
+    ///   引数: []
+    ///   戻り値: [編集用ViewModel]
+    /// }
+    public SongEditorViewModel Editor { get; } = new();
     public IReadOnlyList<SongListItem> Songs => _songs;
     // 読み込み中は選択を変えない(完了した曲と選択がずれないようにする)。
     public SongListItem? SelectedSong
@@ -456,7 +464,7 @@ public sealed class ShellViewModel : INotifyPropertyChanged, IAsyncDisposable
                 // 画面の選択と一致するよう、読み直した一覧の同じ曲へ差し替える。
                 // 消えた曲や、読み直しで破損と分かった曲は表示も消す。
                 _selectedSong = songs.FirstOrDefault(song => song.SongId == _selectedSong.SongId);
-                if (_selectedSong is not { Error: null }) Karaoke.Clear();
+                if (_selectedSong is not { Error: null }) { Karaoke.Clear(); Editor.Clear(); }
             }
         }
         catch (OperationCanceledException) when (token.IsCancellationRequested) { }
@@ -493,8 +501,13 @@ public sealed class ShellViewModel : INotifyPropertyChanged, IAsyncDisposable
         Changed();
         try
         {
-            var timeline = new SongTimeline(await connection.Api.GetSongAsync(id, token));
-            if (epoch == _epoch && _selectedSong?.SongId == id) Karaoke.Load(timeline, id);
+            var bundle = await connection.Api.GetSongAsync(id, token);
+            var timeline = new SongTimeline(bundle);
+            if (epoch == _epoch && _selectedSong?.SongId == id)
+            {
+                Karaoke.Load(timeline, id);
+                Editor.Load(connection.Api, id, bundle);
+            }
         }
         catch (OperationCanceledException) when (token.IsCancellationRequested) { }
         catch (Exception error)
@@ -503,12 +516,40 @@ public sealed class ShellViewModel : INotifyPropertyChanged, IAsyncDisposable
             {
                 _error = $"曲を読み込めません: {error.Message}";
                 Karaoke.Clear();
+                Editor.Clear();
             }
         }
         finally
         {
             if (epoch == _epoch) { _songBusy = false; Changed(); }
         }
+    }
+
+    /// {
+    ///   責務: [SaveEditsAsync: 歌詞・ノートの未保存の編集をCoreへ保存する]
+    ///   処理: [1: 接続中でなければ何もしない, 2: 接続の寿命のtokenで保存する(切断で中断される)]
+    ///   引数: []
+    ///   戻り値: []
+    /// }
+    public async Task SaveEditsAsync()
+    {
+        if (_disposed || _connection is null || _lifetime is null) return;
+        await Editor.SaveAsync(_lifetime.Token);
+        Changed();
+    }
+
+    /// {
+    ///   責務: [OnEditSaved: 保存に成功した内容を歌詞・音程バーの表示へ反映する]
+    ///   処理: [1: 表示位置を覚える, 2: 保存した内容で表示を読み直す, 3: 位置を戻す]
+    ///   引数: [bundle: 保存した内容(曲の基本情報は読込時のもの)]
+    ///   戻り値: []
+    /// }
+    private void OnEditSaved(SongBundle bundle)
+    {
+        if (!Karaoke.HasSong || Karaoke.SongId != Editor.SongId) return;
+        var position = Karaoke.PositionSamples;
+        Karaoke.Load(new SongTimeline(bundle), Editor.SongId);
+        Karaoke.Seek(position);
     }
 
     private void Publish(JobSnapshot snapshot)
@@ -576,6 +617,7 @@ public sealed class ShellViewModel : INotifyPropertyChanged, IAsyncDisposable
         _selectedSong = null;
         _songsLoaded = _songsTruncated = false;
         Karaoke.Clear();
+        Editor.Clear();
         Mixer.Detach();
         Playback.Detach();
         Changed();

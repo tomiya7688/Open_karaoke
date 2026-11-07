@@ -86,10 +86,21 @@ public sealed record SongListItem(Guid SongId, string? Title, string? Artist, ul
 public sealed record SongPage(SongListItem[] Songs, Guid? NextAfter);
 
 /// {
-///   責務: [SongManifest: 再生・表示に使う曲の基本情報]
-///   フィールド: [FormatVersion: 形式の版, SongId: 曲ID, Title: 曲名, Artist: 歌手, SampleRate: 内部sample rate, DurationSamples: 長さ]
+///   責務: [ArtifactInfo: 曲の成果物1種の世代と有効性。手編集の競合検出(base_generation)に使う]
+///   フィールド: [Generation: 世代(編集成功ごとに増える), Valid: falseなら再生成待ち]
 /// }
-public sealed record SongManifest(int FormatVersion, string SongId, string? Title, string? Artist, int SampleRate, ulong DurationSamples);
+public sealed record ArtifactInfo(ulong Generation, bool Valid);
+
+/// {
+///   責務: [SongManifest: 再生・表示に使う曲の基本情報]
+///   フィールド: [
+///     FormatVersion: 形式の版, SongId: 曲ID, Title: 曲名, Artist: 歌手, SampleRate: 内部sample rate,
+///     DurationSamples: 長さ, Artifacts: 成果物名(evidence等)ごとの世代(古いCoreや省略時はnull)
+///   ]
+/// }
+public sealed record SongManifest(
+    int FormatVersion, string SongId, string? Title, string? Artist, int SampleRate, ulong DurationSamples,
+    Dictionary<string, ArtifactInfo>? Artifacts = null);
 
 /// {
 ///   責務: [LyricSegment: 歌詞の1区間。時刻は48kHz sampleの[開始, 終了)]
@@ -119,7 +130,14 @@ public sealed record NotesDocument(ScoringNote[] Notes);
 ///   責務: [SongBundle: GET /songs/{id} のうちGUIが使う部分。evidenceは読み飛ばす]
 ///   フィールド: [Song: 基本情報, Lyrics: 歌詞, Notes: 目標ノート]
 /// }
-public sealed record SongBundle(SongManifest Song, LyricsDocument Lyrics, NotesDocument Notes);
+public sealed record SongBundle(SongManifest Song, LyricsDocument Lyrics, NotesDocument Notes)
+{
+    /// <summary>手編集の base_generation に使う evidence の世代。Coreが返さない場合は null。</summary>
+    public ulong? EvidenceGeneration =>
+        Song?.Artifacts is { } artifacts && artifacts.TryGetValue("evidence", out var evidence) && evidence is not null
+            ? evidence.Generation
+            : null;
+}
 
 public interface ICoreApi
 {
@@ -180,6 +198,15 @@ public interface ICoreApi
     IAsyncEnumerable<JobSnapshot> WatchJobAsync(Guid id, CancellationToken cancellationToken = default);
     Task<SongPage> ListSongsAsync(Guid? after = null, CancellationToken cancellationToken = default);
     Task<SongBundle> GetSongAsync(Guid id, CancellationToken cancellationToken = default);
+
+    /// {
+    ///   責務: [EditSongAsync: 曲の歌詞・ノートの手編集を原子的に保存する(PATCH /songs/{id})]
+    ///   引数: [id: 曲ID, request: base_generationと編集op, cancellationToken: 中断]
+    ///   戻り値: [保存後の世代と再生成待ちartifact]
+    ///   エラー: [CoreApiException: 409競合・404曲なし・413過大・422拒否・429混雑など]
+    /// }
+    Task<EditedSongResult> EditSongAsync(Guid id, EditSongRequest request, CancellationToken cancellationToken = default) =>
+        throw new NotSupportedException();
 }
 
 public sealed class CoreApiException(HttpStatusCode statusCode)
@@ -446,6 +473,23 @@ public sealed class CoreApiClient : ICoreApi, IDisposable
         if (bundle.Song is null || !Guid.TryParse(bundle.Song.SongId, out var returned) || returned != id)
             throw new InvalidDataException("Core returned another song.");
         return bundle;
+    }
+
+    /// {
+    ///   責務: [EditSongAsync: 曲の手編集を保存する。409は自動再試行せず呼び出し側へ返す]
+    ///   処理: [1: 要求を検査する, 2: PATCH /songs/{id} を1回だけ送る, 3: 応答が自分の曲か確認する]
+    ///   引数: [id: 曲ID, request: base_generationと編集op, cancellationToken: 中断]
+    ///   戻り値: [保存後の世代と再生成待ちartifact]
+    ///   エラー: [ArgumentException: 空ID・op空・64KiB超, InvalidDataException: 別の曲の応答, CoreApiException: Coreが拒否した]
+    /// }
+    public async Task<EditedSongResult> EditSongAsync(Guid id, EditSongRequest request, CancellationToken cancellationToken = default)
+    {
+        if (id == Guid.Empty) throw new ArgumentException("Empty song ID.", nameof(id));
+        ArgumentNullException.ThrowIfNull(request);
+        if (request.Ops is null || request.Ops.Length == 0) throw new ArgumentException("No edit ops.", nameof(request));
+        var result = await SendAsync<EditedSongResult>(HttpMethod.Patch, $"songs/{id:D}", request, cancellationToken).ConfigureAwait(false);
+        if (result.SongId != id || result.Pending is null) throw new InvalidDataException("Core returned an invalid edit result.");
+        return result;
     }
 
     /// {
