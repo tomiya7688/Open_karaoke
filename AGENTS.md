@@ -16,6 +16,7 @@
 | ビルド・ローカル検査・CI | [docs/development.md](docs/development.md)、[docs/testing.md](docs/testing.md) |
 | レビュー（複数AI・PRレビュー）の起動と証跡 | `E:/projects/REVIEW_OPERATIONS.md`（作業の開始時と完了報告前に**実際に開く**） |
 | フォーマッター | `E:/projects/FORMATTER_OPERATIONS.md`、言語別コマンドは[チェックリスト§C](docs/implementation_checklist.md#c-整形とテスト変更範囲のみ全体は最後に1回) |
+| Qwen Code・無料モデルによる追加レビュー | [QWEN.md](QWEN.md) |
 | 強いモデルへ相談する（advisor）場面と禁止事項 | [docs/advisor.md](docs/advisor.md) |
 | ライセンス・モデル・配布条件 | [docs/licensing.md](docs/licensing.md) |
 

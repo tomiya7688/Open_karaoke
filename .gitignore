@@ -14,3 +14,12 @@ datasets/
 
 # Local Node development tools
 node_modules/
+
+# Local review credentials and artifacts: never commit
+.review-private/
+.review-work/
+provider-keys.clixml
+provider-keys.clixml.tmp
+
+# Local CodeGraph index (generated)
+.codegraph/
