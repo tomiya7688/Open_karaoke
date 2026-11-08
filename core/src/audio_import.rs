@@ -1,8 +1,11 @@
 use std::{
     ffi::OsStr,
-    fmt, fs, io,
+    fmt, fs,
+    io::{self, Read},
     path::{Path, PathBuf},
-    process::{Command, Output},
+    process::{Command, Output, Stdio},
+    thread,
+    time::Duration,
 };
 
 use serde_json::Value;
@@ -22,9 +25,39 @@ pub struct NormalizedAudioMetadata {
 pub enum AudioImportError {
     Io(io::Error),
     UnsupportedInput(String),
-    ToolFailure { tool: String, stderr: String },
+    ToolFailure {
+        tool: String,
+        stderr: String,
+    },
     LicensePolicy(String),
     InvalidProbe(String),
+    /// The configured tool could not be started (not installed or not executable).
+    ToolUnavailable {
+        tool: String,
+        error: io::Error,
+    },
+    Cancelled,
+}
+
+impl AudioImportError {
+    /// {
+    ///   責務: [`AudioImportError::code`: Job errorに載せる安定した機械可読コードを返す]
+    ///   処理: [1: 各バリアントを対応する固定文字列へ対応付ける]
+    ///   引数: [`&self`]
+    ///   戻り値: [`audio_*` 形式の静的コード文字列]
+    /// }
+    #[must_use]
+    pub fn code(&self) -> &'static str {
+        match self {
+            Self::Io(_) => "audio_import_io",
+            Self::UnsupportedInput(_) => "audio_unsupported_input",
+            Self::ToolFailure { .. } => "audio_tool_failed",
+            Self::LicensePolicy(_) => "audio_ffmpeg_license_policy",
+            Self::InvalidProbe(_) => "audio_invalid_probe",
+            Self::ToolUnavailable { .. } => "audio_tool_unavailable",
+            Self::Cancelled => "audio_import_cancelled",
+        }
+    }
 }
 
 impl fmt::Display for AudioImportError {
@@ -39,6 +72,13 @@ impl fmt::Display for AudioImportError {
             }
             Self::LicensePolicy(message) => write!(formatter, "FFmpeg license policy: {message}"),
             Self::InvalidProbe(message) => write!(formatter, "invalid ffprobe output: {message}"),
+            Self::ToolUnavailable { tool, error } => {
+                write!(
+                    formatter,
+                    "{tool} could not be started (is it installed?): {error}"
+                )
+            }
+            Self::Cancelled => write!(formatter, "audio import was cancelled"),
         }
     }
 }
@@ -51,15 +91,39 @@ impl From<io::Error> for AudioImportError {
     }
 }
 
-/// Normalize supported input to the internal WAV format.
+/// {
+///   責務: [`normalize_audio`: 対応入力を内部WAV形式へ正規化する(中断なし)]
+///   処理: [1: `normalize_audio_cancellable`を常に未中断で呼ぶ]
+///   引数: [`ffmpeg`/`ffprobe`: 実行ファイル, `input`: 入力音声, `output`: 出力WAV]
+///   戻り値: [正規化後のメタデータ、入力・配布方針・プロセス・probe・ファイルシステムの失敗は`AudioImportError`]
+/// }
 ///
 /// # Errors
-/// Returns input, distribution-policy, process, probe or filesystem errors.
+/// Returns [`AudioImportError`] when the input, license policy, tool run, probe or filesystem step fails.
 pub fn normalize_audio(
     ffmpeg: impl AsRef<OsStr>,
     ffprobe: impl AsRef<OsStr>,
     input: impl AsRef<Path>,
     output: impl AsRef<Path>,
+) -> Result<NormalizedAudioMetadata, AudioImportError> {
+    normalize_audio_cancellable(ffmpeg, ffprobe, input, output, &|| false)
+}
+
+/// {
+///   責務: [`normalize_audio_cancellable`: 入力を48kHz WAVへ正規化し、`cancelled`がtrueになったら実行中のツールを止める]
+///   処理: [1: 入力拡張子とffmpeg配布形態を検証する, 2: 出力先の親ディレクトリを作る, 3: ffmpegを一時WAVへ実行する, 4: ffprobeで検証する, 5: 一時WAVを出力へ置く]
+///   引数: [`ffmpeg`/`ffprobe`: 実行ファイル, `input`: 入力音声, `output`: 出力WAV, `cancelled`: 中断判定]
+///   戻り値: [正規化後の音声メタデータ、失敗・中断時は`AudioImportError`]
+/// }
+///
+/// # Errors
+/// Returns [`AudioImportError::Cancelled`] after cancellation, otherwise as [`normalize_audio`].
+pub fn normalize_audio_cancellable(
+    ffmpeg: impl AsRef<OsStr>,
+    ffprobe: impl AsRef<OsStr>,
+    input: impl AsRef<Path>,
+    output: impl AsRef<Path>,
+    cancelled: &dyn Fn() -> bool,
 ) -> Result<NormalizedAudioMetadata, AudioImportError> {
     let input = input.as_ref();
     let output = output.as_ref();
@@ -73,8 +137,13 @@ pub fn normalize_audio(
 
     let temporary = temporary_wav_path(output);
     let args = ffmpeg_arguments(input, &temporary);
-    let result = Command::new(ffmpeg.as_ref()).args(&args).output()?;
+    let mut command = Command::new(ffmpeg.as_ref());
+    command.args(&args);
+    let result = run_cancellable("ffmpeg", command, cancelled)?;
     ensure_success("ffmpeg", &result)?;
+    if cancelled() {
+        return Err(AudioImportError::Cancelled);
+    }
 
     let metadata = probe_audio(ffprobe.as_ref(), &temporary)?;
     if metadata.sample_rate != INTERNAL_SAMPLE_RATE {
@@ -113,7 +182,9 @@ pub fn apply_metadata(
 /// # Errors
 /// Returns process failures or violations of the selected distribution policy.
 pub fn verify_ffmpeg_distribution(ffmpeg: &OsStr) -> Result<(), AudioImportError> {
-    let result = Command::new(ffmpeg).arg("-buildconf").output()?;
+    let mut command = Command::new(ffmpeg);
+    command.arg("-buildconf");
+    let result = run_cancellable("ffmpeg", command, &|| false)?;
     ensure_success("ffmpeg -buildconf", &result)?;
     let text = format!(
         "{}\n{}",
@@ -181,7 +252,8 @@ pub fn probe_audio(
     ffprobe: &OsStr,
     input: &Path,
 ) -> Result<NormalizedAudioMetadata, AudioImportError> {
-    let result = Command::new(ffprobe)
+    let mut command = Command::new(ffprobe);
+    command
         .args([
             "-v",
             "error",
@@ -192,8 +264,8 @@ pub fn probe_audio(
             "-of",
             "json",
         ])
-        .arg(input)
-        .output()?;
+        .arg(input);
+    let result = run_cancellable("ffprobe", command, &|| false)?;
 
     ensure_success("ffprobe", &result)?;
     parse_probe_json(&result.stdout)
@@ -248,7 +320,13 @@ fn parse_u64_field(value: &Value, field: &str) -> Result<u64, AudioImportError> 
     )))
 }
 
-fn ensure_supported_input(path: &Path) -> Result<(), AudioImportError> {
+/// {
+///   責務: [`ensure_supported_input`: 入力拡張子が対応形式(wav/aac/mp3/mp4)か確認する]
+///   処理: [1: 拡張子を小文字化する, 2: 対応形式なら成功、それ以外は`UnsupportedInput`]
+///   引数: [`path`: 検査する入力パス]
+///   戻り値: [対応形式なら`Ok(())`、非対応なら`UnsupportedInput`]
+/// }
+pub(crate) fn ensure_supported_input(path: &Path) -> Result<(), AudioImportError> {
     let extension = path
         .extension()
         .and_then(OsStr::to_str)
@@ -262,6 +340,12 @@ fn ensure_supported_input(path: &Path) -> Result<(), AudioImportError> {
     }
 }
 
+/// {
+///   責務: [`ensure_success`: 外部ツールの終了状態が成功か確認する]
+///   処理: [1: 成功なら`Ok`, 2: 失敗ならstderrを含む`ToolFailure`]
+///   引数: [`tool`: ツール名, `output`: 実行結果]
+///   戻り値: [成功なら`Ok(())`、失敗は`ToolFailure`]
+/// }
 fn ensure_success(tool: &str, output: &Output) -> Result<(), AudioImportError> {
     if output.status.success() {
         Ok(())
@@ -273,6 +357,81 @@ fn ensure_success(tool: &str, output: &Output) -> Result<(), AudioImportError> {
     }
 }
 
+/// {
+///   責務: [`run_cancellable`: 外部ツールをパイプを排出しながら完了まで実行し、`cancelled`で強制終了する]
+///   処理: [1: stdin無し・stdout/stderrをpipeにして起動する, 2: 各pipeを別スレッドで排出する, 3: 20ms間隔で終了を待ち、中断なら`kill`して`Cancelled`を返す, 4: 出力を集めて返す]
+///   引数: [`tool`: エラー表示用のツール名, `command`: 実行するコマンド, `cancelled`: 中断判定]
+///   戻り値: [終了状態と出力を持つ`Output`、起動不能は`ToolUnavailable`、中断は`Cancelled`]
+/// }
+fn run_cancellable(
+    tool: &str,
+    mut command: Command,
+    cancelled: &dyn Fn() -> bool,
+) -> Result<Output, AudioImportError> {
+    let mut child = command
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|error| AudioImportError::ToolUnavailable {
+            tool: tool.to_owned(),
+            error,
+        })?;
+    let stdout = child.stdout.take().map(drain);
+    let stderr = child.stderr.take().map(drain);
+    let status = loop {
+        if let Some(status) = child.try_wait()? {
+            break status;
+        }
+        if cancelled() {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err(AudioImportError::Cancelled);
+        }
+        thread::sleep(Duration::from_millis(20));
+    };
+    let collect = |pipe: Option<thread::JoinHandle<Vec<u8>>>| {
+        pipe.and_then(|handle| handle.join().ok())
+            .unwrap_or_default()
+    };
+    Ok(Output {
+        status,
+        stdout: collect(stdout),
+        stderr: collect(stderr),
+    })
+}
+
+/// 外部ツールの標準出力/標準エラーとして保持する最大バイト数。
+const MAX_CAPTURED_OUTPUT: usize = 1 << 20;
+
+/// {
+///   責務: [`drain`: パイプを別スレッドで末尾まで読み切り、詰まりを防ぐ]
+///   処理: [1: スレッドを起動する, 2: 末尾まで読み、先頭`MAX_CAPTURED_OUTPUT`バイトだけ保持して残りは読み捨てる(読取エラーは無視する)]
+///   引数: [`pipe`: 読み取るパイプ]
+///   戻り値: [読み取ったバイト列を返す`JoinHandle`]
+/// }
+fn drain(mut pipe: impl Read + Send + 'static) -> thread::JoinHandle<Vec<u8>> {
+    thread::spawn(move || {
+        // 診断に必要な先頭だけを保持し、残りは読み捨てる(大量出力でメモリを使い切らない)。
+        let mut bytes = Vec::new();
+        let mut chunk = [0_u8; 8192];
+        while let Ok(read) = pipe.read(&mut chunk) {
+            if read == 0 {
+                break;
+            }
+            let room = MAX_CAPTURED_OUTPUT.saturating_sub(bytes.len());
+            bytes.extend_from_slice(&chunk[..read.min(room)]);
+        }
+        bytes
+    })
+}
+
+/// {
+///   責務: [`temporary_wav_path`: 最終出力と同じ場所の一時WAVパスを作る]
+///   処理: [1: 出力のファイル名を得る(無ければ`normalized.wav`), 2: `.tmp.wav`を付けた同階層パスにする]
+///   引数: [`output`: 最終出力パス]
+///   戻り値: [一時WAVのパス]
+/// }
 fn temporary_wav_path(output: &Path) -> PathBuf {
     let file_name = output
         .file_name()
@@ -285,6 +444,52 @@ fn temporary_wav_path(output: &Path) -> PathBuf {
 mod tests {
     use super::*;
     use crate::song_data::{CURRENT_FORMAT_VERSION, SongFiles};
+
+    /// {
+    ///   責務: [`drain_keeps_only_the_capped_prefix`: 大量出力でも保持量が上限で止まり、全体は読み切ることを確かめる]
+    ///   処理: [1: 上限の2倍超のバイト列を`drain`に読ませる, 2: 保持量が上限と一致することを確認する]
+    ///   引数: []
+    ///   戻り値: []
+    /// }
+    #[test]
+    fn drain_keeps_only_the_capped_prefix() {
+        let data = vec![b'x'; MAX_CAPTURED_OUTPUT * 2 + 5];
+        let kept = drain(std::io::Cursor::new(data)).join().unwrap();
+        assert_eq!(kept.len(), MAX_CAPTURED_OUTPUT);
+    }
+
+    /// {
+    ///   責務: [`missing_tool_and_cancelled_tool_have_distinct_codes`: 不在ツールと中断ツールが別のエラーコードになることを検証する]
+    ///   処理: [1: 存在しないコマンドで`audio_tool_unavailable`を確認する, 2: 長時間コマンドを100ms後に中断し`audio_import_cancelled`と10秒未満の終了を確認する]
+    ///   引数: [[]]
+    ///   戻り値: [[]]
+    /// }
+    #[test]
+    fn missing_tool_and_cancelled_tool_have_distinct_codes() {
+        let missing = run_cancellable(
+            "ffmpeg",
+            Command::new("open-karaoke-missing-tool-for-test"),
+            &|| false,
+        )
+        .unwrap_err();
+        assert_eq!(missing.code(), "audio_tool_unavailable");
+        let long = if cfg!(windows) {
+            let mut command = Command::new("ping");
+            command.args(["-n", "30", "127.0.0.1"]);
+            command
+        } else {
+            let mut command = Command::new("sleep");
+            command.arg("30");
+            command
+        };
+        let started = std::time::Instant::now();
+        let cancelled = run_cancellable("ffmpeg", long, &|| {
+            started.elapsed() > Duration::from_millis(100)
+        })
+        .unwrap_err();
+        assert_eq!(cancelled.code(), "audio_import_cancelled");
+        assert!(started.elapsed() < Duration::from_secs(10));
+    }
 
     #[test]
     fn command_normalizes_to_internal_pcm_format() {

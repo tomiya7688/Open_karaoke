@@ -10,6 +10,7 @@ use std::{
 use open_karaoke_core::{
     AppState, CORE_API_VERSION,
     analysis_service::{AnalysisConfig, AnalysisService},
+    audio_job::AudioImportConfig,
     ffmpeg_bundle::{MediaTools, verify_bundle},
     inference_policy::{WorkerPriority, parse_max_heavy_jobs},
     runtime_layout::{RUNTIME_MANIFEST_FILE, RuntimeLayout, RuntimeManifest},
@@ -88,9 +89,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     })
     .await
     .map_err(std::io::Error::other)?;
+    let audio = AudioImportConfig::ffmpeg(
+        data.join("artifacts"),
+        media_tools.ffmpeg.clone(),
+        media_tools.ffprobe.clone(),
+    );
     let state = AppState::with_analysis(service.client())
         .with_core_instance_id(instance_id)
         .with_song_library(library)
+        .with_audio_import(audio)
         .with_media_tools(media_tools)
         .with_max_concurrent_heavy_jobs(max_heavy_jobs);
     let router = session.router(state.clone());

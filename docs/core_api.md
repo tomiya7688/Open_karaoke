@@ -97,7 +97,8 @@ seekで確定した位置（`committed`）や提示前は`unknown`。sessionは�
 `kind: analysis.<role>` はCoreからPythonへ転送する。roleは
 `mock`, `stems`, `lyrics`, `alignment`, `pitch`, `events`, `notes`, `song`。
 `song-pipeline-v1` は正規化済みWAVから全解析を実行し、SongBundleとasset一覧を出力する。
-元ファイルの正規化はまだJobへ未接続。[Full-song analysis](full_song_analysis.md) に要求例がある。
+その入力は先に `kind: audio.import`（Core内FFmpeg正規化、[Audio import](audio_import.md)）で作る。
+[Full-song analysis](full_song_analysis.md) に要求例がある。
 
 `kind: song.import` は完了済みのCore `analysis.song` Jobを検査し、音声込みで曲を登録する。
 これはPythonへ転送せずCoreで実行する。要求は `song_import.analysis_job_id` のみで、任意の
