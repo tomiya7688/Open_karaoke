@@ -840,7 +840,7 @@ fn yin_estimates_synthetic_sines_within_a_few_cents() {
     for hz in [110.0, 220.0, 261.63, 440.0, 880.0] {
         let mut estimator = YinEstimator::new(YinConfig::default()).unwrap();
         let frames = estimate(&mut estimator, &sine_samples(hz, 0, 4_800, epoch(1)));
-        assert!(frames.first().is_some());
+        assert_ne!(frames.len(), 0);
         for frame in frames {
             let PitchObservation::Voiced { f0_hz, confidence } = frame.observation else {
                 panic!("{hz} Hz should be voiced: {frame:?}");
@@ -892,7 +892,7 @@ fn yin_reports_silence_and_white_noise_as_unvoiced() {
         })
         .collect();
     let frames = estimate(&mut estimator, &silence);
-    assert!(frames.first().is_some());
+    assert_ne!(frames.len(), 0);
     assert!(
         frames
             .iter()
@@ -914,7 +914,7 @@ fn yin_reports_silence_and_white_noise_as_unvoiced() {
         })
         .collect();
     let frames = estimate(&mut estimator, &noise);
-    assert!(frames.first().is_some());
+    assert_ne!(frames.len(), 0);
     assert!(
         frames
             .iter()
@@ -933,25 +933,19 @@ fn yin_reports_silence_and_white_noise_as_unvoiced() {
 fn yin_never_mixes_pcm_across_epochs_or_capture_gaps() {
     let mut estimator = YinEstimator::new(YinConfig::default()).unwrap();
     let window = 1024 + 739 + 1;
-    assert!(
-        estimate(
-            &mut estimator,
-            &sine_samples(220.0, 0, window - 1, epoch(1))
-        )
-        .first()
-        .is_none()
+    let partial = estimate(
+        &mut estimator,
+        &sine_samples(220.0, 0, window - 1, epoch(1)),
     );
+    assert_eq!(partial.len(), 0);
     // An epoch change discards the partial window: a full new window is required.
     let after_epoch = sine_samples(220.0, window - 1, window, epoch(2));
     let frames = estimate(&mut estimator, &after_epoch);
     assert_eq!(frames.len(), 1);
     assert_eq!(frames[0].epoch, epoch(2));
     // A capture gap (dropped frames) also resets the window.
-    assert!(
-        estimate(&mut estimator, &sine_samples(220.0, 50_000, 100, epoch(2)))
-            .first()
-            .is_none()
-    );
+    let after_gap = estimate(&mut estimator, &sine_samples(220.0, 50_000, 100, epoch(2)));
+    assert_eq!(after_gap.len(), 0);
 }
 
 /// {
