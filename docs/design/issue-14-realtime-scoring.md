@@ -25,13 +25,13 @@
 
 ## 設計
 
-**責務**
+### 責務
 
 - `RealtimePitchDetector`（trait, 新設 `core/src/pitch_tracker.rs`）: 時刻付きraw monoフレーム列→`PitchObservation`。差し替え可能。
 - `ScoringEngine`（新設 `core/src/scoring.rs`）: 観測を譜面ノートへ対応づけ、ノート別指標と集計を作る。副作用なし（I/O・時計取得なし）。
 - 時刻写像は既存 [`ClockSession::resolve(ClockDomain::Capture, epoch, stream_sample)`](../../core/src/audio_clock.rs) に委譲し、自前の遅延補正を作らない。
 
-**データ契約（案、フィールド名は実装PRで確定し本書を更新）**
+### データ契約（案、フィールド名は実装PRで確定し本書を更新）
 
 - 入力: `TimestampedMicrophoneSample { epoch, stream_sample, sample }`（既存、`audio_engine.rs`）。48kHz mono・effects前。
 - `PitchObservation { epoch, start_sample, end_sample, f0_hz: Option<f64>, voiced: bool, confidence, reject_reason: Option<_>, detector_version }`。`confidence`は診断値で**校正済み確率ではない**。無声/拒否時に架空F0を入れない。
