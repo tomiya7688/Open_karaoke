@@ -1139,6 +1139,8 @@ fn linear_credit(value: f64, full: f64, zero: f64) -> f64 {
 ///   戻り値: [`f64`: 中央値]
 /// }
 fn median(values: &mut [f64]) -> f64 {
+    // 呼び出し側は空でないことを保証する(空だと添字が範囲外になる)。
+    debug_assert!(!values.is_empty(), "median requires at least one value");
     values.sort_unstable_by(f64::total_cmp);
     let mid = values.len() / 2;
     if values.len().is_multiple_of(2) {
