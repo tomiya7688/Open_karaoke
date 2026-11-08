@@ -97,6 +97,9 @@ impl From<io::Error> for AudioImportError {
 ///   引数: [`ffmpeg`/`ffprobe`: 実行ファイル, `input`: 入力音声, `output`: 出力WAV]
 ///   戻り値: [正規化後のメタデータ、入力・配布方針・プロセス・probe・ファイルシステムの失敗は`AudioImportError`]
 /// }
+///
+/// # Errors
+/// Returns [`AudioImportError`] when the input, license policy, tool run, probe or filesystem step fails.
 pub fn normalize_audio(
     ffmpeg: impl AsRef<OsStr>,
     ffprobe: impl AsRef<OsStr>,
@@ -112,6 +115,9 @@ pub fn normalize_audio(
 ///   引数: [`ffmpeg`/`ffprobe`: 実行ファイル, `input`: 入力音声, `output`: 出力WAV, `cancelled`: 中断判定]
 ///   戻り値: [正規化後の音声メタデータ、失敗・中断時は`AudioImportError`]
 /// }
+///
+/// # Errors
+/// Returns [`AudioImportError::Cancelled`] after cancellation, otherwise as [`normalize_audio`].
 pub fn normalize_audio_cancellable(
     ffmpeg: impl AsRef<OsStr>,
     ffprobe: impl AsRef<OsStr>,

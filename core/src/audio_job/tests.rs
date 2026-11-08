@@ -24,7 +24,7 @@ use crate::{
 };
 
 /// {
-///   責務: [`call`: テスト用に`oneshot`でRouterへJSONリクエストを送る]
+///   責務: [`call`: テスト用に`oneshot`で`Router`へ`JSON`リクエストを送る]
 ///   処理: [1: API版ヘッダ付きリクエストを作る, 2: 送信して状態を得る, 3: 本文をJSONに読み替える(失敗時はNull)]
 ///   引数: [`router`: 対象Router, `method`: HTTPメソッド, `path`: URI, `body`: JSON本文]
 ///   戻り値: [状態コードとJSON本文]
@@ -233,7 +233,7 @@ async fn failures_have_codes_and_never_leave_partial_input() {
         let done = test.terminal(&test.submit().await).await;
         assert_eq!(done.status, JobStatus::Failed);
         assert!(done.error.as_deref().unwrap().starts_with(code), "{done:?}");
-        assert!(done.artifacts.is_empty());
+        assert_eq!(done.artifacts.len(), 0);
         assert!(
             test.import_entries().is_empty(),
             "{:?}",
@@ -272,7 +272,7 @@ async fn cancellation_reaches_the_running_tool_and_publishes_nothing() {
     let done = test.terminal(&job).await;
     assert_eq!(done.status, JobStatus::Cancelled);
     assert!(done.artifacts.is_empty() && done.error.is_none());
-    assert!(test.import_entries().is_empty());
+    assert_eq!(test.import_entries().len(), 0);
 }
 
 /// {
@@ -330,5 +330,5 @@ async fn invalid_requests_are_rejected_before_a_job_exists() {
         call(&unconfigured, "POST", "/jobs", body).await.0,
         StatusCode::SERVICE_UNAVAILABLE
     );
-    assert!(test.import_entries().is_empty());
+    assert_eq!(test.import_entries().len(), 0);
 }
