@@ -23,6 +23,12 @@ use crate::{
     audio_import::{AudioImportError, NormalizedAudioMetadata},
 };
 
+/// {
+///   責務: [`call`: テスト用に`oneshot`でRouterへJSONリクエストを送る]
+///   処理: [1: API版ヘッダ付きリクエストを作る, 2: 送信して状態を得る, 3: 本文をJSONに読み替える(失敗時はNull)]
+///   引数: [`router`: 対象Router, `method`: HTTPメソッド, `path`: URI, `body`: JSON本文]
+///   戻り値: [状態コードとJSON本文]
+/// }
 async fn call(router: &Router, method: &str, path: &str, body: Value) -> (StatusCode, Value) {
     let response = router
         .clone()
@@ -45,12 +51,22 @@ async fn call(router: &Router, method: &str, path: &str, body: Value) -> (Status
     )
 }
 
+/// {
+///   責務: [`Harness`: 音声取り込みテストの一時ディレクトリ・入力ファイル・Routerの束]
+///   フィールド: [`root`: 一時ルート, `source`: 偽の入力mp3, `router`: 取り込み設定済みRouter]
+/// }
 struct Harness {
     root: tempfile::TempDir,
     source: std::path::PathBuf,
     router: Router,
 }
 
+/// {
+///   責務: [`harness`: 差し替えた正規化関数でテスト用`Harness`を作る]
+///   処理: [1: 一時ディレクトリと偽の入力を作る, 2: 取り込み設定を持つ`AppState`でRouterを作る]
+///   引数: [`normalizer`: テスト用の正規化関数]
+///   戻り値: [`Harness`]
+/// }
 fn harness(normalizer: Normalizer) -> Harness {
     let root = tempfile::tempdir().unwrap();
     let source = root.path().join("source.mp3");
@@ -65,6 +81,12 @@ fn harness(normalizer: Normalizer) -> Harness {
 }
 
 impl Harness {
+    /// {
+    ///   責務: [`Harness::submit`: `audio.import` Jobを投入し受理(202)を確認する]
+    ///   処理: [1: `POST /jobs`を送る, 2: 202を検証する, 3: `Job`に変換する]
+    ///   引数: [`&self`]
+    ///   戻り値: [作成された`Job`]
+    /// }
     async fn submit(&self) -> Job {
         let (status, value) = call(
             &self.router,
@@ -77,6 +99,12 @@ impl Harness {
         serde_json::from_value(value).unwrap()
     }
 
+    /// {
+    ///   責務: [`Harness::terminal`: Jobが終端状態になるまで10秒を上限に問い合わせる]
+    ///   処理: [1: 5ms間隔で`GET /jobs/{id}`する, 2: 終端状態で返す, 3: 10秒で時間切れ]
+    ///   引数: [`&self`, `job`: 対象Job]
+    ///   戻り値: [終端状態の`Job`]
+    /// }
     async fn terminal(&self, job: &Job) -> Job {
         let wait = async {
             loop {
@@ -99,6 +127,12 @@ impl Harness {
             .unwrap()
     }
 
+    /// {
+    ///   責務: [`Harness::import_entries`: importsディレクトリ直下のエントリ名を列挙する]
+    ///   処理: [1: ディレクトリを読む(無ければ空), 2: ファイル名を文字列化する]
+    ///   引数: [`&self`]
+    ///   戻り値: [エントリ名の一覧]
+    /// }
     fn import_entries(&self) -> Vec<String> {
         let imports = self.root.path().join("artifacts/imports");
         let Ok(entries) = std::fs::read_dir(imports) else {
@@ -110,6 +144,12 @@ impl Harness {
     }
 }
 
+/// {
+///   責務: [`metadata`: 48kHz・2ch・指定長のテスト用メタデータを作る]
+///   処理: [1: 固定値で構造体を組み立てる]
+///   引数: [`duration_samples`: サンプル数]
+///   戻り値: [`NormalizedAudioMetadata`]
+/// }
 fn metadata(duration_samples: u64) -> NormalizedAudioMetadata {
     NormalizedAudioMetadata {
         sample_rate: 48_000,
@@ -118,6 +158,12 @@ fn metadata(duration_samples: u64) -> NormalizedAudioMetadata {
     }
 }
 
+/// {
+///   責務: [`normalized_input_is_published_as_analysis_ready_artifacts`: 正規化結果が解析可能な成果物として公開されることを検証する]
+///   処理: [1: 偽の正規化でWAVを書く, 2: Jobを完了させる, 3: 成果物とサマリ内容・import一覧を確認する]
+///   引数: [[]]
+///   戻り値: [[]]
+/// }
 #[tokio::test]
 async fn normalized_input_is_published_as_analysis_ready_artifacts() {
     let test = harness(Arc::new(|input, output, _| {
@@ -151,6 +197,12 @@ async fn normalized_input_is_published_as_analysis_ready_artifacts() {
     assert_eq!(test.import_entries(), [job.id.to_string()]);
 }
 
+/// {
+///   責務: [`failures_have_codes_and_never_leave_partial_input`: 失敗がコード付きで報告され、部分入力が残らないことを検証する]
+///   処理: [1: 各種失敗を返す正規化関数を用意する, 2: failedとコードを確認する, 3: importsに何も残らないことを確認する]
+///   引数: [[]]
+///   戻り値: [[]]
+/// }
 #[tokio::test]
 async fn failures_have_codes_and_never_leave_partial_input() {
     let cases: [(Normalizer, &str); 3] = [
@@ -190,6 +242,12 @@ async fn failures_have_codes_and_never_leave_partial_input() {
     }
 }
 
+/// {
+///   責務: [`cancellation_reaches_the_running_tool_and_publishes_nothing`: 中断が実行中ツールへ届き、何も公開されないことを検証する]
+///   処理: [1: 中断判定を待つ正規化関数で開始を確認する, 2: Jobを中断する, 3: cancelledと未公開を確認する]
+///   引数: [[]]
+///   戻り値: [[]]
+/// }
 #[tokio::test]
 async fn cancellation_reaches_the_running_tool_and_publishes_nothing() {
     let started = Arc::new(AtomicBool::new(false));
@@ -217,6 +275,12 @@ async fn cancellation_reaches_the_running_tool_and_publishes_nothing() {
     assert!(test.import_entries().is_empty());
 }
 
+/// {
+///   責務: [`invalid_requests_are_rejected_before_a_job_exists`: 不正な要求がJob作成前に拒否されることを検証する]
+///   処理: [1: ディレクトリ・未存在・非対応拡張子・相対パスを送る, 2: 400/404とJob未作成を確認する]
+///   引数: [[]]
+///   戻り値: [[]]
+/// }
 #[tokio::test]
 async fn invalid_requests_are_rejected_before_a_job_exists() {
     let test = harness(Arc::new(|_, _, _| unreachable!()));

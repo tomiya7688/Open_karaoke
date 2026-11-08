@@ -40,7 +40,12 @@ pub enum AudioImportError {
 }
 
 impl AudioImportError {
-    /// Stable machine-readable code for Job errors.
+    /// {
+    ///   責務: [`AudioImportError::code`: Job errorに載せる安定した機械可読コードを返す]
+    ///   処理: [1: 各バリアントを対応する固定文字列へ対応付ける]
+    ///   引数: [`&self`]
+    ///   戻り値: [`audio_*` 形式の静的コード文字列]
+    /// }
     #[must_use]
     pub fn code(&self) -> &'static str {
         match self {
@@ -86,10 +91,12 @@ impl From<io::Error> for AudioImportError {
     }
 }
 
-/// Normalize supported input to the internal WAV format.
-///
-/// # Errors
-/// Returns input, distribution-policy, process, probe or filesystem errors.
+/// {
+///   責務: [`normalize_audio`: 対応入力を内部WAV形式へ正規化する(中断なし)]
+///   処理: [1: `normalize_audio_cancellable`を常に未中断で呼ぶ]
+///   引数: [`ffmpeg`/`ffprobe`: 実行ファイル, `input`: 入力音声, `output`: 出力WAV]
+///   戻り値: [正規化後のメタデータ、入力・配布方針・プロセス・probe・ファイルシステムの失敗は`AudioImportError`]
+/// }
 pub fn normalize_audio(
     ffmpeg: impl AsRef<OsStr>,
     ffprobe: impl AsRef<OsStr>,
@@ -99,10 +106,12 @@ pub fn normalize_audio(
     normalize_audio_cancellable(ffmpeg, ffprobe, input, output, &|| false)
 }
 
-/// Same as [`normalize_audio`], but kills the running tool once `cancelled` returns true.
-///
-/// # Errors
-/// Returns [`AudioImportError::Cancelled`] after cancellation, otherwise as [`normalize_audio`].
+/// {
+///   責務: [`normalize_audio_cancellable`: 入力を48kHz WAVへ正規化し、`cancelled`がtrueになったら実行中のツールを止める]
+///   処理: [1: 入力拡張子とffmpeg配布形態を検証する, 2: 出力先の親ディレクトリを作る, 3: ffmpegを一時WAVへ実行する, 4: ffprobeで検証する, 5: 一時WAVを出力へ置く]
+///   引数: [`ffmpeg`/`ffprobe`: 実行ファイル, `input`: 入力音声, `output`: 出力WAV, `cancelled`: 中断判定]
+///   戻り値: [正規化後の音声メタデータ、失敗・中断時は`AudioImportError`]
+/// }
 pub fn normalize_audio_cancellable(
     ffmpeg: impl AsRef<OsStr>,
     ffprobe: impl AsRef<OsStr>,
@@ -305,6 +314,12 @@ fn parse_u64_field(value: &Value, field: &str) -> Result<u64, AudioImportError> 
     )))
 }
 
+/// {
+///   責務: [`ensure_supported_input`: 入力拡張子が対応形式(wav/aac/mp3/mp4)か確認する]
+///   処理: [1: 拡張子を小文字化する, 2: 対応形式なら成功、それ以外は`UnsupportedInput`]
+///   引数: [`path`: 検査する入力パス]
+///   戻り値: [対応形式なら`Ok(())`、非対応なら`UnsupportedInput`]
+/// }
 pub(crate) fn ensure_supported_input(path: &Path) -> Result<(), AudioImportError> {
     let extension = path
         .extension()
@@ -319,6 +334,12 @@ pub(crate) fn ensure_supported_input(path: &Path) -> Result<(), AudioImportError
     }
 }
 
+/// {
+///   責務: [`ensure_success`: 外部ツールの終了状態が成功か確認する]
+///   処理: [1: 成功なら`Ok`, 2: 失敗ならstderrを含む`ToolFailure`]
+///   引数: [`tool`: ツール名, `output`: 実行結果]
+///   戻り値: [成功なら`Ok(())`、失敗は`ToolFailure`]
+/// }
 fn ensure_success(tool: &str, output: &Output) -> Result<(), AudioImportError> {
     if output.status.success() {
         Ok(())
@@ -330,7 +351,12 @@ fn ensure_success(tool: &str, output: &Output) -> Result<(), AudioImportError> {
     }
 }
 
-/// Run a tool to completion while draining its pipes, killing it if `cancelled` becomes true.
+/// {
+///   責務: [`run_cancellable`: 外部ツールをパイプを排出しながら完了まで実行し、`cancelled`で強制終了する]
+///   処理: [1: stdin無し・stdout/stderrをpipeにして起動する, 2: 各pipeを別スレッドで排出する, 3: 20ms間隔で終了を待ち、中断なら`kill`して`Cancelled`を返す, 4: 出力を集めて返す]
+///   引数: [`tool`: エラー表示用のツール名, `command`: 実行するコマンド, `cancelled`: 中断判定]
+///   戻り値: [終了状態と出力を持つ`Output`、起動不能は`ToolUnavailable`、中断は`Cancelled`]
+/// }
 fn run_cancellable(
     tool: &str,
     mut command: Command,
@@ -369,6 +395,12 @@ fn run_cancellable(
     })
 }
 
+/// {
+///   責務: [`drain`: パイプを別スレッドで末尾まで読み切り、詰まりを防ぐ]
+///   処理: [1: スレッドを起動する, 2: 末尾まで読んでバッファへ溜める(読取エラーは無視する)]
+///   引数: [`pipe`: 読み取るパイプ]
+///   戻り値: [読み取ったバイト列を返す`JoinHandle`]
+/// }
 fn drain(mut pipe: impl Read + Send + 'static) -> thread::JoinHandle<Vec<u8>> {
     thread::spawn(move || {
         let mut bytes = Vec::new();
@@ -377,6 +409,12 @@ fn drain(mut pipe: impl Read + Send + 'static) -> thread::JoinHandle<Vec<u8>> {
     })
 }
 
+/// {
+///   責務: [`temporary_wav_path`: 最終出力と同じ場所の一時WAVパスを作る]
+///   処理: [1: 出力のファイル名を得る(無ければ`normalized.wav`), 2: `.tmp.wav`を付けた同階層パスにする]
+///   引数: [`output`: 最終出力パス]
+///   戻り値: [一時WAVのパス]
+/// }
 fn temporary_wav_path(output: &Path) -> PathBuf {
     let file_name = output
         .file_name()
@@ -390,6 +428,12 @@ mod tests {
     use super::*;
     use crate::song_data::{CURRENT_FORMAT_VERSION, SongFiles};
 
+    /// {
+    ///   責務: [`missing_tool_and_cancelled_tool_have_distinct_codes`: 不在ツールと中断ツールが別のエラーコードになることを検証する]
+    ///   処理: [1: 存在しないコマンドで`audio_tool_unavailable`を確認する, 2: 長時間コマンドを100ms後に中断し`audio_import_cancelled`と10秒未満の終了を確認する]
+    ///   引数: [[]]
+    ///   戻り値: [[]]
+    /// }
     #[test]
     fn missing_tool_and_cancelled_tool_have_distinct_codes() {
         let missing = run_cancellable(

@@ -102,6 +102,12 @@ impl ImportControl {
             Ok(())
         }
     }
+    /// {
+    ///   責務: [`ImportControl::finalize`: 取り込みを確定扱いにして以後の中断を拒否する]
+    ///   処理: [1: 状態を0から2へ比較交換する, 2: 既に中断済みなら`Cancelled`]
+    ///   引数: [`&self`]
+    ///   戻り値: [確定できれば`Ok(())`、中断が先なら`ImportError::Cancelled`]
+    /// }
     pub(crate) fn finalize(&self) -> Result<(), ImportError> {
         self.0
             .compare_exchange(0, 2, Ordering::AcqRel, Ordering::Acquire)

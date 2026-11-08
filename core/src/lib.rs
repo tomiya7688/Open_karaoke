@@ -360,6 +360,12 @@ impl AppState {
             .is_some_and(|snapshot| snapshot.state == karaoke_session::KaraokeState::Playing)
     }
 
+    /// {
+    ///   責務: [`AppState::with_audio_import`: 音声取り込みの設定を状態へ設定する]
+    ///   処理: [1: 設定を保持して自身を返す]
+    ///   引数: [`self`: 状態, `config`: 取り込み設定]
+    ///   戻り値: [設定を反映した`AppState`]
+    /// }
     #[must_use]
     pub fn with_audio_import(mut self, config: audio_job::AudioImportConfig) -> Self {
         self.audio_import = Some(config);
@@ -689,6 +695,12 @@ async fn prepare_import(
     Ok(None)
 }
 
+/// {
+///   責務: [`prepare_audio`: Job作成要求の`audio.import`部分を種別と整合させて検証する]
+///   処理: [1: kindと`audio_import`の組を照合する, 2: 一致なら`audio_job::prepare`, 3: 欠落・不一致は400, 4: 無関係なら`None`]
+///   引数: [`state`: アプリ状態, `request`: Job作成要求]
+///   戻り値: [`Some(AudioWork)`、対象外は`None`、不正は`ApiError`]
+/// }
 fn prepare_audio(
     state: &AppState,
     request: &CreateJobRequest,
