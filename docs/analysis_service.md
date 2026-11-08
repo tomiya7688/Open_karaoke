@@ -184,6 +184,13 @@ formatting and Clippy findings are corrected rather than suppressing the lint ga
   (default 30 minutes); past the limit the job becomes `failed` with `deferred_timeout`.
 - `AppState::with_defer_while_playing(false)` disables the policy (default on);
   `with_defer_max_wait` sets the limit. The policy is held in memory, not persisted.
+- Resource policy (#43 43.3, defaults keep current behaviour): `OPEN_KARAOKE_MAX_HEAVY_JOBS`
+  (`unlimited` or integer >= 1; `AppState::with_max_concurrent_heavy_jobs`) holds extra heavy jobs
+  `queued` with `deferred_reason: "heavy_job_limit"` (cancellable; the playback wait and this wait share one
+  deadline, so the total start delay stays within `defer_max_wait`).
+  `OPEN_KARAOKE_WORKER_PRIORITY` (`inherit`/`below_normal`/`idle`) sets the Python worker priority
+  class at spawn on Windows only (other platforms warn and use `inherit`). Invalid values stop Core
+  at startup. Effect on underruns is Unverified until 43.5/H real-device comparison.
 - Job failure, cancellation and worker crash never change the karaoke session; the Job table and
   the session are independent. Core only reads the session state (read-only).
 - CI proves this contract only (`core` unit tests, `job_api` tests). Real-device underrun and
