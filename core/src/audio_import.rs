@@ -401,16 +401,27 @@ fn run_cancellable(
     })
 }
 
+/// 外部ツールの標準出力/標準エラーとして保持する最大バイト数。
+const MAX_CAPTURED_OUTPUT: usize = 1 << 20;
+
 /// {
 ///   責務: [`drain`: パイプを別スレッドで末尾まで読み切り、詰まりを防ぐ]
-///   処理: [1: スレッドを起動する, 2: 末尾まで読んでバッファへ溜める(読取エラーは無視する)]
+///   処理: [1: スレッドを起動する, 2: 末尾まで読み、先頭`MAX_CAPTURED_OUTPUT`バイトだけ保持して残りは読み捨てる(読取エラーは無視する)]
 ///   引数: [`pipe`: 読み取るパイプ]
 ///   戻り値: [読み取ったバイト列を返す`JoinHandle`]
 /// }
 fn drain(mut pipe: impl Read + Send + 'static) -> thread::JoinHandle<Vec<u8>> {
     thread::spawn(move || {
+        // 診断に必要な先頭だけを保持し、残りは読み捨てる(大量出力でメモリを使い切らない)。
         let mut bytes = Vec::new();
-        let _ = pipe.read_to_end(&mut bytes);
+        let mut chunk = [0_u8; 8192];
+        while let Ok(read) = pipe.read(&mut chunk) {
+            if read == 0 {
+                break;
+            }
+            let room = MAX_CAPTURED_OUTPUT.saturating_sub(bytes.len());
+            bytes.extend_from_slice(&chunk[..read.min(room)]);
+        }
         bytes
     })
 }
@@ -433,6 +444,19 @@ fn temporary_wav_path(output: &Path) -> PathBuf {
 mod tests {
     use super::*;
     use crate::song_data::{CURRENT_FORMAT_VERSION, SongFiles};
+
+    /// {
+    ///   責務: [`drain_keeps_only_the_capped_prefix`: 大量出力でも保持量が上限で止まり、全体は読み切ることを確かめる]
+    ///   処理: [1: 上限の2倍超のバイト列を`drain`に読ませる, 2: 保持量が上限と一致することを確認する]
+    ///   引数: []
+    ///   戻り値: []
+    /// }
+    #[test]
+    fn drain_keeps_only_the_capped_prefix() {
+        let data = vec![b'x'; MAX_CAPTURED_OUTPUT * 2 + 5];
+        let kept = drain(std::io::Cursor::new(data)).join().unwrap();
+        assert_eq!(kept.len(), MAX_CAPTURED_OUTPUT);
+    }
 
     /// {
     ///   責務: [`missing_tool_and_cancelled_tool_have_distinct_codes`: 不在ツールと中断ツールが別のエラーコードになることを検証する]

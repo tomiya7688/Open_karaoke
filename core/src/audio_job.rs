@@ -228,7 +228,15 @@ impl AudioWork {
         self.control
             .finalize()
             .map_err(|_| AudioImportError::Cancelled)?;
-        fs::rename(staging, imports.join(id.to_string()))?;
+        let published = imports.join(id.to_string());
+        // 既存の成果物を置き換えない(同一idの再実行・衝突でも公開済みを壊さない)。
+        if published.exists() {
+            return Err(AudioImportError::Io(std::io::Error::new(
+                std::io::ErrorKind::AlreadyExists,
+                "import directory already exists",
+            )));
+        }
+        fs::rename(staging, published)?;
         Ok(vec![
             format!("{IMPORTS_DIR}/{id}/{AUDIO_FILE}"),
             format!("{IMPORTS_DIR}/{id}/{SUMMARY_FILE}"),
