@@ -7,6 +7,7 @@ pub mod audio_clock_calibration;
 pub mod audio_device;
 pub mod audio_engine;
 pub mod audio_import;
+pub mod audio_job;
 pub mod audio_wav;
 pub mod ffmpeg_bundle;
 pub mod inference_policy;
@@ -74,6 +75,7 @@ pub struct AppState {
     jobs: Arc<RwLock<HashMap<Uuid, JobRecord>>>,
     analysis: AnalysisClient,
     song_library: Option<song_library::SongLibrary>,
+    audio_import: Option<audio_job::AudioImportConfig>,
     stopping: Arc<AtomicBool>,
     sse_budget: Arc<Semaphore>,
     mixer: mixer_control::MixerControl,
@@ -106,6 +108,7 @@ impl Default for AppState {
             jobs: Arc::new(RwLock::new(HashMap::new())),
             analysis: AnalysisClient::default(),
             song_library: None,
+            audio_import: None,
             stopping: Arc::new(AtomicBool::new(false)),
             sse_budget: Arc::new(Semaphore::new(MAX_SSE_CONNECTIONS)),
             mixer: mixer_control::MixerControl::default(),
@@ -245,6 +248,7 @@ pub struct CreateJobRequest {
     #[serde(default)]
     pub analysis: AnalysisRequest,
     pub song_import: Option<song_api::SongImportRequest>,
+    pub audio_import: Option<audio_job::AudioImportRequest>,
 }
 
 fn default_steps() -> u16 {
@@ -354,6 +358,12 @@ impl AppState {
         self.karaoke
             .current_snapshot()
             .is_some_and(|snapshot| snapshot.state == karaoke_session::KaraokeState::Playing)
+    }
+
+    #[must_use]
+    pub fn with_audio_import(mut self, config: audio_job::AudioImportConfig) -> Self {
+        self.audio_import = Some(config);
+        self
     }
 
     /// Stop admission and request cancellation before runtime teardown.
@@ -565,6 +575,7 @@ async fn create_job(
     }
     state.ensure_running()?;
     let import_work = prepare_import(&state, &request).await?;
+    let audio_work = prepare_audio(&state, &request)?;
     if let Some(role) = request.kind.strip_prefix("analysis.") {
         if !matches!(
             role,
@@ -610,12 +621,15 @@ async fn create_job(
         JobRecord {
             snapshot: job.clone(),
             cancelled: false,
-            import_control: import_work.as_ref().map(|work| Arc::clone(&work.control)),
+            import_control: import_work
+                .as_ref()
+                .map(|work| Arc::clone(&work.control))
+                .or_else(|| audio_work.as_ref().map(|work| Arc::clone(&work.control))),
             events,
         },
     );
     drop(jobs);
-    tokio::spawn(run_job(state, id, request, import_work));
+    tokio::spawn(run_job(state, id, request, import_work, audio_work));
     Ok((StatusCode::ACCEPTED, Json(job)))
 }
 
@@ -675,11 +689,30 @@ async fn prepare_import(
     Ok(None)
 }
 
+fn prepare_audio(
+    state: &AppState,
+    request: &CreateJobRequest,
+) -> Result<Option<audio_job::AudioWork>, ApiError> {
+    match (request.kind.as_str(), &request.audio_import) {
+        ("audio.import", Some(input)) => audio_job::prepare(state, input).map(Some),
+        ("audio.import", None) => Err(ApiError(
+            StatusCode::BAD_REQUEST,
+            "audio_import.source_path is required".to_owned(),
+        )),
+        (_, Some(_)) => Err(ApiError(
+            StatusCode::BAD_REQUEST,
+            "audio_import requires kind audio.import".to_owned(),
+        )),
+        (_, None) => Ok(None),
+    }
+}
+
 async fn run_job(
     state: AppState,
     id: Uuid,
     request: CreateJobRequest,
     import: Option<song_api::ImportWork>,
+    audio: Option<audio_job::AudioWork>,
 ) {
     if state.cancelled(id).await {
         state.finish(id, JobStatus::Cancelled, None).await;
@@ -709,6 +742,10 @@ async fn run_job(
         .await;
     if let Some(work) = import {
         song_api::run(&state, id, work).await;
+        return;
+    }
+    if let Some(work) = audio {
+        audio_job::run(&state, id, work).await;
         return;
     }
     if let Some(role) = request.kind.strip_prefix("analysis.") {

@@ -102,7 +102,7 @@ impl ImportControl {
             Ok(())
         }
     }
-    fn finalize(&self) -> Result<(), ImportError> {
+    pub(crate) fn finalize(&self) -> Result<(), ImportError> {
         self.0
             .compare_exchange(0, 2, Ordering::AcqRel, Ordering::Acquire)
             .map(|_| ())

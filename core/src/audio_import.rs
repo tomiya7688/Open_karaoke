@@ -1,8 +1,11 @@
 use std::{
     ffi::OsStr,
-    fmt, fs, io,
+    fmt, fs,
+    io::{self, Read},
     path::{Path, PathBuf},
-    process::{Command, Output},
+    process::{Command, Output, Stdio},
+    thread,
+    time::Duration,
 };
 
 use serde_json::Value;
@@ -22,9 +25,34 @@ pub struct NormalizedAudioMetadata {
 pub enum AudioImportError {
     Io(io::Error),
     UnsupportedInput(String),
-    ToolFailure { tool: String, stderr: String },
+    ToolFailure {
+        tool: String,
+        stderr: String,
+    },
     LicensePolicy(String),
     InvalidProbe(String),
+    /// The configured tool could not be started (not installed or not executable).
+    ToolUnavailable {
+        tool: String,
+        error: io::Error,
+    },
+    Cancelled,
+}
+
+impl AudioImportError {
+    /// Stable machine-readable code for Job errors.
+    #[must_use]
+    pub fn code(&self) -> &'static str {
+        match self {
+            Self::Io(_) => "audio_import_io",
+            Self::UnsupportedInput(_) => "audio_unsupported_input",
+            Self::ToolFailure { .. } => "audio_tool_failed",
+            Self::LicensePolicy(_) => "audio_ffmpeg_license_policy",
+            Self::InvalidProbe(_) => "audio_invalid_probe",
+            Self::ToolUnavailable { .. } => "audio_tool_unavailable",
+            Self::Cancelled => "audio_import_cancelled",
+        }
+    }
 }
 
 impl fmt::Display for AudioImportError {
@@ -39,6 +67,13 @@ impl fmt::Display for AudioImportError {
             }
             Self::LicensePolicy(message) => write!(formatter, "FFmpeg license policy: {message}"),
             Self::InvalidProbe(message) => write!(formatter, "invalid ffprobe output: {message}"),
+            Self::ToolUnavailable { tool, error } => {
+                write!(
+                    formatter,
+                    "{tool} could not be started (is it installed?): {error}"
+                )
+            }
+            Self::Cancelled => write!(formatter, "audio import was cancelled"),
         }
     }
 }
@@ -61,6 +96,20 @@ pub fn normalize_audio(
     input: impl AsRef<Path>,
     output: impl AsRef<Path>,
 ) -> Result<NormalizedAudioMetadata, AudioImportError> {
+    normalize_audio_cancellable(ffmpeg, ffprobe, input, output, &|| false)
+}
+
+/// Same as [`normalize_audio`], but kills the running tool once `cancelled` returns true.
+///
+/// # Errors
+/// Returns [`AudioImportError::Cancelled`] after cancellation, otherwise as [`normalize_audio`].
+pub fn normalize_audio_cancellable(
+    ffmpeg: impl AsRef<OsStr>,
+    ffprobe: impl AsRef<OsStr>,
+    input: impl AsRef<Path>,
+    output: impl AsRef<Path>,
+    cancelled: &dyn Fn() -> bool,
+) -> Result<NormalizedAudioMetadata, AudioImportError> {
     let input = input.as_ref();
     let output = output.as_ref();
 
@@ -73,8 +122,13 @@ pub fn normalize_audio(
 
     let temporary = temporary_wav_path(output);
     let args = ffmpeg_arguments(input, &temporary);
-    let result = Command::new(ffmpeg.as_ref()).args(&args).output()?;
+    let mut command = Command::new(ffmpeg.as_ref());
+    command.args(&args);
+    let result = run_cancellable("ffmpeg", command, cancelled)?;
     ensure_success("ffmpeg", &result)?;
+    if cancelled() {
+        return Err(AudioImportError::Cancelled);
+    }
 
     let metadata = probe_audio(ffprobe.as_ref(), &temporary)?;
     if metadata.sample_rate != INTERNAL_SAMPLE_RATE {
@@ -113,7 +167,9 @@ pub fn apply_metadata(
 /// # Errors
 /// Returns process failures or violations of the selected distribution policy.
 pub fn verify_ffmpeg_distribution(ffmpeg: &OsStr) -> Result<(), AudioImportError> {
-    let result = Command::new(ffmpeg).arg("-buildconf").output()?;
+    let mut command = Command::new(ffmpeg);
+    command.arg("-buildconf");
+    let result = run_cancellable("ffmpeg", command, &|| false)?;
     ensure_success("ffmpeg -buildconf", &result)?;
     let text = format!(
         "{}\n{}",
@@ -181,7 +237,8 @@ pub fn probe_audio(
     ffprobe: &OsStr,
     input: &Path,
 ) -> Result<NormalizedAudioMetadata, AudioImportError> {
-    let result = Command::new(ffprobe)
+    let mut command = Command::new(ffprobe);
+    command
         .args([
             "-v",
             "error",
@@ -192,8 +249,8 @@ pub fn probe_audio(
             "-of",
             "json",
         ])
-        .arg(input)
-        .output()?;
+        .arg(input);
+    let result = run_cancellable("ffprobe", command, &|| false)?;
 
     ensure_success("ffprobe", &result)?;
     parse_probe_json(&result.stdout)
@@ -248,7 +305,7 @@ fn parse_u64_field(value: &Value, field: &str) -> Result<u64, AudioImportError> 
     )))
 }
 
-fn ensure_supported_input(path: &Path) -> Result<(), AudioImportError> {
+pub(crate) fn ensure_supported_input(path: &Path) -> Result<(), AudioImportError> {
     let extension = path
         .extension()
         .and_then(OsStr::to_str)
@@ -273,6 +330,53 @@ fn ensure_success(tool: &str, output: &Output) -> Result<(), AudioImportError> {
     }
 }
 
+/// Run a tool to completion while draining its pipes, killing it if `cancelled` becomes true.
+fn run_cancellable(
+    tool: &str,
+    mut command: Command,
+    cancelled: &dyn Fn() -> bool,
+) -> Result<Output, AudioImportError> {
+    let mut child = command
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|error| AudioImportError::ToolUnavailable {
+            tool: tool.to_owned(),
+            error,
+        })?;
+    let stdout = child.stdout.take().map(drain);
+    let stderr = child.stderr.take().map(drain);
+    let status = loop {
+        if let Some(status) = child.try_wait()? {
+            break status;
+        }
+        if cancelled() {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err(AudioImportError::Cancelled);
+        }
+        thread::sleep(Duration::from_millis(20));
+    };
+    let collect = |pipe: Option<thread::JoinHandle<Vec<u8>>>| {
+        pipe.and_then(|handle| handle.join().ok())
+            .unwrap_or_default()
+    };
+    Ok(Output {
+        status,
+        stdout: collect(stdout),
+        stderr: collect(stderr),
+    })
+}
+
+fn drain(mut pipe: impl Read + Send + 'static) -> thread::JoinHandle<Vec<u8>> {
+    thread::spawn(move || {
+        let mut bytes = Vec::new();
+        let _ = pipe.read_to_end(&mut bytes);
+        bytes
+    })
+}
+
 fn temporary_wav_path(output: &Path) -> PathBuf {
     let file_name = output
         .file_name()
@@ -285,6 +389,33 @@ fn temporary_wav_path(output: &Path) -> PathBuf {
 mod tests {
     use super::*;
     use crate::song_data::{CURRENT_FORMAT_VERSION, SongFiles};
+
+    #[test]
+    fn missing_tool_and_cancelled_tool_have_distinct_codes() {
+        let missing = run_cancellable(
+            "ffmpeg",
+            Command::new("open-karaoke-missing-tool-for-test"),
+            &|| false,
+        )
+        .unwrap_err();
+        assert_eq!(missing.code(), "audio_tool_unavailable");
+        let long = if cfg!(windows) {
+            let mut command = Command::new("ping");
+            command.args(["-n", "30", "127.0.0.1"]);
+            command
+        } else {
+            let mut command = Command::new("sleep");
+            command.arg("30");
+            command
+        };
+        let started = std::time::Instant::now();
+        let cancelled = run_cancellable("ffmpeg", long, &|| {
+            started.elapsed() > Duration::from_millis(100)
+        })
+        .unwrap_err();
+        assert_eq!(cancelled.code(), "audio_import_cancelled");
+        assert!(started.elapsed() < Duration::from_secs(10));
+    }
 
     #[test]
     fn command_normalizes_to_internal_pcm_format() {
