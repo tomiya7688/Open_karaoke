@@ -804,13 +804,16 @@ fn defer_deadline(state: &AppState) -> tokio::time::Instant {
 
 /// {
 ///   責務: [`is_heavy_kind`: 再生中は開始を待たせる重い推論Jobかを判定する]
-///   処理: [1: `analysis.`役割のうち mock 以外(stems/lyrics/alignment/pitch/events/notes/song)を重いとみなす]
+///   処理: [1: `audio.import`(FFmpeg正規化)を重いとみなす, 2: `analysis.`役割のうち mock 以外(stems/lyrics/alignment/pitch/events/notes/song)を重いとみなす]
 ///   引数: [kind: Job種別]
-///   戻り値: [`bool`: 重い推論ならtrue。`song.import`や試験用Jobはfalse]
+///   戻り値: [`bool`: 重い処理ならtrue。`song.import`や試験用Jobはfalse]
 /// }
 fn is_heavy_kind(kind: &str) -> bool {
-    kind.strip_prefix("analysis.")
-        .is_some_and(|role| role != "mock")
+    // FFmpeg正規化も再生と資源を取り合うため、#43の待機・同時数の対象にする。
+    kind == "audio.import"
+        || kind
+            .strip_prefix("analysis.")
+            .is_some_and(|role| role != "mock")
 }
 
 /// {

@@ -1,7 +1,7 @@
 # #36 残り: 原曲取込から曲登録までの一括導線 設計
 
 > 状態: Python側`analysis.song`（正規化済みWAV→SongBundle）とCore側`song.import`（完了Job→SongLibrary登録）は実装済み。
-> **36.1 実装済み（Core Job）**: `kind: audio.import`（`source_path`）で元音源(WAV/AAC/MP3/MP4)をFFmpeg正規化し、private staging→1回のrenameで公開する（失敗・取消で部分出力を残さない）。コードは`core/src/audio_job.rs`、`audio_import.rs`。実機のFFmpeg・実曲での確認は未実施（Unverified）。
+> **36.1 実装済み（Core Job）**: `kind: audio.import`（`source_path`）で元音源(WAV/AAC/MP3/MP4)をFFmpeg正規化し、private staging→1回のrenameで公開する（失敗・取消で部分出力を残さない）。30分超は`audio_too_long`で拒否し、#43の重いJobとして再生中は待機する。コードは`core/src/audio_job.rs`、`audio_import.rs`。実機のFFmpeg・実曲での確認は未実施（Unverified）。
 > **未接続**: 正規化→`analysis.song`→`song.import`の合成Job（36.2）、入力受け渡し方式（36.3）、GUIの原曲取込・進捗・登録操作（36.4）。最終確認日: 2026-11-08
 > （[Current status](../current_status.md)、[SongStore import](../song_import.md)）。
 

@@ -21,6 +21,9 @@ pub struct NormalizedAudioMetadata {
     pub duration_samples: u64,
 }
 
+/// 取り込みを受け付ける最大の長さ(48 kHzのsample数)。`analysis.song`の上限(30分)と同じ。
+pub const MAX_DURATION_SAMPLES: u64 = 30 * 60 * INTERNAL_SAMPLE_RATE as u64;
+
 #[derive(Debug)]
 pub enum AudioImportError {
     Io(io::Error),
@@ -31,6 +34,10 @@ pub enum AudioImportError {
     },
     LicensePolicy(String),
     InvalidProbe(String),
+    /// Normalized audio is longer than [`MAX_DURATION_SAMPLES`] (the `analysis.song` limit).
+    TooLong {
+        duration_samples: u64,
+    },
     /// The configured tool could not be started (not installed or not executable).
     ToolUnavailable {
         tool: String,
@@ -54,6 +61,7 @@ impl AudioImportError {
             Self::ToolFailure { .. } => "audio_tool_failed",
             Self::LicensePolicy(_) => "audio_ffmpeg_license_policy",
             Self::InvalidProbe(_) => "audio_invalid_probe",
+            Self::TooLong { .. } => "audio_too_long",
             Self::ToolUnavailable { .. } => "audio_tool_unavailable",
             Self::Cancelled => "audio_import_cancelled",
         }
@@ -72,6 +80,10 @@ impl fmt::Display for AudioImportError {
             }
             Self::LicensePolicy(message) => write!(formatter, "FFmpeg license policy: {message}"),
             Self::InvalidProbe(message) => write!(formatter, "invalid ffprobe output: {message}"),
+            Self::TooLong { duration_samples } => write!(
+                formatter,
+                "normalized audio has {duration_samples} samples (limit {MAX_DURATION_SAMPLES})"
+            ),
             Self::ToolUnavailable { tool, error } => {
                 write!(
                     formatter,
@@ -129,7 +141,7 @@ pub fn normalize_audio_cancellable(
     let output = output.as_ref();
 
     ensure_supported_input(input)?;
-    verify_ffmpeg_distribution(ffmpeg.as_ref())?;
+    verify_ffmpeg_distribution_cancellable(ffmpeg.as_ref(), cancelled)?;
 
     if let Some(parent) = output.parent() {
         fs::create_dir_all(parent)?;
@@ -145,7 +157,12 @@ pub fn normalize_audio_cancellable(
         return Err(AudioImportError::Cancelled);
     }
 
-    let metadata = probe_audio(ffprobe.as_ref(), &temporary)?;
+    let metadata = probe_audio_cancellable(ffprobe.as_ref(), &temporary, cancelled)?;
+    if metadata.duration_samples > MAX_DURATION_SAMPLES {
+        return Err(AudioImportError::TooLong {
+            duration_samples: metadata.duration_samples,
+        });
+    }
     if metadata.sample_rate != INTERNAL_SAMPLE_RATE {
         return Err(AudioImportError::InvalidProbe(format!(
             "expected sample rate {INTERNAL_SAMPLE_RATE}, got {}",
@@ -182,9 +199,25 @@ pub fn apply_metadata(
 /// # Errors
 /// Returns process failures or violations of the selected distribution policy.
 pub fn verify_ffmpeg_distribution(ffmpeg: &OsStr) -> Result<(), AudioImportError> {
+    verify_ffmpeg_distribution_cancellable(ffmpeg, &|| false)
+}
+
+/// {
+///   責務: [`verify_ffmpeg_distribution_cancellable`: `ffmpeg -buildconf`でLGPL配布方針を検査し、`cancelled`がtrueになったら止める]
+///   処理: [1: `-buildconf`を中断判定付きで実行する, 2: 失敗なら`ToolFailure`, 3: 出力のビルド設定を検査する]
+///   引数: [`ffmpeg`: 実行ファイル, `cancelled`: 中断判定]
+///   戻り値: [方針に合えば`Ok(())`、中断・失敗・方針違反は`AudioImportError`]
+/// }
+///
+/// # Errors
+/// Returns [`AudioImportError::Cancelled`] after cancellation, otherwise as [`verify_ffmpeg_distribution`].
+pub fn verify_ffmpeg_distribution_cancellable(
+    ffmpeg: &OsStr,
+    cancelled: &dyn Fn() -> bool,
+) -> Result<(), AudioImportError> {
     let mut command = Command::new(ffmpeg);
     command.arg("-buildconf");
-    let result = run_cancellable("ffmpeg", command, &|| false)?;
+    let result = run_cancellable("ffmpeg", command, cancelled)?;
     ensure_success("ffmpeg -buildconf", &result)?;
     let text = format!(
         "{}\n{}",
@@ -240,6 +273,9 @@ pub fn ffmpeg_arguments(input: &Path, output: &Path) -> Vec<String> {
         "+bitexact".to_owned(),
         "-flags:a".to_owned(),
         "+bitexact".to_owned(),
+        // 上限を1秒超えた所で書込みを止め、長時間音源でディスクを使い切らない(超過は後段で拒否)。
+        "-t".to_owned(),
+        (MAX_DURATION_SAMPLES / u64::from(INTERNAL_SAMPLE_RATE) + 1).to_string(),
         output.to_string_lossy().into_owned(),
     ]
 }
@@ -251,6 +287,23 @@ pub fn ffmpeg_arguments(input: &Path, output: &Path) -> Vec<String> {
 pub fn probe_audio(
     ffprobe: &OsStr,
     input: &Path,
+) -> Result<NormalizedAudioMetadata, AudioImportError> {
+    probe_audio_cancellable(ffprobe, input, &|| false)
+}
+
+/// {
+///   責務: [`probe_audio_cancellable`: ffprobeで正規化WAVのsample rate・チャンネル数・sample数を読み、`cancelled`がtrueになったら止める]
+///   処理: [1: ffprobeを中断判定付きで実行する, 2: 失敗なら`ToolFailure`, 3: JSONを解析する]
+///   引数: [`ffprobe`: 実行ファイル, `input`: 検査するWAV, `cancelled`: 中断判定]
+///   戻り値: [音声メタデータ、中断・失敗・解析不能は`AudioImportError`]
+/// }
+///
+/// # Errors
+/// Returns [`AudioImportError::Cancelled`] after cancellation, otherwise as [`probe_audio`].
+pub fn probe_audio_cancellable(
+    ffprobe: &OsStr,
+    input: &Path,
+    cancelled: &dyn Fn() -> bool,
 ) -> Result<NormalizedAudioMetadata, AudioImportError> {
     let mut command = Command::new(ffprobe);
     command
@@ -265,7 +318,7 @@ pub fn probe_audio(
             "json",
         ])
         .arg(input);
-    let result = run_cancellable("ffprobe", command, &|| false)?;
+    let result = run_cancellable("ffprobe", command, cancelled)?;
 
     ensure_success("ffprobe", &result)?;
     parse_probe_json(&result.stdout)
@@ -499,6 +552,7 @@ mod tests {
         assert!(args.windows(2).any(|pair| pair == ["-c:a", "pcm_f32le"]));
         assert!(args.windows(2).any(|pair| pair == ["-map", "0:a:0"]));
         assert!(args.windows(2).any(|pair| pair == ["-map_metadata", "-1"]));
+        assert!(args.windows(2).any(|pair| pair == ["-t", "1801"]));
     }
 
     #[test]

@@ -68,7 +68,9 @@ For normalized PCM WAV, `duration_ts` is used as integer `duration_samples` in S
 stagingを消し、artifactsは空。キャンセルは実行中のffmpeg/ffprobeをkillし、song.importと同じく
 公開確定とatomicに順序付けする。errorは安定コードで始まる:
 `audio_tool_unavailable`（ffmpeg/ffprobe未導入・起動不可）、`audio_ffmpeg_license_policy`、
-`audio_tool_failed`、`audio_invalid_probe`（0 sampleを含む）、`audio_import_io`。
+`audio_tool_failed`、`audio_invalid_probe`（0 sampleを含む）、`audio_too_long`（30分超。`analysis.song`の上限と同じで、ffmpegは上限+1秒で書込みを止める）、`audio_import_io`。
+要求は種別・拡張子・存在に加え、読取用に開けることをJob作成前に確認する。
+`audio.import`は#43の重いJobとして扱い、再生中の待機と同時数の上限に従う。
 
-Coreは `OPEN_KARAOKE_FFMPEG` / `OPEN_KARAOKE_FFPROBE`（既定はPATH上の `ffmpeg` / `ffprobe`）を使う。
+Coreが使うffmpeg/ffprobeは、`OPEN_KARAOKE_FFMPEG` / `OPEN_KARAOKE_FFPROBE`の明示指定、同梱ツール、PATH上の `ffmpeg` / `ffprobe` の順に選ぶ（`MediaTools::resolve`）。
 Job契約テストは正規化処理を差し替えて行い、実FFmpegでの変換はUnverified（LGPL版の同梱は#39）。

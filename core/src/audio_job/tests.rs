@@ -261,10 +261,22 @@ async fn cancellation_reaches_the_running_tool_and_publishes_nothing() {
         Err(AudioImportError::Cancelled)
     }));
     let job = test.submit().await;
-    while !started.load(Ordering::Acquire) {
-        tokio::time::sleep(Duration::from_millis(5)).await;
-    }
     let path = format!("/jobs/{}/cancel", job.id);
+    // 開始しないまま失敗した場合にCIが期限まで待たないよう、開始待ちにも期限を設ける。
+    let waited = tokio::time::timeout(Duration::from_secs(10), async {
+        while !started.load(Ordering::Acquire) {
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+    })
+    .await;
+    if waited.is_err() {
+        // 遅れて起動する正規化関数も止まるよう、失敗前に中断を通知する。
+        let _ = call(&test.router, "POST", &path, Value::Null).await;
+        panic!(
+            "normalizer did not start within 10s: {:?}",
+            test.terminal(&job).await
+        );
+    }
     assert_eq!(
         call(&test.router, "POST", &path, Value::Null).await.0,
         StatusCode::OK

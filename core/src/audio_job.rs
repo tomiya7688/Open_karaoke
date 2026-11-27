@@ -137,6 +137,10 @@ pub(crate) fn prepare(
         }
         Err(_) => return Err(invalid("source_path cannot be read")),
     }
+    // 種別は取れても読取権限が無い場合があるため、Job作成前に実際に開いて確かめる。
+    if fs::File::open(source).is_err() {
+        return Err(invalid("source_path cannot be opened for reading"));
+    }
     Ok(AudioWork {
         config,
         source: source.clone(),
@@ -191,7 +195,15 @@ impl AudioWork {
         let staging = imports.join(format!(".staging-{id}"));
         let result = self.publish(&imports, &staging, id);
         if result.is_err() {
-            let _ = fs::remove_dir_all(&staging);
+            // Jobの結果は元のエラーのまま保ち、残骸の原因を追えるよう削除失敗だけを記録する。
+            if let Err(error) = fs::remove_dir_all(&staging)
+                && error.kind() != std::io::ErrorKind::NotFound
+            {
+                eprintln!(
+                    "warning: audio import staging {} was not removed: {error}",
+                    staging.display()
+                );
+            }
         }
         result
     }
