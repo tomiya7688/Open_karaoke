@@ -18,6 +18,7 @@ pub mod mixer_api;
 pub mod mixer_control;
 pub mod model_plan;
 pub mod runtime_layout;
+pub mod scoring;
 pub mod song_api;
 pub mod song_data;
 pub mod song_edit;

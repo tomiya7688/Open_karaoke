@@ -20,7 +20,7 @@
 | #7 歌詞認識 | Adapter実装/実録未評価 | [歌詞認識](../lyric_transcription.md) | #6 | 同上 |
 | #8 歌詞整列 | Adapter実装/実録未評価 | [Alignment](../lyric_alignment.md) | #7 | 同上 |
 | #13 監視/Mixer | DSPのみ。デバイス接続・API・GUI未 | [Audio engine §Mixer](../audio_engine.md#mixer-and-monitoring-effects--issue-13-first-slice)、[karaoke session design](../karaoke_session_design.md) | #12 | #107のworker組成で接続 |
-| #14 リアルタイム採点 | 未実装 | [#14設計](issue-14-realtime-scoring.md)、[Scoring](../scoring.md) | #12 #40 | 14.1 |
+| #14 リアルタイム採点 | コア実装済み（結線・実機検証は未） | [#14設計](issue-14-realtime-scoring.md)、[Scoring](../scoring.md) | #12 #40 | 14.1 |
 | #15 GUI/Core接続 | シェル実装済み | [Desktop client](../desktop_client.md) | #41 | #16/#110と並行 |
 | #16 カラオケ画面 | 16.1表示＋16.2 `PlaybackFollower`/再生操作（mock Coreのみ・実Window未確認） | [#16設計](issue-16-karaoke-screen.md) | #107 #14 | 16.3（歌唱線。#14のイベント待ち） |
 | #17 モデル選択 | 検出・保存選択済み。song各段はPython側pin済み | [Model Plugins](../model_plugins.md) | - | [#109設計](issue-109-model-plan.md) 109.2 |
