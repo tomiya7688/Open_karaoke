@@ -9,12 +9,23 @@ using System.Text.Json.Serialization;
 namespace OpenKaraoke.Client;
 
 public sealed record CoreIdentity(string Service, int ApiVersion, Guid InstanceId);
-public sealed record CreateJobRequest(string Kind, object? Analysis = null);
+/// {
+///   責務: [CreateJobRequest: Core Jobの作成要求。kindに応じてanalysis/audio_import/song_importのどれか1つだけを付ける]
+///   フィールド: [Kind: Job種別, Analysis: 解析の入力(analysis.*), AudioImport: 元音源の取り込み(audio.import), SongImport: 曲の登録(song.import)]
+/// }
+public sealed record CreateJobRequest(string Kind, object? Analysis = null, object? AudioImport = null, object? SongImport = null);
+
+/// {
+///   責務: [ImportedSongInfo: 完了したsong.import Jobが返す、登録済みの曲]
+///   フィールド: [SongId: 曲ID, Reused: 既に同じ曲があり再利用したか]
+/// }
+public sealed record ImportedSongInfo(Guid SongId, bool Reused);
 public sealed record JobSnapshot(
     Guid Id, string Kind, string Status, double Progress, string Stage,
     string? Error, string[] Artifacts,
     string? ModelId = null, string? ModelSource = null, string? SelectedModelId = null,
-    string? SelectionFallbackReason = null, System.Text.Json.JsonElement? ModelPlan = null)
+    string? SelectionFallbackReason = null, System.Text.Json.JsonElement? ModelPlan = null,
+    ImportedSongInfo? ImportedSong = null)
 {
     public bool IsTerminal => Status is "completed" or "failed" or "cancelled";
 }

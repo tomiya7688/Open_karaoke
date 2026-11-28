@@ -65,6 +65,11 @@ internal static class Program
             ("preview an edited range and pause once at its end", PreviewTests.RangePlayback),
             ("refuse or cancel the preview without leaving a reservation", PreviewTests.Refusals),
             ("expose row ranges and the preview from the shell", PreviewTests.ShellWiring),
+            ("chain audio import, analysis and song import in order", IngestTests.Success),
+            ("stop the import chain at the failed stage", IngestTests.FailureStopsTheChain),
+            ("cancel only the current import stage", IngestTests.CancelStopsOnlyTheCurrentStage),
+            ("reject invalid import input and contract violations", IngestTests.InvalidInputAndContract),
+            ("send import job bodies and read the imported song", IngestTests.RequestBodies),
         };
         if (args.Length == 2) tests.Add(("live C# to Rust to Python lifecycle", () => NativeTests.RunAsync(args[0], args[1])));
         var passed = 0;

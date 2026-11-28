@@ -4,6 +4,7 @@
 > **36.1 実装済み（Core Job）**: `kind: audio.import`（`source_path`）で元音源(WAV/AAC/MP3/MP4)をFFmpeg正規化し、private staging→1回のrenameで公開する（失敗・取消で部分出力を残さない）。30分超は`audio_too_long`で拒否し、#43の重いJobとして再生中は待機する。コードは`core/src/audio_job.rs`、`audio_import.rs`。実機のFFmpeg・実曲での確認は未実施（Unverified）。
 > **36.2 決定（2026-11-28）**: 合成Job（`song.ingest`案）は作らず、クライアント連鎖（`audio.import`→`analysis.song`→`song.import`）を採用する。理由と契約は「連鎖方式の決定」。
 > **36.3 実装済み**: 入力は`source_path`維持、4GiB上限、`imports`の7日掃除。
+> **36.4a 実装済み**: クライアントの連鎖ロジック`SongIngestFlow`。
 > **未接続**: GUIの原曲取込・進捗・登録操作と連鎖の組立て（36.4）。最終確認日: 2026-11-28
 > （[Current status](../current_status.md)、[SongStore import](../song_import.md)）。
 
@@ -67,8 +68,8 @@ GUIから元音源を選ぶだけで、正規化→全曲解析→検査→SongL
 | 36.1 | 正規化Job化: 元音源→正規化WAVのCore Job（artifact参照で出力） | #4 | `core/tests/job_api.rs`系: 形式matrix fixture、`duration_samples`一致、破損入力のerror、取消 |
 | 36.2 | **決定済み（本書）**: クライアント連鎖。Core側の追加実装なし | 36.1, 既存`song.import` | 契約は「連鎖方式の決定」。連鎖の組立てと失敗/取消で未登録のE2Eは36.4（`Client.Tests`のモックCore）へ移す |
 | 36.3 | **実装済み**: 入力は`source_path`方式を維持し、4GiB上限（413 `audio_source_too_large`）と`imports`の7日掃除を追加。`source_token`は不採用 | #41 | `audio_job/tests.rs`: 上限境界、掃除が`<uuid>`と`.staging-<uuid>`だけを消すこと。相対パス・未対応拡張子・非通常ファイルの拒否は36.1から |
-| 36.4 | GUI取込操作: ファイル選択→進捗→完了後に曲一覧へ反映、失敗表示 | 36.2, 36.3, #15 | `Client.Tests`のモックCore契約、`Gui.Smoke`で取込操作の描画 |
-| 36.5 | 実曲での通し確認（非公開音源。CIに載せない） | 36.4, モデル導入 | 手順と結果を`Unverified`/実測として別記録。合成成功を精度証明にしない |
+| 36.4a | **実装済み**: `SongIngestFlow`（`gui/OpenKaraoke.Client`）。連鎖の組立て・段別の失敗・現在段だけの取消。`CreateJobRequest`に`audio_import`/`song_import`、`JobSnapshot`に`imported_song`を追加 | 36.1〜36.3 | `Client.Tests`の5契約（段順・失敗で後続を作らない・取消・不正入力・要求本文）。**画面（ファイル選択・進捗・曲一覧反映）と`ShellViewModel`結線は36.4bで未実装** |
+| 36.4b | GUI取込操作: ファイル選択→進捗→完了後に曲一覧へ反映、失敗表示 | 36.2, 36.3, #15 | `Client.Tests`のモックCore契約、`Gui.Smoke`で取込操作の描画 || 36.5 | 実曲での通し確認（非公開音源。CIに載せない） | 36.4, モデル導入 | 手順と結果を`Unverified`/実測として別記録。合成成功を精度証明にしない |
 
 ## 触るファイル
 `core/src/audio_import.rs`、`core/src/lib.rs`（Job kind・`prepare_import`周辺）、`core/src/song_api.rs`・`song_library/`、`core/tests/job_api.rs`・`song_import.rs`、`python/src/open_karaoke_analysis/song.py`（入力契約は原則不変）、`gui/OpenKaraoke.Client/`・`gui/OpenKaraoke.Gui/`、`docs/song_import.md`・`current_status.md`。`core/src/lib.rs`/`ShellViewModel`は競合しやすい。
