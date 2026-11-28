@@ -7,7 +7,7 @@
 検査し、`OPEN_KARAOKE_DATA_DIR/songs/<song_id>/` へ一括登録する。
 クライアントは任意のファイルパス、登録先、差し替えたSongBundleを送れない。
 
-元音源のFFmpeg正規化をJobにつなぐ処理、GUIの原曲取込・曲一覧操作は未接続。
+元音源の正規化は `audio.import` Job（[Audio import](audio_import.md)）。GUIの原曲取込・曲一覧操作は未接続（#15）。
 本APIの追加だけで「原曲から歌えるアプリ」が完成したことにはしない。
 Issue #36は残作業と実曲評価を含めて継続する。
 

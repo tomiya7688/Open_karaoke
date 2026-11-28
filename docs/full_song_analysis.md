@@ -9,8 +9,8 @@
 
 結果の出力後は、別の **`song.import` Core Jobで音声込みSongStore登録**ができる。
 [検査付きSongStore登録](song_import.md)にAPI・一括公開・再登録・キャンセルの契約がある。
-`analysis.song` の完了だけでは自動登録しない。元ファイルのFFmpeg正規化をJobへ組み込む処理と
-GUIの原曲取込・曲一覧操作は未接続。Issue #36はこれらと実曲評価を含めて継続する。
+`analysis.song` の完了だけでは自動登録しない。元ファイルは先に `audio.import` Coreジョブで
+正規化する（[Audio import](audio_import.md)）。GUIの原曲取込・曲一覧操作は#15、実曲評価は別途。
 
 ## Core APIから呼ぶ
 
@@ -98,5 +98,5 @@ Full-song regressionはfailure/cancel・不整合・モデル欠落と、実Pitc
 検査する。song_bundle_contractは文書互換の往復だけ、song_importは音声込みの本番登録処理を検査する。
 どちらの結合fixtureも上流3段はテスト用であり、全モデル実歌唱評価を完了したという意味ではない。
 
-次は [Audio Import](audio_import.md) のJob接続、GUI取込導線、実曲Release Evaluation。
+次はGUI取込導線（#15）と実曲Release Evaluation。原曲→`audio.import`→`analysis.song`→`song.import`の順。
 登録の永続化・破損検出範囲・原子的公開の限界は [SongStore import](song_import.md) に定義する。

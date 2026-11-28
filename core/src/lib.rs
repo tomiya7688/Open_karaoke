@@ -7,6 +7,7 @@ pub mod audio_clock_calibration;
 pub mod audio_device;
 pub mod audio_engine;
 pub mod audio_import;
+pub mod audio_job;
 pub mod audio_wav;
 pub mod ffmpeg_bundle;
 pub mod inference_policy;
@@ -75,6 +76,7 @@ pub struct AppState {
     jobs: Arc<RwLock<HashMap<Uuid, JobRecord>>>,
     analysis: AnalysisClient,
     song_library: Option<song_library::SongLibrary>,
+    audio_import: Option<audio_job::AudioImportConfig>,
     stopping: Arc<AtomicBool>,
     sse_budget: Arc<Semaphore>,
     mixer: mixer_control::MixerControl,
@@ -107,6 +109,7 @@ impl Default for AppState {
             jobs: Arc::new(RwLock::new(HashMap::new())),
             analysis: AnalysisClient::default(),
             song_library: None,
+            audio_import: None,
             stopping: Arc::new(AtomicBool::new(false)),
             sse_budget: Arc::new(Semaphore::new(MAX_SSE_CONNECTIONS)),
             mixer: mixer_control::MixerControl::default(),
@@ -246,6 +249,7 @@ pub struct CreateJobRequest {
     #[serde(default)]
     pub analysis: AnalysisRequest,
     pub song_import: Option<song_api::SongImportRequest>,
+    pub audio_import: Option<audio_job::AudioImportRequest>,
 }
 
 fn default_steps() -> u16 {
@@ -355,6 +359,18 @@ impl AppState {
         self.karaoke
             .current_snapshot()
             .is_some_and(|snapshot| snapshot.state == karaoke_session::KaraokeState::Playing)
+    }
+
+    /// {
+    ///   責務: [`AppState::with_audio_import`: 音声取り込みの設定を状態へ設定する]
+    ///   処理: [1: 設定を保持して自身を返す]
+    ///   引数: [`self`: 状態, `config`: 取り込み設定]
+    ///   戻り値: [設定を反映した`AppState`]
+    /// }
+    #[must_use]
+    pub fn with_audio_import(mut self, config: audio_job::AudioImportConfig) -> Self {
+        self.audio_import = Some(config);
+        self
     }
 
     /// Stop admission and request cancellation before runtime teardown.
@@ -566,6 +582,7 @@ async fn create_job(
     }
     state.ensure_running()?;
     let import_work = prepare_import(&state, &request).await?;
+    let audio_work = prepare_audio(&state, &request)?;
     if let Some(role) = request.kind.strip_prefix("analysis.") {
         if !matches!(
             role,
@@ -611,12 +628,15 @@ async fn create_job(
         JobRecord {
             snapshot: job.clone(),
             cancelled: false,
-            import_control: import_work.as_ref().map(|work| Arc::clone(&work.control)),
+            import_control: import_work
+                .as_ref()
+                .map(|work| Arc::clone(&work.control))
+                .or_else(|| audio_work.as_ref().map(|work| Arc::clone(&work.control))),
             events,
         },
     );
     drop(jobs);
-    tokio::spawn(run_job(state, id, request, import_work));
+    tokio::spawn(run_job(state, id, request, import_work, audio_work));
     Ok((StatusCode::ACCEPTED, Json(job)))
 }
 
@@ -676,11 +696,36 @@ async fn prepare_import(
     Ok(None)
 }
 
+/// {
+///   責務: [`prepare_audio`: Job作成要求の`audio.import`部分を種別と整合させて検証する]
+///   処理: [1: kindと`audio_import`の組を照合する, 2: 一致なら`audio_job::prepare`, 3: 欠落・不一致は400, 4: 無関係なら`None`]
+///   引数: [`state`: アプリ状態, `request`: Job作成要求]
+///   戻り値: [`Some(AudioWork)`、対象外は`None`、不正は`ApiError`]
+/// }
+fn prepare_audio(
+    state: &AppState,
+    request: &CreateJobRequest,
+) -> Result<Option<audio_job::AudioWork>, ApiError> {
+    match (request.kind.as_str(), &request.audio_import) {
+        ("audio.import", Some(input)) => audio_job::prepare(state, input).map(Some),
+        ("audio.import", None) => Err(ApiError(
+            StatusCode::BAD_REQUEST,
+            "audio_import.source_path is required".to_owned(),
+        )),
+        (_, Some(_)) => Err(ApiError(
+            StatusCode::BAD_REQUEST,
+            "audio_import requires kind audio.import".to_owned(),
+        )),
+        (_, None) => Ok(None),
+    }
+}
+
 async fn run_job(
     state: AppState,
     id: Uuid,
     request: CreateJobRequest,
     import: Option<song_api::ImportWork>,
+    audio: Option<audio_job::AudioWork>,
 ) {
     if state.cancelled(id).await {
         state.finish(id, JobStatus::Cancelled, None).await;
@@ -710,6 +755,10 @@ async fn run_job(
         .await;
     if let Some(work) = import {
         song_api::run(&state, id, work).await;
+        return;
+    }
+    if let Some(work) = audio {
+        audio_job::run(&state, id, work).await;
         return;
     }
     if let Some(role) = request.kind.strip_prefix("analysis.") {
@@ -756,13 +805,16 @@ fn defer_deadline(state: &AppState) -> tokio::time::Instant {
 
 /// {
 ///   責務: [`is_heavy_kind`: 再生中は開始を待たせる重い推論Jobかを判定する]
-///   処理: [1: `analysis.`役割のうち mock 以外(stems/lyrics/alignment/pitch/events/notes/song)を重いとみなす]
+///   処理: [1: `audio.import`(FFmpeg正規化)を重いとみなす, 2: `analysis.`役割のうち mock 以外(stems/lyrics/alignment/pitch/events/notes/song)を重いとみなす]
 ///   引数: [kind: Job種別]
-///   戻り値: [`bool`: 重い推論ならtrue。`song.import`や試験用Jobはfalse]
+///   戻り値: [`bool`: 重い処理ならtrue。`song.import`や試験用Jobはfalse]
 /// }
 fn is_heavy_kind(kind: &str) -> bool {
-    kind.strip_prefix("analysis.")
-        .is_some_and(|role| role != "mock")
+    // FFmpeg正規化も再生と資源を取り合うため、#43の待機・同時数の対象にする。
+    kind == "audio.import"
+        || kind
+            .strip_prefix("analysis.")
+            .is_some_and(|role| role != "mock")
 }
 
 /// {
