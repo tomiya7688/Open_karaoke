@@ -23,6 +23,8 @@ use crate::{
 const IMPORTS_DIR: &str = "imports";
 const AUDIO_FILE: &str = "original_48k.wav";
 const SUMMARY_FILE: &str = "normalized.json";
+/// 入力ファイルの上限。30分の高音質WAV(96kHz/24bit/stereo≒1GiB)を余裕で通し、巨大ファイルを拒否する。
+const MAX_SOURCE_BYTES: u64 = 4 * 1024 * 1024 * 1024;
 
 /// {
 ///   責務: [`AudioImportRequest`: `audio.import` Jobの入力(ローカル音声ファイル)]
@@ -87,6 +89,63 @@ impl AudioImportConfig {
 }
 
 /// {
+///   責務: [`check_source_size`: 入力ファイルの大きさが上限内か確かめる]
+///   処理: [1: バイト数を`MAX_SOURCE_BYTES`と比べる, 2: 超過なら413を返す]
+///   引数: [`bytes`: 入力ファイルのバイト数]
+///   戻り値: [上限内なら`Ok`、超過なら`audio_source_too_large`の`ApiError`]
+/// }
+fn check_source_size(bytes: u64) -> Result<(), ApiError> {
+    if bytes > MAX_SOURCE_BYTES {
+        return Err(ApiError(
+            StatusCode::PAYLOAD_TOO_LARGE,
+            "audio_source_too_large: source file exceeds the 4 GiB limit".to_owned(),
+        ));
+    }
+    Ok(())
+}
+
+impl AudioImportConfig {
+    /// {
+    ///   責務: [`AudioImportConfig::sweep_stale_imports`: 古い取り込み成果物と中断で残った作業領域を起動時に掃除する]
+    ///   処理: [1: `imports`直下の子を列挙する, 2: シンボリックリンクと想定外の名前を飛ばす, 3: 最終更新が`max_age`より古い`<uuid>`と`.staging-<uuid>`を削除する, 4: 個別の失敗は数えて続行する]
+    ///   引数: [`max_age`: 残す期間]
+    ///   戻り値: [削除した件数]
+    ///   副作用: [`imports`配下の古いディレクトリを削除する。`song.import`は成果物をコピーするため、取込済みの曲には影響しない]
+    /// }
+    #[must_use]
+    pub fn sweep_stale_imports(&self, max_age: std::time::Duration) -> usize {
+        let imports = self.artifact_root.join(IMPORTS_DIR);
+        let Ok(entries) = fs::read_dir(&imports) else {
+            return 0;
+        };
+        let mut removed = 0;
+        for entry in entries.flatten() {
+            let name = entry.file_name().to_string_lossy().into_owned();
+            let id = name.strip_prefix(".staging-").unwrap_or(&name);
+            if Uuid::parse_str(id).is_err() {
+                continue;
+            }
+            // リンクを辿って外を消さないよう、リンク自体のメタデータで判定する。
+            let Ok(metadata) = fs::symlink_metadata(entry.path()) else {
+                continue;
+            };
+            if metadata.file_type().is_symlink() || !metadata.is_dir() {
+                continue;
+            }
+            let stale = metadata
+                .modified()
+                .ok()
+                .and_then(|time| time.elapsed().ok())
+                .is_some_and(|age| age > max_age);
+            if stale && fs::remove_dir_all(entry.path()).is_ok() {
+                removed += 1;
+            }
+        }
+        removed
+    }
+}
+
+/// {
 ///   責務: [`AudioWork`: 検証済みの音声取り込み1件分の作業(Job作成後に実行する)]
 ///   フィールド: [`config`: 取り込み設定, `source`: 入力ファイル, `control`: 中断・確定の制御]
 /// }
@@ -98,9 +157,9 @@ pub(crate) struct AudioWork {
 
 /// {
 ///   責務: [`prepare`: `Job`作成前に要求を`Core`境界で検証する]
-///   処理: [1: 設定の有無を確認する, 2: 絶対パスと対応拡張子を検証する, 3: 通常ファイルとして読めることを確認する, 4: `AudioWork`を作る]
+///   処理: [1: 設定の有無を確認する, 2: 絶対パスと対応拡張子を検証する, 3: 通常ファイルとして読めることと`4GiB`以下であることを確認する, 4: `AudioWork`を作る]
 ///   引数: [`state`: アプリ状態, `request`: 取り込み要求]
-///   戻り値: [`AudioWork`、不正は400・未存在は404・未設定は利用不可の`ApiError`]
+///   戻り値: [`AudioWork`、不正は400・上限超過は413・未存在は404・未設定は利用不可の`ApiError`]
 /// }
 pub(crate) fn prepare(
     state: &AppState,
@@ -127,7 +186,9 @@ pub(crate) fn prepare(
         )
     })?;
     match fs::metadata(source) {
-        Ok(metadata) if metadata.is_file() => {}
+        Ok(metadata) if metadata.is_file() => {
+            check_source_size(metadata.len())?;
+        }
         Ok(_) => return Err(invalid("source_path is not a regular file")),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
             return Err(ApiError(
