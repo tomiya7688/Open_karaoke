@@ -40,15 +40,15 @@ GUIから元音源を選ぶだけで、正規化→全曲解析→検査→SongL
 
 | 段 | Job | 次段へ渡すもの |
 |---|---|---|
-| 1 | `audio.import { source_path }` | 完了Jobの`artifacts[0]`＝`imports/<id>/original_48k.wav`（`normalized.json`に`duration_samples`） |
+| 1 | `audio.import { source_path }` | 完了Jobの`artifacts`から名前`original_48k.wav`のもの（`imports/<id>/original_48k.wav`。添字固定にせず、`normalized.json`の`audio_artifact`でも同じ値を得られる）。値は相対のartifact参照文字列で、絶対パスは渡さない。`duration_samples`は`normalized.json`にあり、段2の解析結果との一致検査に使う |
 | 2 | `analysis.song { analysis.input_artifact: <1の参照> }` | 完了Job（結果artifactと取込用export） |
 | 3 | `song.import { song_import.analysis_job_id: <2のJob> }` | `imported_song{song_id,reused}` |
 
-- **取消**: クライアントが現在段のJobだけを取り消し、後続段を作らない。`song.import`は完了した解析Jobだけを受理するため、前段失敗・取消で未完成曲は作られない。
+- **取消**: クライアントが現在段のJobだけを取り消し、後続段を作らない。`song.import`は完了した解析Jobだけを受理するため、解析が完了していない段階での失敗・取消では曲は登録されない（確認済みの範囲）。連鎖状態（3つのJob IDと現在段）の保持・再接続後の復元・取消と次段作成が競合した場合の扱いは未決で、36.4で決める。
 - **段別エラー**: 失敗したJob自身の`error_code`がそのまま段名の代わりになる（1=`audio_*`、2=`input_required`等、3=`import_*`）。
 - **再接続**: 各Jobは既存のSSE/snapshotで復元できる。クライアントが保持するのは3つのJob IDだけで、GUI側の連鎖状態機械は36.4で実装する。
 - **契約の確認済み範囲**: 手順1の`artifacts`が`artifact_ref::validate_ref`を通ること（`audio_job/tests.rs`）、`analysis.input_artifact`が受付時に検証され、Python側が同じartifact root配下を解決すること（`service.py`）。1→2→3の通しは実モデル・実FFmpegが必要なため36.5で確認する（Unverified）。
-- **重複登録（要注意）**: `song.import`の`reused`は「同じ解析Jobの再取込」だけを冪等にする。同じ元音源を再度連鎖すると解析Jobが別になるため、別の曲として登録される見込み（未実測）。内容hashによる重複検出は未決事項に残し、36.4のGUIで警告するか別Issueにする。
+- **重複登録（要注意）**: `song.import`の`reused`は「同じ解析Jobの再取込」だけを冪等にする。同じ元音源を再度連鎖すると解析Jobが別になるため、別の曲として登録される見込み（コード上の条件からの推測で未実測）。内容hashによる重複検出の有無も未確認で、未決事項に残し、36.4のGUIで警告するか別Issueにする。
 
 ## 実装スライス
 | # | 内容 | 依存 | 完了条件・テスト |
@@ -70,5 +70,5 @@ GUIから元音源を選ぶだけで、正規化→全曲解析→検査→SongL
 
 ## 未決事項
 - 元音源の受け渡し方式（アップロード/Coreが選択ファイルを読む）と一時領域の掃除
-- 同じ元音源を再取込した場合の重複登録の扱い（`verify_reuse`は解析Job ID一致が条件のため、内容hashでは検出されない。警告のみか、取込前の既存曲照合かを36.4で決める）
+- 同じ元音源を再取込した場合の重複登録の扱い（`verify_reuse`は解析Job ID一致が条件のため、内容hashでは検出されない見込み・未実測。警告のみか、取込前の既存曲照合かを36.4で決める）
 - 参照歌詞入力の画面側仕様
