@@ -1,5 +1,6 @@
 using Avalonia.Controls;
 using Avalonia.Interactivity;
+using Avalonia.Platform.Storage;
 using OpenKaraoke.Client;
 
 namespace OpenKaraoke.Gui;
@@ -21,6 +22,38 @@ public sealed partial class MainWindow : Window
     private async void DisconnectClick(object? sender, RoutedEventArgs args) => await _model.DisconnectAsync();
     private async void RunClick(object? sender, RoutedEventArgs args) => await _model.StartTestJobAsync();
     private async void CancelClick(object? sender, RoutedEventArgs args) => await _model.CancelJobAsync();
+    /// {
+    ///   責務: [StartImportClick: 取込開始ボタン]
+    ///   処理: [取込の連鎖を開始する]
+    ///   引数: [[`sender`: 送信元, `args`: イベント引数]]
+    ///   戻り値: [[完了]]
+    /// }
+    private async void StartImportClick(object? sender, RoutedEventArgs args) => await _model.Import.StartAsync();
+    /// {
+    ///   責務: [CancelImportClick: 取込の取消ボタン]
+    ///   処理: [実行中の取込に取消を要求する]
+    ///   引数: [[`sender`: 送信元, `args`: イベント引数]]
+    ///   戻り値: [[]]
+    /// }
+    private void CancelImportClick(object? sender, RoutedEventArgs args) => _model.Import.Cancel();
+
+    /// {
+    ///   責務: [BrowseSourceClick: 音源ファイルの選択ダイアログを開き、選んだローカルパスを入力欄へ入れる]
+    ///   処理: [1: 音声ファイルの種類で絞った選択ダイアログを開く, 2: ローカルパスが取れた時だけ`Import.SourcePath`へ設定する]
+    ///   引数: [sender: 送信元, args: イベント引数]
+    ///   戻り値: [完了]
+    /// }
+    private async void BrowseSourceClick(object? sender, RoutedEventArgs args)
+    {
+        var files = await StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
+        {
+            Title = "取り込む音源を選ぶ",
+            AllowMultiple = false,
+            FileTypeFilter = [new FilePickerFileType("音声") { Patterns = ["*.wav", "*.mp3", "*.aac", "*.mp4"] }],
+        });
+        if (files.Count == 1 && files[0].TryGetLocalPath() is { } path) _model.Import.SourcePath = path;
+    }
+
     private async void RefreshSongsClick(object? sender, RoutedEventArgs args) => await _model.RefreshSongsAsync();
     private async void LoadSongClick(object? sender, RoutedEventArgs args) => await _model.LoadSelectedSongAsync();
     /// {

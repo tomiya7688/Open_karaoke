@@ -126,7 +126,7 @@ internal static class IngestTests
     ///   責務: [IngestApi: 連鎖のJobを段ごとに完了・失敗・保留させられるFake]
     ///   フィールド: [Created: 作られた要求, Ids: 作られたJob ID, Cancelled: 取り消されたJob ID, FailKind: 失敗させる種別, HoldKind: 取消まで止める種別, NoWav: 正規化WAVの成果物を返さない, Entered: 保留に入った合図]
     /// }
-    private sealed class IngestApi : ICoreApi
+    internal sealed class IngestApi : ICoreApi
     {
         public List<CreateJobRequest> Created { get; } = [];
         public List<Guid> Ids { get; } = [];
@@ -135,6 +135,10 @@ internal static class IngestTests
         public string? HoldKind { get; init; }
         public bool NoWav { get; init; }
         public bool NoTerminal { get; init; }
+        public Guid InstanceId { get; } = Guid.NewGuid();
+        public Guid ImportedId { get; } = Guid.NewGuid();
+        public List<SongListItem> Songs { get; } = [];
+        public int ListCalls { get; private set; }
         public TaskCompletionSource Entered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
         public Task<JobSnapshot> CreateJobAsync(CreateJobRequest job, CancellationToken cancellationToken = default)
@@ -171,13 +175,17 @@ internal static class IngestTests
             id, kind, status, progress, status,
             status == "failed" ? "boom: " + kind : null,
             status == "completed" && kind == "audio.import" ? (NoWav ? ["imports/x/normalized.json"] : [Wav, "imports/x/normalized.json"]) : [],
-            ImportedSong: status == "completed" && kind == "song.import" ? new ImportedSongInfo(Guid.NewGuid(), false) : null);
+            ImportedSong: status == "completed" && kind == "song.import" ? new ImportedSongInfo(ImportedId, false) : null);
 
-        public Task<CoreIdentity> GetIdentityAsync(CancellationToken cancellationToken = default) => throw new NotSupportedException();
-        public Task<JsonElement> GetModelsAsync(CancellationToken cancellationToken = default) => throw new NotSupportedException();
-        public Task<ModelPackageItem[]> GetModelPackagesAsync(CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<CoreIdentity> GetIdentityAsync(CancellationToken cancellationToken = default) => Task.FromResult(new CoreIdentity("open-karaoke-core", 1, InstanceId));
+        public Task<JsonElement> GetModelsAsync(CancellationToken cancellationToken = default) => Task.FromResult(JsonSerializer.SerializeToElement(new { models = Array.Empty<object>() }));
+        public Task<ModelPackageItem[]> GetModelPackagesAsync(CancellationToken cancellationToken = default) => Task.FromResult<ModelPackageItem[]>([]);
         public Task<JobSnapshot> GetJobAsync(Guid id, CancellationToken cancellationToken = default) => throw new NotSupportedException();
-        public Task<SongPage> ListSongsAsync(Guid? after = null, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<SongPage> ListSongsAsync(Guid? after = null, CancellationToken cancellationToken = default)
+        {
+            ListCalls++;
+            return Task.FromResult(new SongPage([.. Songs], null));
+        }
         public Task<SongBundle> GetSongAsync(Guid id, CancellationToken cancellationToken = default) => throw new NotSupportedException();
     }
 }
