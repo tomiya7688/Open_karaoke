@@ -107,7 +107,7 @@ fn check_source_size(bytes: u64) -> Result<(), ApiError> {
 impl AudioImportConfig {
     /// {
     ///   責務: [`AudioImportConfig::sweep_stale_imports`: 古い取り込み成果物と中断で残った作業領域を起動時に掃除する]
-    ///   処理: [1: `imports`直下の子を列挙する, 2: シンボリックリンクと想定外の名前を飛ばす, 3: 最終更新が`max_age`より古い`<uuid>`と`.staging-<uuid>`を削除する, 4: 個別の失敗は数えて続行する]
+    ///   処理: [1: `imports`直下の子を列挙する, 2: `imports`自体がリンクなら中止し、子のリンクと正規形でない名前を飛ばす, 3: 最終更新が`max_age`より古い`<uuid>`と`.staging-<uuid>`を削除する, 4: 列挙・削除の失敗は警告に出して続行する]
     ///   引数: [`max_age`: 残す期間]
     ///   戻り値: [削除した件数]
     ///   副作用: [`imports`配下の古いディレクトリを削除する。`song.import`は成果物をコピーするため、取込済みの曲には影響しない]
@@ -115,14 +115,28 @@ impl AudioImportConfig {
     #[must_use]
     pub fn sweep_stale_imports(&self, max_age: std::time::Duration) -> usize {
         let imports = self.artifact_root.join(IMPORTS_DIR);
-        let Ok(entries) = fs::read_dir(&imports) else {
-            return 0;
+        // `imports`自体がリンクなら、外の領域を列挙・削除しかねないので何もしない。
+        match fs::symlink_metadata(&imports) {
+            Ok(metadata) if metadata.is_dir() && !metadata.file_type().is_symlink() => {}
+            Ok(_) => {
+                eprintln!("warning: audio import sweep skipped: imports is not a plain directory");
+                return 0;
+            }
+            Err(_) => return 0,
+        }
+        let entries = match fs::read_dir(&imports) {
+            Ok(entries) => entries,
+            Err(error) => {
+                eprintln!("warning: audio import sweep cannot read imports: {error}");
+                return 0;
+            }
         };
         let mut removed = 0;
         for entry in entries.flatten() {
             let name = entry.file_name().to_string_lossy().into_owned();
             let id = name.strip_prefix(".staging-").unwrap_or(&name);
-            if Uuid::parse_str(id).is_err() {
+            // Coreが作る正規形(小文字・ハイフン付き)だけを対象にし、別表記の名前は触らない。
+            if !Uuid::parse_str(id).is_ok_and(|uuid| uuid.hyphenated().to_string() == id) {
                 continue;
             }
             // リンクを辿って外を消さないよう、リンク自体のメタデータで判定する。
@@ -137,8 +151,12 @@ impl AudioImportConfig {
                 .ok()
                 .and_then(|time| time.elapsed().ok())
                 .is_some_and(|age| age > max_age);
-            if stale && fs::remove_dir_all(entry.path()).is_ok() {
-                removed += 1;
+            if !stale {
+                continue;
+            }
+            match fs::remove_dir_all(entry.path()) {
+                Ok(()) => removed += 1,
+                Err(error) => eprintln!("warning: audio import sweep cannot remove {name}: {error}"),
             }
         }
         removed

@@ -374,7 +374,9 @@ fn stale_import_sweep_removes_only_import_directories() {
     let published = imports.join(id.to_string());
     let staging = imports.join(format!(".staging-{id}"));
     let unrelated = imports.join("keep-me");
-    for dir in [&published, &staging, &unrelated] {
+    // 正規形でない表記(大文字)のUUID名はCoreが作ったものではないので消さない。
+    let upper = imports.join(uuid::Uuid::new_v4().to_string().to_uppercase());
+    for dir in [&published, &staging, &unrelated, &upper] {
         std::fs::create_dir_all(dir).unwrap();
     }
     let file = imports.join(uuid::Uuid::new_v4().to_string() + ".txt");
@@ -392,5 +394,5 @@ fn stale_import_sweep_removes_only_import_directories() {
     std::thread::sleep(std::time::Duration::from_millis(20));
     assert_eq!(config.sweep_stale_imports(std::time::Duration::ZERO), 2);
     assert!(!published.exists() && !staging.exists());
-    assert!(unrelated.exists() && file.exists());
+    assert!(unrelated.exists() && file.exists() && upper.exists());
 }
