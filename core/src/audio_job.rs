@@ -132,7 +132,14 @@ impl AudioImportConfig {
             }
         };
         let mut removed = 0;
-        for entry in entries.flatten() {
+        for entry in entries {
+            let entry = match entry {
+                Ok(entry) => entry,
+                Err(error) => {
+                    eprintln!("warning: audio import sweep cannot read an entry: {error}");
+                    continue;
+                }
+            };
             let name = entry.file_name().to_string_lossy().into_owned();
             let id = name.strip_prefix(".staging-").unwrap_or(&name);
             // Coreが作る正規形(小文字・ハイフン付き)だけを対象にし、別表記の名前は触らない。
