@@ -69,6 +69,8 @@ stagingを消し、artifactsは空。キャンセルは実行中のffmpeg/ffprob
 公開確定とatomicに順序付けする。errorは安定コードで始まる:
 `audio_tool_unavailable`（ffmpeg/ffprobe未導入・起動不可）、`audio_ffmpeg_license_policy`、
 `audio_tool_failed`、`audio_invalid_probe`（0 sampleを含む）、`audio_too_long`（30分超。`analysis.song`の上限と同じで、ffmpegは上限+1秒で書込みを止める）、`audio_import_io`。
+
+入力ファイルが4GiBを超える場合はJob作成前に413 `audio_source_too_large`で拒否する。Core起動時に、`imports`直下で最終更新が7日より古い`<uuid>`と`.staging-<uuid>`を削除する（リンクと想定外の名前は触らず、取込済みの曲はコピー済みで影響しない）。設計は[#36 入力受け渡し方式](design/issue-36-source-import-flow.md)。
 要求は種別・拡張子・存在に加え、読取用に開けることをJob作成前に確認する。
 `audio.import`は#43の重いJobとして扱い、再生中の待機と同時数の上限に従う。
 

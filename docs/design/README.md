@@ -15,7 +15,7 @@
 |---|---|---|---|---|
 | #2 Core API/Job | 実装済み（Job永続化は未） | [Core API](../core_api.md) | - | 永続化方針（要判断） |
 | #3 Song Data | 実装済み | [Song Format](../song_format.md) | - | なし（#38で拡張） |
-| #4 音源入力/48kHz | 実装あり。`audio.import` Jobへ接続済み（#36 36.1）、実FFmpeg未検証 | [Audio Import](../audio_import.md) | - | [#36 36.3](issue-36-source-import-flow.md) |
+| #4 音源入力/48kHz | 実装あり。`audio.import` Jobへ接続済み（#36 36.1）、実FFmpeg未検証 | [Audio Import](../audio_import.md) | - | [#36 36.4](issue-36-source-import-flow.md) |
 | #6 Stem | Adapter実装/実録未評価 | [Stem](../stem_separation.md) | #4 | #42のデータ後に評価 |
 | #7 歌詞認識 | Adapter実装/実録未評価 | [歌詞認識](../lyric_transcription.md) | #6 | 同上 |
 | #8 歌詞整列 | Adapter実装/実録未評価 | [Alignment](../lyric_alignment.md) | #7 | 同上 |
@@ -26,7 +26,7 @@
 | #17 モデル選択 | 検出・保存選択済み。song各段はPython側pin済み | [Model Plugins](../model_plugins.md) | - | [#109設計](issue-109-model-plan.md) 109.2 |
 | #18 Evaluator/CI | 一部実装 | [Testing](../testing.md)、[実装単位](../implementation_plan.md#18の実装単位p0は空けておく) | - | #18.6cまで実装済み。精度回帰ゲートは後続 |
 | #19 リリース評価 | 未 | [#19設計](issue-19-release-evaluation.md) | #18 #42 #39 | 19.1 |
-| #36 全曲解析/登録 | Python/登録API済み。36.1（`audio.import`正規化Job）実装済み、36.2はクライアント連鎖に決定。入力受渡し・GUI未 | [#36残り設計](issue-36-source-import-flow.md)、[全曲解析](../full_song_analysis.md)、[登録](../song_import.md) | #4 | 36.3 |
+| #36 全曲解析/登録 | Python/登録API済み。36.1（`audio.import`正規化Job）実装済み、36.2はクライアント連鎖に決定、36.3（入力上限・掃除）実装済み。GUI未 | [#36残り設計](issue-36-source-import-flow.md)、[全曲解析](../full_song_analysis.md)、[登録](../song_import.md) | #4 | 36.4 |
 | #37 外部MIDI | 実装あり（実MIDI corpus未評価） | [MIDI import](../midi_import.md) | #3 #11 | 実MIDIでの評価 |
 | #38 任意編集 | 38.1〜38.4実装済み（検証・保存・`PATCH /songs/{id}`・GUI編集UI）（P3） | [#38設計](issue-38-note-editor.md) | #3 #15 #16 | 38.5 |
 | #39 Windows配布 | 配布候補zipのみ（39.1 配置解決実装済み） | [#39設計](issue-39-windows-packaging.md) | #15 #17 #67 | 39.2 |

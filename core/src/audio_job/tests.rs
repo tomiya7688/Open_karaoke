@@ -344,3 +344,53 @@ async fn invalid_requests_are_rejected_before_a_job_exists() {
     );
     assert_eq!(test.import_entries().len(), 0);
 }
+
+/// {
+///   責務: [`source_size_limit_rejects_only_oversized_files`: 入力の大きさ上限が境界で正しく働くことを検証する]
+///   処理: [1: 上限ちょうどは通す, 2: 上限+1は413`audio_source_too_large`で拒否する]
+///   引数: [[]]
+///   戻り値: [[]]
+/// }
+#[test]
+fn source_size_limit_rejects_only_oversized_files() {
+    let limit = 4 * 1024 * 1024 * 1024;
+    assert!(super::check_source_size(limit).is_ok());
+    let error = super::check_source_size(limit + 1).unwrap_err();
+    assert_eq!(error.0, StatusCode::PAYLOAD_TOO_LARGE);
+    assert!(error.1.starts_with("audio_source_too_large"));
+}
+
+/// {
+///   責務: [`stale_import_sweep_removes_only_import_directories`: 起動時掃除が取り込み成果物だけを消すことを検証する]
+///   処理: [1: uuid名・作業領域・無関係な名前・通常ファイルを作る, 2: 十分長い保持期間では何も消えないことを確認する, 3: 期間0で、uuid名と作業領域だけが消えることを確認する]
+///   引数: [[]]
+///   戻り値: [[]]
+/// }
+#[test]
+fn stale_import_sweep_removes_only_import_directories() {
+    let root = tempfile::tempdir().unwrap();
+    let imports = root.path().join("artifacts").join("imports");
+    let id = uuid::Uuid::new_v4();
+    let published = imports.join(id.to_string());
+    let staging = imports.join(format!(".staging-{id}"));
+    let unrelated = imports.join("keep-me");
+    for dir in [&published, &staging, &unrelated] {
+        std::fs::create_dir_all(dir).unwrap();
+    }
+    let file = imports.join(uuid::Uuid::new_v4().to_string() + ".txt");
+    std::fs::write(&file, b"x").unwrap();
+    let config = AudioImportConfig::with_normalizer(
+        root.path().join("artifacts"),
+        Arc::new(|_, _, _| Ok(metadata(1))),
+    );
+    assert_eq!(
+        config.sweep_stale_imports(std::time::Duration::from_secs(3600)),
+        0
+    );
+    assert!(published.exists() && staging.exists());
+    // 期間0なら作ったばかりの成果物も古い扱いになる。
+    std::thread::sleep(std::time::Duration::from_millis(20));
+    assert_eq!(config.sweep_stale_imports(std::time::Duration::ZERO), 2);
+    assert!(!published.exists() && !staging.exists());
+    assert!(unrelated.exists() && file.exists());
+}
