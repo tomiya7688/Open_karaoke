@@ -95,10 +95,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         media_tools.ffprobe.clone(),
     );
     // 取消・失敗で残った正規化成果物は7日で掃除する(取込済みの曲はコピー済みで影響しない)。
-    let swept = audio.sweep_stale_imports(Duration::from_hours(7 * 24));
-    if swept > 0 {
-        eprintln!("audio import: removed {swept} stale import directories");
-    }
+    // 起動(ready通知)を遅らせないよう、掃除はブロッキングスレッドで裏に回す。
+    let sweeper = audio.clone();
+    tokio::task::spawn_blocking(move || {
+        let swept = sweeper.sweep_stale_imports(Duration::from_hours(7 * 24));
+        if swept > 0 {
+            eprintln!("audio import: removed {swept} stale import directories");
+        }
+    });
     let state = AppState::with_analysis(service.client())
         .with_core_instance_id(instance_id)
         .with_song_library(library)
