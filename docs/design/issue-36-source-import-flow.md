@@ -2,7 +2,8 @@
 
 > 状態: Python側`analysis.song`（正規化済みWAV→SongBundle）とCore側`song.import`（完了Job→SongLibrary登録）は実装済み。
 > **36.1 実装済み（Core Job）**: `kind: audio.import`（`source_path`）で元音源(WAV/AAC/MP3/MP4)をFFmpeg正規化し、private staging→1回のrenameで公開する（失敗・取消で部分出力を残さない）。30分超は`audio_too_long`で拒否し、#43の重いJobとして再生中は待機する。コードは`core/src/audio_job.rs`、`audio_import.rs`。実機のFFmpeg・実曲での確認は未実施（Unverified）。
-> **未接続**: 正規化→`analysis.song`→`song.import`の合成Job（36.2）、入力受け渡し方式（36.3）、GUIの原曲取込・進捗・登録操作（36.4）。最終確認日: 2026-11-08
+> **36.2 決定（2026-11-28）**: 合成Job（`song.ingest`案）は作らず、クライアント連鎖（`audio.import`→`analysis.song`→`song.import`）を採用する。理由と契約は「連鎖方式の決定」。
+> **未接続**: 入力受け渡し方式（36.3）、GUIの原曲取込・進捗・登録操作と連鎖の組立て（36.4）。最終確認日: 2026-11-28
 > （[Current status](../current_status.md)、[SongStore import](../song_import.md)）。
 
 ## 目的
@@ -24,21 +25,38 @@ GUIから元音源を選ぶだけで、正規化→全曲解析→検査→SongL
 **責務の分割（現状の所有を維持）**
 - Rust Core: 入力ファイルの受理・FFmpeg正規化（`audio_import.rs`）、Job状態、`song.import`の確定。
 - Python worker: 正規化済みWAVを入力に`analysis.song`を実行（`song.py` `SongAdapter`）。入力に「正規化済みWAV必須」(`input_required`)。
-- 合成Job: 新Job kind（案: `song.ingest`）をCoreが所有し、内部で`normalize`→`analysis.song`→`song.import`を順に実行する**オーケストレータ**。各段の子JobIDをartifactとして記録し、取消は全段へ伝播。**案であり未実装・名称は未決**。
+- 合成Job（`song.ingest`案）は**採用しない**（下記「連鎖方式の決定」）。
 
 **データ契約（案）**
-- 入力: `song_ingest { source_token, title?, artist?, reference_lyrics? }`。クライアントは任意パスではなく、Core管理の取込領域へアップロード済みのファイルを指す`source_token`（または利用者が選んだファイルをCoreが読む安全な方式。方式は未決）を渡す。
-- 出力: 段ごと`stage`(`normalizing|analyzing|importing`)、`progress`、`imported_song{song_id,reused}`、失敗時は段名つき`error_code`。
+- 入力: 合成Jobは作らないため`song_ingest`は存在しない。クライアントは任意パスではなく、36.3で決める安全な受け渡し方式で元音源を指す（方式は未決）。`title`は`analysis.song`のオプションで必須（空文字不可）のため、クライアントが段2の要求に必ず付ける（既定はファイル名由来。決め方は36.4）。
+- 出力: 段の進行は各Jobの`stage`/`progress`で読む。`imported_song{song_id,reused}`は段3のJobに付く。失敗は各Jobの`error`文字列（`<code>: <message>`形式）で、`error_code`の別フィールドは無い。クライアントは先頭の`code`で分類する（段1=`audio_*`、段2=解析サービスの`code`、段3=`song_import_*`）。
 - 正規化artifactは48kHz stereo f32 WAV（[Audio import](../audio_import.md#internal-format)）。`duration_samples`は正規化後のsample数から取り、SongBundleと一致を検査。
 
 **エラー**: FFmpeg無し/不正buildconf/破損入力/モデル未導入(`input_required`等)は段名つきの明示errorで`failed`。途中失敗・取消時は`song.import`を実行せず、SongLibraryに未完成曲を作らない（既存の確定境界を使う）。同一入力hashの再実行は既存の`reused`規則に従う。
 **スレッド**: 重いFFmpeg/解析はJob内。再生中は#43のポリシーで待機。GUIは既存のJob取得/キャンセル（200ms snapshot）を再利用。
 
+## 連鎖方式の決定（36.2）
+各段は既に独立Jobとして公開済みで、連鎖に必要な接続点が揃っている。新しい合成Jobを足すと、子Job追跡・取消伝播・再接続時の状態復元をCoreに二重実装することになるため採用しない。
+
+| 段 | Job | 次段へ渡すもの |
+|---|---|---|
+| 1 | `audio.import { source_path }` | 完了Jobの`artifacts`から名前`original_48k.wav`のもの（`imports/<id>/original_48k.wav`。添字固定にせず、`normalized.json`の`audio_artifact`でも同じ値を得られる）。値は相対のartifact参照文字列で、絶対パスは渡さない。`duration_samples`は`normalized.json`にあり、段2の解析結果との一致検査に使う |
+| 2 | `analysis.song { analysis.input_artifact: <1の参照> }` | 完了Job（結果artifactと取込用export） |
+| 3 | `song.import { song_import.analysis_job_id: <2のJob> }` | `imported_song{song_id,reused}` |
+
+- **取消**: クライアントが現在段のJobだけを取り消し、後続段を作らない。`song.import`は完了した解析Jobだけを受理するため、解析が完了していない段階での失敗・取消では曲は登録されない（確認済みの範囲）。連鎖状態（3つのJob IDと現在段）の保持・再接続後の復元・取消と次段作成が競合した場合の扱いは未決で、36.4で決める。
+- **段別エラー**: 失敗したJob自身の`error`文字列の先頭`code`が段名の代わりになる（1=`audio_*`、2=`input_required`等、3=`song_import_*`）。
+- **再接続**: 各Jobは既存のSSE/snapshotで復元できる。ただしJob履歴はCoreのメモリ上にあり、Core再起動後は旧Job IDが404になる。再起動を跨いだ連鎖の継続はできず、クライアントは段1からやり直す（公開済みの`imports/<id>`は残る）。クライアントが保持するのは3つのJob IDだけで、GUI側の連鎖状態機械は36.4で実装する。
+- **契約の確認済み範囲**: 手順1の`artifacts`が`artifact_ref::validate_ref`を通ること（`audio_job/tests.rs`）、`analysis.input_artifact`が受付時に検証され、Python側が同じartifact root配下を解決すること（`service.py`）。1→2→3の通しは実モデル・実FFmpegが必要なため36.5で確認する（Unverified）。
+- **重複登録（要注意）**: `song.import`の`reused`は「同じ解析Jobの再取込」だけを冪等にする。同じ元音源を再度連鎖すると解析Jobが別になるため、別の曲として登録される見込み（コード上の条件からの推測で未実測）。内容hashによる重複検出の有無も未確認で、未決事項に残し、36.4のGUIで警告するか別Issueにする。
+
+> 本節は決定の記録を兼ねる（この規模の決定は個別のADRにせず、設計書内に状態つきで残す。上書きする場合は本節を更新する）。
+
 ## 実装スライス
 | # | 内容 | 依存 | 完了条件・テスト |
 |---|---|---|---|
 | 36.1 | 正規化Job化: 元音源→正規化WAVのCore Job（artifact参照で出力） | #4 | `core/tests/job_api.rs`系: 形式matrix fixture、`duration_samples`一致、破損入力のerror、取消 |
-| 36.2 | 合成Job（正規化→`analysis.song`→`song.import`）の結線と取消伝播 | 36.1, 既存`song.import` | mock worker E2E契約: 失敗/取消で未登録、段別error、入力hash整合 |
+| 36.2 | **決定済み（本書）**: クライアント連鎖。Core側の追加実装なし | 36.1, 既存`song.import` | 契約は「連鎖方式の決定」。連鎖の組立てと失敗/取消で未登録のE2Eは36.4（`Client.Tests`のモックCore）へ移す |
 | 36.3 | 入力受け渡し方式の決定と実装（`source_token`等）、サイズ/拡張子制限 | #41 | 任意パス拒否のnegative test、上限超過拒否 |
 | 36.4 | GUI取込操作: ファイル選択→進捗→完了後に曲一覧へ反映、失敗表示 | 36.2, 36.3, #15 | `Client.Tests`のモックCore契約、`Gui.Smoke`で取込操作の描画 |
 | 36.5 | 実曲での通し確認（非公開音源。CIに載せない） | 36.4, モデル導入 | 手順と結果を`Unverified`/実測として別記録。合成成功を精度証明にしない |
@@ -53,7 +71,7 @@ GUIから元音源を選ぶだけで、正規化→全曲解析→検査→SongL
 - 「解析Job完了」「登録完了」「歌える」は別状態（[Current status](../current_status.md)）。実モデル未導入はmock成功で代替しない
 
 ## 未決事項
-- Job kind名と、単一合成Jobか既存Jobのクライアント連鎖か（取消・再接続の簡潔さで決定）
 - 元音源の受け渡し方式（アップロード/Coreが選択ファイルを読む）と一時領域の掃除
-- 同一入力hashの再取込で新しい解析Jobが作られる場合の再利用規則（現行`verify_reuse`は受領記録の解析Job IDに依存する疑い。36.2で既存の`reused`挙動を確認し、重複登録しない方式を決める）
+- 取消・失敗した連鎖が残す`imports/<id>`（正規化WAV）の掃除方針（現状は自動削除なし。ディスク枯渇を避けるため36.3で上限・掃除を決める）
+- 同じ元音源を再取込した場合の重複登録の扱い（`verify_reuse`は解析Job ID一致が条件のため、内容hashでは検出されない見込み・未実測。警告のみか、取込前の既存曲照合かを36.4で決める）
 - 参照歌詞入力の画面側仕様
