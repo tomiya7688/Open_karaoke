@@ -14,6 +14,7 @@ from urllib.parse import urljoin, urlsplit
 from .adapters import atomic_json, resolve_artifact
 from .artifact_io import hash_file
 from .contracts import ServiceError
+from .device import autocast_context, run_with_oom_fallback
 
 MODEL_ID = "jonatasgrosman/wav2vec2-large-xlsr-53-japanese"
 REVISION = "cf031e020336460d15a417eba710bbc5bb43be9a"
@@ -205,6 +206,8 @@ class JapaneseCtcBackend:
     def __init__(self):
         self.vocabulary: dict[str, int] = {}
         self.snapshot = None
+        self.device = "cpu"
+        self.half = False
 
     def identity(self) -> dict:
         packages = {}
@@ -268,8 +271,10 @@ class JapaneseCtcBackend:
             self.vocabulary = {
                 char.casefold(): index for char, index in vocab.items() if len(char) == 1
             }
-            self.model = model.eval().to(options["device"])
             self.device = options["device"]
+            self.half = self.device == "cuda"
+            # モデルは1回だけ対象デバイスへ転送する。fp16はautocastで適用し重みはfp32のまま保つ。
+            self.model = model.eval().to(self.device)
         except (ValueError, RuntimeError, OSError, KeyError) as error:
             raise ServiceError(
                 "model_load_failed", "Could not load the verified alignment model", 503
@@ -277,14 +282,68 @@ class JapaneseCtcBackend:
         context.checkpoint()
 
     def emissions(self, samples):
+        """
+        {
+          責務: [emissions: 16kHz monoの音声からCTCのlog確率を返し、OOM時はfp32→CPUへ落とす]
+          処理: [
+            1: 特徴量をCPUで作る,
+            2: 対象デバイスでfp16 autocast推論,
+            3: OOMならfp32→CPUの順に再試行,
+            4: log_softmaxをfloat32で計算してCPUのnumpyへ戻す
+          ]
+          引数: [samples: 16kHz monoのfloat32配列]
+          戻り値: [frames x vocab のlog確率numpy配列]
+          副作用: [OOM時はモデルを一度だけfp32/CPUへ移し、以降もその状態を保つ]
+          エラー: [OOM以外の例外はそのまま、全段階OOMなら最後のOOM例外]
+          補足: [CTC整列は全体文脈に依存するため、音声の分割による縮小はしない]
+        }
+        """
         import torch
 
         encoded = self.processor(samples, sampling_rate=16_000, return_tensors="pt")
-        with torch.inference_mode():
-            logits = self.model(
-                **{key: value.to(self.device) for key, value in encoded.items()}
-            ).logits
-        return logits[0].float().log_softmax(dim=-1).cpu().numpy()
+
+        def to_fp32() -> None:
+            """
+            {
+              責務: [to_fp32: OOM段階: fp16をやめfp32へ切り替える]
+              処理: [1: 半精度フラグを下げる(必要なら重みをfloat化)]
+              引数: [なし]
+              戻り値: [None]
+            }
+            """
+            self.half = False
+
+        def to_cpu() -> None:
+            """
+            {
+              責務: [to_cpu: OOM段階: モデルをCPU/fp32へ移す]
+              処理: [1: モデルをCPUへ転送し状態を更新する]
+              引数: [なし]
+              戻り値: [None]
+            }
+            """
+            self.model = self.model.to("cpu")
+            self.device, self.half = "cpu", False
+
+        stages = [("gpu_fp16", None)]
+        if self.device == "cuda":
+            stages += [("gpu_fp32", to_fp32), ("cpu_fp32", to_cpu)]
+
+        def run(_stage: str):
+            """
+            {
+              責務: [run: 段階ごとの1回分の推論を実行する]
+              処理: [1: 入力を対象デバイスへ置いて推論し結果を返す]
+              引数: [_stage: 段階名(未使用)]
+              戻り値: [推論結果]
+            }
+            """
+            inputs = {key: value.to(self.device) for key, value in encoded.items()}
+            with torch.inference_mode(), autocast_context(self.device, self.half):
+                logits = self.model(**inputs).logits
+            return logits[0].float().log_softmax(dim=-1).cpu().numpy()
+
+        return run_with_oom_fallback(stages, run)
 
     def close(self) -> None:
         if hasattr(self, "model"):

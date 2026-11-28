@@ -150,3 +150,7 @@ No threshold means `quality_gate_applied=false`. Exit: 0 success, 1 quality fail
 mean/p95/coverage thresholds remain open acceptance work; do not close #8 on smoke
 results alone. SongStore attachment, GUI interaction and CUDA validation are not
 established by this feature's synthetic fixtures.
+
+## Device
+
+`device` defaults to `auto` (CUDA when available, otherwise CPU); `cpu` and `cuda` are honored as given. On CUDA inference uses fp16 and falls back on OOM. Details: [GPU-first inference](design/gpu-first-inference.md).

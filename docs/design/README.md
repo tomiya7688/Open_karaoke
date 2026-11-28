@@ -40,6 +40,7 @@
 | #108 品質/再解析 | 108.1実装（版付きquality_report型・合成flag→レポートの純関数）。service接続・Repair・Core/GUI未 | [#108設計](issue-108-quality-report.md)、[quality and ux design](../quality_and_ux_design.md) | #36 #42 | 108.2（service/song接続と`quality_report.json`公開） |
 | #109 実効モデル固定 | 設計書統合済み・実装は後続 | [quality and ux design](../quality_and_ux_design.md) | #17 #36 #41 | 同上 |
 | #110 初回UX | 設計書統合済み・実装は後続 | [quality and ux design](../quality_and_ux_design.md) | #12 #13 #16 #17 #39 #40 #41 #43 | 同上 |
+| GPU優先推論 | 実装済み（torchモックのみ・実機GPU未確認） | [GPU優先推論](gpu-first-inference.md) | #6 #7 #8 | 実機GPUでの精度・VRAM測定 |
 | #58 PR整理 / #66 Python CA / #67 署名 | 運用・セキュリティ | [Development](../development.md#python-trust-tooling-66) | - | 設計書不要（コード設計を伴わない） |
 
 ## 依存順（歌えるE2Eまでの推奨）

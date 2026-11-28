@@ -6,7 +6,7 @@ import tempfile
 from pathlib import Path
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from .adapters import AnalysisContext, resolve_artifact, validate_adapter_options
 from .alignment_backend import REVISION, JapaneseCtcBackend
@@ -21,6 +21,7 @@ from .alignment_text import (
 )
 from .contracts import ModelInfo, Role, ServiceError
 from .ctc_alignment import align_tokens, frame_samples
+from .device import resolve_device
 
 
 class AlignmentOptions(BaseModel):
@@ -28,11 +29,24 @@ class AlignmentOptions(BaseModel):
     lyrics_artifact: str = Field(min_length=1, max_length=1024)
     reference_lyrics_artifact: str | None = Field(default=None, min_length=1, max_length=1024)
     language: Literal["ja"] = "ja"
-    device: Literal["cpu", "cuda"] = "cpu"
+    device: Literal["auto", "cpu", "cuda"] = Field(default="auto", validate_default=True)
     allow_model_download: bool = True
     unit_kind: Literal["character", "whitespace_word"] = "character"
     min_token_score: float = Field(default=0.05, ge=0, le=1)
     analysis_version: int = Field(default=1, ge=1, le=4_294_967_295)
+
+    @field_validator("device")
+    @classmethod
+    def resolve_auto_device(cls, value: str) -> str:
+        """
+        {
+          責務: [resolve_auto_device: autoを実デバイス(cuda利用可ならcuda、不可ならcpu)へ解決する]
+          処理: [1: resolve_deviceを呼ぶ]
+          引数: [cls: モデル型, value: 検証済みのdevice指定]
+          戻り値: [cpu または cuda。明示指定はそのまま]
+        }
+        """
+        return resolve_device(value)
 
 
 def aggregate_units(text: str, characters: list[dict], kind: str, segment_id: str) -> list[dict]:

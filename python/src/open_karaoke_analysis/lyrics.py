@@ -10,10 +10,11 @@ from decimal import ROUND_HALF_UP, Decimal
 from pathlib import Path
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from .adapters import AnalysisContext, resolve_artifact, validate_adapter_options
 from .contracts import ModelInfo, Role, ServiceError
+from .device import resolve_device
 from .whisper_backend import WHISPER_VERSION, WhisperBackend
 
 RATE = 48_000
@@ -26,11 +27,24 @@ PIPELINE_VERSION = 1
 class LyricOptions(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
     language: str | None = Field(default="ja", pattern=r"^[a-z]{2,3}$")
-    device: Literal["cpu", "cuda"] = "cpu"
+    device: Literal["auto", "cpu", "cuda"] = Field(default="auto", validate_default=True)
     beam_size: int = Field(default=5, ge=1, le=5)
     analysis_version: int = Field(default=1, ge=1, le=4_294_967_295)
     allow_model_download: bool = True
     reference_lyrics_artifact: str | None = Field(default=None, min_length=1, max_length=1024)
+
+    @field_validator("device")
+    @classmethod
+    def resolve_auto_device(cls, value: str) -> str:
+        """
+        {
+          責務: [resolve_auto_device: autoを実デバイス(cuda利用可ならcuda、不可ならcpu)へ解決する]
+          処理: [1: resolve_deviceを呼ぶ]
+          引数: [cls: モデル型, value: 検証済みのdevice指定]
+          戻り値: [cpu または cuda。明示指定はそのまま]
+        }
+        """
+        return resolve_device(value)
 
 
 def sample_index(seconds: Any) -> int:

@@ -12,6 +12,7 @@ from pathlib import Path
 from .adapters import AnalysisContext, resolve_artifact
 from .artifact_io import hash_file
 from .contracts import ServiceError
+from .device import run_with_oom_fallback
 
 WHISPER_VERSION = "20250625"
 # Digests from openai/whisper's publisher model registry, not arbitrary user URLs.
@@ -85,6 +86,8 @@ class WhisperBackend:
             raise ValueError("Unsupported pinned Whisper model")
         self.name = name
         self.model = None
+        self.device = "cpu"
+        self.half = False
 
     def identity(self) -> dict:
         versions = {}
@@ -135,7 +138,10 @@ class WhisperBackend:
             model = Whisper(ModelDimensions(**checkpoint["dims"]))
             model.load_state_dict(checkpoint["model_state_dict"], strict=True)
             del checkpoint
-            self.model = model.to(options["device"]).eval()
+            self.device = options["device"]
+            # cudaでは重みを半精度で1回だけ転送する(fp16推論)。CPUはfp32のまま。
+            self.model = (model.half() if self.device == "cuda" else model).to(self.device).eval()
+            self.half = self.device == "cuda"
         except (RuntimeError, KeyError, TypeError, ValueError) as error:
             raise ServiceError(
                 "model_load", "Verified Whisper checkpoint could not be loaded", 503
@@ -143,25 +149,97 @@ class WhisperBackend:
         context.checkpoint()
 
     def transcribe(self, audio, options: dict) -> dict:
+        """
+        {
+          責務: [
+            transcribe: 16kHz monoの音声を文字起こしし、OOM時はbeam縮小・fp32・CPUへ落とす
+          ]
+          処理: [
+            1: モデル準備を確認,
+            2: 現在のデバイス/精度で推論,
+            3: cudaでOOMならbeam=1→fp32→CPUの順に再試行,
+            4: 失敗をServiceErrorへ変換
+          ]
+          引数: [audio: 16kHz monoのfloat32配列, options: 検証済みのdevice/language/beam_size]
+          戻り値: [Whisperのtranscribe結果dict]
+          副作用: [OOM時はモデルを一度だけfp32/CPUへ移し、以降もその状態を保つ]
+          エラー: [ServiceError: model_not_ready, inference_failed]
+        }
+        """
         if self.model is None:
             raise ServiceError("model_not_ready", "Whisper is not ready", 503)
-        try:
+        import torch
+
+        beam = {"value": options["beam_size"]}
+
+        def shrink_beam() -> None:
+            """
+            {
+              責務: [shrink_beam: OOM段階: beamを1へ縮小する]
+              処理: [1: beamを1にする]
+              引数: [なし]
+              戻り値: [None]
+            }
+            """
+            beam["value"] = 1
+
+        def to_fp32() -> None:
+            """
+            {
+              責務: [to_fp32: OOM段階: fp16をやめfp32へ切り替える]
+              処理: [1: 半精度フラグを下げる(必要なら重みをfloat化)]
+              引数: [なし]
+              戻り値: [None]
+            }
+            """
+            self.model = self.model.float()
+            self.half = False
+
+        def to_cpu() -> None:
+            """
+            {
+              責務: [to_cpu: OOM段階: モデルをCPU/fp32へ移す]
+              処理: [1: モデルをCPUへ転送し状態を更新する]
+              引数: [なし]
+              戻り値: [None]
+            }
+            """
+            self.model = self.model.float().to("cpu")
+            self.device, self.half = "cpu", False
+
+        stages = [("gpu_fp16", None)]
+        if self.device == "cuda":
+            stages += [("beam1", shrink_beam), ("gpu_fp32", to_fp32), ("cpu_fp32", to_cpu)]
+
+        def run(_stage: str) -> dict:
+            """
+            {
+              責務: [run: 段階ごとの1回分の推論を実行する]
+              処理: [1: 入力を対象デバイスへ置いて推論し結果を返す]
+              引数: [_stage: 段階名(未使用)]
+              戻り値: [推論結果]
+            }
+            """
             # Array input is already mono/16 kHz: no FFmpeg subprocess or network audio I/O.
             # Keep low-confidence raw hypotheses; the adapter flags them separately.
-            return self.model.transcribe(
-                audio,
-                language=options["language"],
-                task="transcribe",
-                temperature=0.0,
-                beam_size=options["beam_size"],
-                condition_on_previous_text=False,
-                word_timestamps=False,
-                fp16=options["device"] == "cuda",
-                verbose=None,
-                no_speech_threshold=None,
-                logprob_threshold=None,
-                compression_ratio_threshold=None,
-            )
+            with torch.inference_mode():
+                return self.model.transcribe(
+                    audio,
+                    language=options["language"],
+                    task="transcribe",
+                    temperature=0.0,
+                    beam_size=beam["value"],
+                    condition_on_previous_text=False,
+                    word_timestamps=False,
+                    fp16=self.half,
+                    verbose=None,
+                    no_speech_threshold=None,
+                    logprob_threshold=None,
+                    compression_ratio_threshold=None,
+                )
+
+        try:
+            return run_with_oom_fallback(stages, run)
         except (RuntimeError, ValueError) as error:
             raise ServiceError("inference_failed", "Whisper transcription failed", 500) from error
 

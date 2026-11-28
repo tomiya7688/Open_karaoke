@@ -11,6 +11,7 @@ from pathlib import Path
 from .adapters import AnalysisContext, resolve_artifact
 from .artifact_io import hash_file
 from .contracts import ServiceError
+from .device import autocast_context, run_with_oom_fallback
 
 MODEL_ID = "umxhq-vocals"
 WEIGHT_VERSION = "1.0.1"
@@ -19,6 +20,9 @@ WEIGHT_SHA256 = "b62c91cedbc7a066f1778ead5b5cecb377aa3a46a31af1cce7c5c8769339d08
 WEIGHT_BYTES = 35_637_796
 WEIGHT_URL = f"https://zenodo.org/api/records/3370489/files/{WEIGHT_FILE}/content"
 MODEL_RATE = 44_100
+# OOM時の二分割: 各半分に足す前後文脈(約1秒)と、分割を許す半分の最小長(約2秒)。
+SPLIT_CONTEXT = MODEL_RATE
+SPLIT_MIN_HALF = 2 * MODEL_RATE
 
 
 def spectral_state_dict(state: dict) -> dict:
@@ -134,6 +138,7 @@ class UmxHqBackend:
         state = torch.load(path, map_location="cpu", weights_only=True)
         targets = umxhq_spec(targets=["vocals"], pretrained=False, device="cpu")
         targets["vocals"].load_state_dict(spectral_state_dict(state), strict=True)
+        # CPUで検証済み重みを組み立ててから1回だけ対象デバイスへ転送する(二重転送しない)。
         self.model = Separator(
             targets,
             residual=True,
@@ -145,10 +150,106 @@ class UmxHqBackend:
         ).to(device)
         self.model.freeze()
         self.device = device
+        self.half = device == "cuda"
+        self.split = False
         context.checkpoint()
 
     def vocals(self, samples):
-        """Input/output: float32 frames x stereo channels at 44.1 kHz."""
+        """
+        {
+          責務: [
+            vocals: 44.1kHzステレオの1チャンクからボーカルを推定し、OOM時は縮小→fp32→CPUへ落とす
+          ]
+          処理: [
+            1: 現在のデバイス/精度で推論,
+            2: cudaでOOMならチャンクを前後文脈つきで二分割,
+            3: それでもOOMならfp32,
+            4: 最後にCPU
+          ]
+          引数: [samples: float32 frames x stereo channels, 44.1kHz]
+          戻り値: [入力と同じ長さのボーカルfloat32配列(frames x 2)]
+          副作用: [OOM時はモデルを一度だけ分割/fp32/CPUへ切り替え、以降もその状態を保つ]
+          エラー: [OOM以外の例外はそのまま、全段階OOMなら最後のOOM例外]
+        }
+        """
+
+        def shrink() -> None:
+            """
+            {
+              責務: [shrink: OOM段階: チャンクの二分割推論を有効にする]
+              処理: [1: splitを有効にする]
+              引数: [なし]
+              戻り値: [None]
+            }
+            """
+            self.split = True
+
+        def to_fp32() -> None:
+            """
+            {
+              責務: [to_fp32: OOM段階: fp16をやめfp32へ切り替える]
+              処理: [1: 半精度フラグを下げる(必要なら重みをfloat化)]
+              引数: [なし]
+              戻り値: [None]
+            }
+            """
+            self.half = False
+
+        def to_cpu() -> None:
+            """
+            {
+              責務: [to_cpu: OOM段階: モデルをCPU/fp32へ移す]
+              処理: [1: モデルをCPUへ転送し状態を更新する]
+              引数: [なし]
+              戻り値: [None]
+            }
+            """
+            self.model = self.model.to("cpu")
+            self.device, self.half, self.split = "cpu", False, False
+
+        stages = [("gpu_fp16", None)]
+        if self.device == "cuda":
+            stages += [("split", shrink), ("gpu_fp32", to_fp32), ("cpu_fp32", to_cpu)]
+        return run_with_oom_fallback(stages, lambda _stage: self._separate(samples))
+
+    def _separate(self, samples):
+        """
+        {
+          責務: [_separate: 分割モードなら前後文脈つきで二分割して推論し、結合する]
+          処理: [
+            1: 分割モードかつ十分長ければ中点で二分,
+            2: 各半分に文脈を足して推論,
+            3: 文脈分を捨てて連結,
+            4: それ以外は一括推論
+          ]
+          引数: [samples: float32 frames x stereo channels]
+          戻り値: [入力と同じ長さのボーカル配列]
+        }
+        """
+        import numpy as np
+
+        length = len(samples)
+        if self.split and length >= 2 * (SPLIT_CONTEXT + SPLIT_MIN_HALF):
+            mid = length // 2
+            left = self._infer(samples[: mid + SPLIT_CONTEXT])[:mid]
+            right = self._infer(samples[mid - SPLIT_CONTEXT :])[SPLIT_CONTEXT:]
+            return np.concatenate([left, right], axis=0)
+        return self._infer(samples)
+
+    def _infer(self, samples):
+        """
+        {
+          責務: [_infer: 1ブロックをモデルへ通す。fp16はautocastで、推論はinference_mode]
+          処理: [
+            1: 短い入力を4096までpad,
+            2: 対象デバイスへ転送,
+            3: autocast+inference_modeで推論,
+            4: CPUのnumpyへ戻して元の長さに切る
+          ]
+          引数: [samples: float32 frames x stereo channels]
+          戻り値: [入力と同じ長さのボーカル配列(float32)]
+        }
+        """
         import numpy as np
         import torch
 
@@ -157,9 +258,9 @@ class UmxHqBackend:
         if length < 4096:
             samples = np.pad(samples, ((0, 4096 - length), (0, 0)))
         tensor = torch.from_numpy(np.ascontiguousarray(samples.T)).unsqueeze(0).to(self.device)
-        with torch.inference_mode():
-            result = self.model(tensor)[0, 0, :, :length].cpu().numpy().T.copy()
-        return result
+        with torch.inference_mode(), autocast_context(self.device, self.half):
+            result = self.model(tensor)[0, 0, :, :length]
+        return result.float().cpu().numpy().T.copy()
 
     def close(self) -> None:
         if hasattr(self, "model"):
