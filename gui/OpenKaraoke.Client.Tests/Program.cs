@@ -70,6 +70,10 @@ internal static class Program
             ("cancel only the current import stage", IngestTests.CancelStopsOnlyTheCurrentStage),
             ("reject invalid import input and contract violations", IngestTests.InvalidInputAndContract),
             ("send import job bodies and read the imported song", IngestTests.RequestBodies),
+            ("validate import input and default the title", () => { ImportViewModelTests.Validation(); return Task.CompletedTask; }),
+            ("show import success and failure and announce the song", ImportViewModelTests.SuccessAndFailure),
+            ("cancel an import and drop a late result after disconnect", ImportViewModelTests.CancelAndDetach),
+            ("wire the import to connect, disconnect and the song list", ImportViewModelTests.ShellWiring),
         };
         if (args.Length == 2) tests.Add(("live C# to Rust to Python lifecycle", () => NativeTests.RunAsync(args[0], args[1])));
         var passed = 0;

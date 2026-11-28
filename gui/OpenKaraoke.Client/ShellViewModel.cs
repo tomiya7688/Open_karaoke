@@ -48,6 +48,7 @@ public sealed class ShellViewModel : INotifyPropertyChanged, IAsyncDisposable
         Playback = new PlaybackFollower(Karaoke);
         Preview = new PreviewController(Playback, Karaoke, Editor);
         Editor.Saved += OnEditSaved;
+        Import.Imported += id => _ = OnSongImportedAsync(id);
         _launch = launch ?? (async (executable, data, python, token) =>
             await CoreConnection.StartAsync(executable, data, python, token));
     }
@@ -84,6 +85,15 @@ public sealed class ShellViewModel : INotifyPropertyChanged, IAsyncDisposable
     public MixerViewModel Mixer { get; } = new();
     // Coreの歌唱セッションへの追従と再生操作(#16 16.2)。接続・切断に合わせて開始と破棄だけをここから指示する。
     public PlaybackFollower Playback { get; }
+
+    /// <summary>元音源から曲を取り込む操作(連鎖の実行・進捗・取消)。</summary>
+    /// {
+    ///   責務: [Import: 元音源から曲を取り込む操作の状態を持つ]
+    ///   処理: [new()で取込の状態を作る]
+    ///   引数: [[]]
+    ///   戻り値: [[取込の状態]]
+    /// }
+    public SongImportViewModel Import { get; } = new();
     /// {
     ///   責務: [Editor: 歌詞・ノートの手編集(#38 38.4)。保存はCoreのPATCH /songs/{id}]
     ///   処理: [1: 曲の読込・切断に合わせて読込と破棄だけをここから指示する]
@@ -187,6 +197,7 @@ public sealed class ShellViewModel : INotifyPropertyChanged, IAsyncDisposable
             _ = MonitorConnectionAsync(epoch, _connection, token);
             _ = Mixer.AttachAsync(_connection.Api, token);
             Playback.Attach(_connection.Api, _connection.InstanceId, token);
+            Import.Attach(_connection.Api, token);
         }
         catch (OperationCanceledException) when (token.IsCancellationRequested) { }
         catch (Exception error)
@@ -487,6 +498,22 @@ public sealed class ShellViewModel : INotifyPropertyChanged, IAsyncDisposable
     }
 
     /// {
+    ///   責務: [OnSongImportedAsync: 取込完了後に曲一覧を読み直し、登録された曲を選択状態にする]
+    ///   処理: [1: 曲一覧を再取得する, 2: 曲IDが一覧にあれば選択する(歌詞の読込は利用者の操作に任せる)]
+    ///   引数: [songId: 登録された曲ID]
+    ///   戻り値: [完了]
+    /// }
+    private async Task OnSongImportedAsync(Guid songId)
+    {
+        await RefreshSongsAsync();
+        if (_songs.FirstOrDefault(s => s.SongId == songId) is { } song)
+        {
+            SelectedSong = song;
+            Changed();
+        }
+    }
+
+    /// {
     ///   責務: [LoadSelectedSongAsync: 選択中の曲の歌詞・目標ノートを読み、表示する]
     ///   処理: [
     ///     1: Coreから曲データを取得する,
@@ -628,6 +655,7 @@ public sealed class ShellViewModel : INotifyPropertyChanged, IAsyncDisposable
         Editor.Clear();
         Mixer.Detach();
         Playback.Detach();
+        Import.Detach();
         Changed();
         try
         {
