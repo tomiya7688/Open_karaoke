@@ -9,10 +9,11 @@ import tempfile
 from pathlib import Path
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from .adapters import AnalysisContext, atomic_json, resolve_artifact, validate_adapter_options
 from .contracts import ModelInfo, Role, ServiceError
+from .device import resolve_device
 from .stem_backend import MODEL_ID, WEIGHT_VERSION, UmxHqBackend, file_sha256
 
 PIPELINE_VERSION = 1
@@ -21,10 +22,23 @@ STEM_FILES = ("vocals.wav", "accompaniment.wav")
 
 class StemOptions(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
-    device: Literal["cpu", "cuda"] = "cpu"
+    device: Literal["auto", "cpu", "cuda"] = Field(default="auto", validate_default=True)
     chunk_seconds: int = Field(default=12, ge=2, le=30)
     overlap_seconds: int = Field(default=2, ge=1, le=5)
     niter: int = Field(default=1, ge=0, le=2)
+
+    @field_validator("device")
+    @classmethod
+    def resolve_auto_device(cls, value: str) -> str:
+        """
+        {
+          責務: [resolve_auto_device: autoを実デバイス(cuda利用可ならcuda、不可ならcpu)へ解決する]
+          処理: [1: resolve_deviceを呼ぶ]
+          引数: [cls: モデル型, value: 検証済みのdevice指定]
+          戻り値: [cpu または cuda。明示指定はそのまま]
+        }
+        """
+        return resolve_device(value)
 
     @model_validator(mode="after")
     def overlap_fits(self):

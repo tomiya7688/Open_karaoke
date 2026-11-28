@@ -22,6 +22,10 @@ in float32 output and set `exceeds_unity`. The playback mixer must provide headr
 Mixture reconstruction is a structural invariant, **not** a separation-quality score.
 Outputs are not yet attached automatically to SongStore or a library GUI.
 
+## Device
+
+`device` is `auto` (default: CUDA when available, otherwise CPU), `cpu` or `cuda`. On CUDA the model runs under fp16 autocast and falls back on OOM (chunk split, fp32, CPU). Details: [GPU-first inference](design/gpu-first-inference.md).
+
 ## Developer invocation
 
 Install matching PyTorch/torchaudio builds for the target device, then:

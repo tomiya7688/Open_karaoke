@@ -103,7 +103,7 @@ def test_invalid_sample_conversion(value):
     "options",
     [
         {"beam_size": 0},
-        {"device": "auto"},
+        {"device": "gpu"},
         {"language": "Japanese"},
         {"task": "translate"},
         {"analysis_version": True},

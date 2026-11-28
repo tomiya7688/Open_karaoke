@@ -132,3 +132,7 @@ under MIT; retain [the notice](licenses/whisper-MIT.txt). This does not grant ri
 Full SHA-256 values are enforced in `whisper_backend.WEIGHTS` and copied into every inference
 result. Review the final packaged dependency inventory and notices separately; this is not a
 blanket license certification of all optional runtimes or users' music.
+
+## Device
+
+`device` defaults to `auto` (CUDA when available, otherwise CPU); `cpu` and `cuda` are honored as given. On CUDA inference uses fp16 and falls back on OOM. Details: [GPU-first inference](design/gpu-first-inference.md).
