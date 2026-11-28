@@ -123,7 +123,8 @@ public sealed class SongImportViewModel : INotifyPropertyChanged
     {
         if (!CanCancel) return;
         _status = "取消中…";
-        _run!.Cancel();
+        // 終了と同時に呼ばれても、破棄済みのtoken元で例外にしない。
+        try { _run!.Cancel(); } catch (ObjectDisposedException) { }
         Changed();
     }
 
@@ -175,6 +176,12 @@ public sealed class SongImportViewModel : INotifyPropertyChanged
         {
             if (generation != _generation) return;
             status = $"失敗しました: {Plain(error is CoreApiException api2 ? "HTTP " + (int)api2.StatusCode : error.Message)}";
+        }
+        catch (Exception error)
+        {
+            // 想定外の例外でも実行中のまま残さず、画面へ理由を出す(async voidの呼び出し元を落とさない)。
+            if (generation != _generation) return;
+            status = $"失敗しました: {Plain(error.Message)}";
         }
         Settle(status, imported is not null);
         if (imported is { } id) Imported?.Invoke(id);

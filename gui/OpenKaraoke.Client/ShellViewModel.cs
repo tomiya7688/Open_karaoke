@@ -505,10 +505,19 @@ public sealed class ShellViewModel : INotifyPropertyChanged, IAsyncDisposable
     /// }
     private async Task OnSongImportedAsync(Guid songId)
     {
-        await RefreshSongsAsync();
-        if (_songs.FirstOrDefault(s => s.SongId == songId) is { } song)
+        try
         {
-            SelectedSong = song;
+            await RefreshSongsAsync();
+            if (_songs.FirstOrDefault(s => s.SongId == songId) is { } song)
+            {
+                SelectedSong = song;
+                Changed();
+            }
+        }
+        catch (Exception error)
+        {
+            // 取込は成功しているので、一覧の更新失敗だけを示す(呼び出し元は待たない)。
+            _error = $"曲は登録されましたが、一覧を更新できません: {error.Message}";
             Changed();
         }
     }
