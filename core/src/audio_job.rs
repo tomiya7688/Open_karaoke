@@ -163,7 +163,9 @@ impl AudioImportConfig {
             }
             match fs::remove_dir_all(entry.path()) {
                 Ok(()) => removed += 1,
-                Err(error) => eprintln!("warning: audio import sweep cannot remove {name}: {error}"),
+                Err(error) => {
+                    eprintln!("warning: audio import sweep cannot remove {name}: {error}");
+                }
             }
         }
         removed
