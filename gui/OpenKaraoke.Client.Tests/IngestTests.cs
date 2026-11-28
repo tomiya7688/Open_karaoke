@@ -87,6 +87,7 @@ internal static class IngestTests
         await Throws<ArgumentException>(() => flow.RunAsync(new SongIngestRequest("relative.mp3", "t")));
         await Throws<ArgumentException>(() => flow.RunAsync(new SongIngestRequest(Source, " ")));
         await Throws<InvalidDataException>(() => new SongIngestFlow(new IngestApi { NoWav = true }).RunAsync(new SongIngestRequest(Source, "t")));
+        await Throws<InvalidDataException>(() => new SongIngestFlow(new IngestApi { NoTerminal = true }).RunAsync(new SongIngestRequest(Source, "t")));
     }
 
     /// {
@@ -133,6 +134,7 @@ internal static class IngestTests
         public string? FailKind { get; init; }
         public string? HoldKind { get; init; }
         public bool NoWav { get; init; }
+        public bool NoTerminal { get; init; }
         public TaskCompletionSource Entered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
         public Task<JobSnapshot> CreateJobAsync(CreateJobRequest job, CancellationToken cancellationToken = default)
@@ -155,6 +157,7 @@ internal static class IngestTests
                 Entered.TrySetResult();
                 await Task.Delay(Timeout.Infinite, cancellationToken);
             }
+            if (NoTerminal) yield break;
             yield return Snapshot(kind, id, kind == FailKind ? "failed" : "completed", 1);
         }
 

@@ -94,6 +94,8 @@ public sealed class SongIngestFlow(ICoreApi api)
             catch (CoreApiException) { }
             return (null, new SongIngestOutcome("cancelled", stage, null, null));
         }
+        // 監視が終端を返さずに終わった場合は成否を決められないので、契約違反として扱う。
+        if (!last.IsTerminal) throw new InvalidDataException("Job watch ended before a terminal state.");
         return last.Status switch
         {
             "completed" => (last, null),
