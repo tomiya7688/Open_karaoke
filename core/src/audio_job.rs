@@ -129,7 +129,7 @@ impl AudioImportConfig {
             let Ok(metadata) = fs::symlink_metadata(entry.path()) else {
                 continue;
             };
-            if !metadata.is_dir() {
+            if metadata.file_type().is_symlink() || !metadata.is_dir() {
                 continue;
             }
             let stale = metadata
